@@ -11,6 +11,8 @@ Environment:
                    (default off)
   FORCE_THUMBNAIL  "true" to upload a fresh thumbnail this run (e.g. after a
                    design change); normally every 3 h and on phase changes
+  PINNED_LINK      "false" to leave the live-page address out of the pinned
+                   status comment (if YouTube holds comments with links)
   First run only (later runs read these from the log's genesis line):
   LAUNCH_TIME      epoch seconds for generation 0 (default: now)
   SEED             starting pattern (default acorn)
@@ -26,6 +28,7 @@ import time
 
 import engine
 import life
+import render
 import youtube
 from store import Store
 from universe import DIED, Universe, flatline_gens
@@ -62,7 +65,12 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world, genesis = create_world(now, key)
         store.create(world, genesis)
         print(f"created a new universe in {state_dir}: {genesis['seed']}, launch {genesis['launch_time']:.0f}")
-    events = engine.tick(world, now, yt_factory(world), thumb_path, force_thumbnail)
+    if world.recent is None:  # first run with the pinned comment: backfill from the log
+        from store import LOG, read_log
+        lines = [render.event_line(e) for e in read_log(store.path(LOG))]
+        world.recent = [ln for ln in reversed(lines) if ln][: engine.RECENT_MAX]
+    events = engine.tick(world, now, yt_factory(world), thumb_path, force_thumbnail,
+                         pinned_link=env_flag("PINNED_LINK", "true"))
     store.save(world, events)
     return events
 

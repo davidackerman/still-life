@@ -138,3 +138,33 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
     if size >= 2 * 1024 * 1024:
         raise RuntimeError(f"thumbnail {path} is {size} bytes; must be under 2 MB")
     return size
+
+
+# ---------------------------------------------------------------- pinned comment
+PINNED_MARKER = "Latest changes to the universe"  # how the bot recognises the owner's comment
+LIVE_ADDRESS = "davidackerman.github.io/still-life"
+PHASE_WORDS = {
+    "cycle_detected": "got stuck in a loop: the 24-hour countdown started",
+    "new_cycle": "fell into a new loop: the countdown restarted",
+    "reentered_cycle": "fell back into its loop: the countdown kept running",
+    "injection": "a comment broke the loop",
+    "survived_deadline": "saved: still changing when the countdown ran out",
+    "deadline": "died",
+}
+
+
+def event_line(ev: dict) -> str | None:
+    """One line of the pinned comment for a logged event (game data only)."""
+    if ev["type"] == "injection":
+        return f"gen {ev['gen']:,}: {ev['command']}" + ("" if ev["changed"] else " (changed nothing)")
+    if ev["type"] == "phase":
+        return f"gen {ev['gen']:,}: {PHASE_WORDS.get(ev['reason'], ev['to'].lower())}"
+    return None
+
+
+def pinned_text(recent: list[str], link: bool = True) -> str:
+    lines = [f"{PINNED_MARKER} (this comment updates itself):"]
+    lines += [f"• {r}" for r in recent] or ["• nothing yet. Be the first: comment something like glider 60,30"]
+    lines.append(f"Watch it live and see exactly what each comment did: {LIVE_ADDRESS}" if link
+                 else "Watch it live: the address is at the end of the video.")
+    return "\n".join(lines)

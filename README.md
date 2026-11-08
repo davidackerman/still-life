@@ -184,6 +184,24 @@ delay or drop scheduled runs during heavy load. GitHub disables scheduled
 workflows in repositories with no activity for 60 days; the bot's own commits
 probably count as activity, but GitHub's documentation doesn't say.
 
+### 6. Pinned status comment (optional)
+
+Post a comment on the video that contains **Latest changes to the universe**,
+then pin it (⋮ → Pin). Within about 5 minutes the bot finds it (your own
+comment, with that phrase), leaves it out of the game, and from then on
+rewrites it with the latest events, newest first:
+
+```
+Latest changes to the universe (this comment updates itself):
+• gen 220: glider 16,61 sw
+• gen 166: glider 64,71 nw
+Watch it live and see exactly what each comment did: davidackerman.github.io/still-life
+```
+
+It updates only when something new happened, at most every 30 minutes (50
+quota units each). If YouTube holds the comment because of the link, run
+`gh variable set PINNED_LINK --body false` to leave the address out.
+
 ## Data policy
 
 YouTube's developer policies allow storing other users' API data for at most

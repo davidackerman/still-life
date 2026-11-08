@@ -26,6 +26,8 @@ import render
 from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 TITLE_MIN_INTERVAL_S = 15 * 60
+PINNED_MIN_INTERVAL_S = 30 * 60
+RECENT_MAX = 8
 FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
 THUMB_INTERVAL_S = 3 * 3600
 BACKOFF_BASE_S = 15 * 60
@@ -47,6 +49,10 @@ class World:
     last_thumb_phase: str | None = None
     highlight: set = field(default_factory=set)  # cells injected since the last thumbnail
     forecast: dict | None = None  # display only: {"key", "stuck_gen", "horizon"}
+    recent: list | None = None  # latest event lines for the pinned comment (game data only)
+    pinned_id: str | None = None  # the owner's own pinned status comment
+    pinned_text: str | None = None
+    pinned_at: float | None = None
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
@@ -60,7 +66,8 @@ class World:
             "display": {"last_title": self.last_title, "last_title_at": self.last_title_at,
                         "last_thumb_at": self.last_thumb_at, "last_thumb_phase": self.last_thumb_phase,
                         "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff,
-                        "forecast": self.forecast},
+                        "forecast": self.forecast, "recent": self.recent, "pinned_id": self.pinned_id,
+                        "pinned_text": self.pinned_text, "pinned_at": self.pinned_at},
             "last_changer": self.last_changer,
             "quota": self.quota,
         }, history)
@@ -77,7 +84,8 @@ class World:
             last_thumb_at=disp["last_thumb_at"], last_thumb_phase=disp["last_thumb_phase"],
             highlight={tuple(c) for c in disp["highlight"]}, backoff=dict(disp["backoff"]),
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
-            forecast=disp.get("forecast"),
+            forecast=disp.get("forecast"), recent=disp.get("recent"), pinned_id=disp.get("pinned_id"),
+            pinned_text=disp.get("pinned_text"), pinned_at=disp.get("pinned_at"),
         )
 
 
@@ -119,7 +127,8 @@ def _display(world: World, op: str, now: float, call, events: list[dict]) -> boo
     return True
 
 
-def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thumbnail: bool = False) -> list[dict]:
+def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thumbnail: bool = False,
+         pinned_link: bool = True) -> list[dict]:
     """Advance the world to wall-clock `now`. Returns the run's log events.
 
     Order: fetch + admit comments -> apply up to MAX_PER_RUN injections at the
@@ -139,8 +148,15 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     except Exception as e:  # noqa: BLE001
         comments = []
         events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
+    # The owner's status comment is not a move in the game: note its ID, skip it.
+    marker = render.PINNED_MARKER.lower()
+    status = [c for c in comments if c.by_owner and marker in c.text.lower()]
+    if status:
+        world.pinned_id = max(status, key=lambda c: (c.epoch, c.id)).id
+    comments = [c for c in comments if not (c.by_owner and marker in c.text.lower())]
     counts = admission.admit(world.admission, comments, now, world.key, dead=(u.phase == DIED),
                              shape=u.grid.shape)
+    sim_from = len(events)
 
     # 2. simulation (authoritative)
     if u.phase == DIED:
@@ -159,6 +175,13 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             events += inj_events
             world.highlight.update(tuple(c) for q in batch for c in q["cells"])
         events += u.advance_to(target_generation(now, world.launch_time, world.gen_seconds))
+
+    if world.recent is None:
+        world.recent = []
+    for ev in events[sim_from:]:
+        line = render.event_line(ev)
+        if line:
+            world.recent = ([line] + world.recent)[:RECENT_MAX]
 
     # 3. display (best effort)
     f = refresh_forecast(world)
@@ -181,6 +204,13 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             world.last_thumb_at, world.last_thumb_phase = now, u.phase
             world.highlight = set()
             events.append({"type": "display", "what": "thumbnail", "gen": u.generation, "phase": u.phase})
+
+    text = render.pinned_text(world.recent, pinned_link)
+    pinned_due = world.pinned_at is None or now - world.pinned_at >= PINNED_MIN_INTERVAL_S
+    if world.pinned_id and hasattr(yt, "update_comment") and text != world.pinned_text and pinned_due:
+        if _display(world, "update_pinned", now, lambda: yt.update_comment(world.pinned_id, text), events):
+            world.pinned_text, world.pinned_at = text, now
+            events.append({"type": "display", "what": "pinned_comment"})
 
     if events or u.generation != gen_start or counts["new"]:
         events.append({"type": "tick", "now": run_at, "gen_start": gen_start, "gen_end": u.generation,

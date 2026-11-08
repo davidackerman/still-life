@@ -117,7 +117,8 @@ def http_error_reason(err) -> tuple[int, str, str]:
 # --------------------------------------------------------------------------- quota
 DAILY_BUDGET = 8000  # self-imposed; Google's default pool is 10,000/day
 PACIFIC = ZoneInfo("America/Los_Angeles")
-COST = {"commentThreads.list": 1, "videos.list": 1, "videos.update": 50, "thumbnails.set": 50}
+COST = {"commentThreads.list": 1, "videos.list": 1, "videos.update": 50, "thumbnails.set": 50,
+        "comments.update": 50}
 
 
 class QuotaExceeded(RuntimeError):
@@ -169,9 +170,11 @@ def comment_from_thread(item: dict):
 
     top = item["snippet"]["topLevelComment"]
     sn = top["snippet"]
-    author = (sn.get("authorChannelId") or {}).get("value") or "name:" + sn.get("authorDisplayName", "")
+    channel = (sn.get("authorChannelId") or {}).get("value")
+    author = channel or "name:" + sn.get("authorDisplayName", "")
+    owner = bool(channel) and channel == item["snippet"].get("channelId")  # the video's own channel
     return Comment(id=top["id"], author=author, published_at=sn["publishedAt"],
-                   text=sn.get("textDisplay", ""))
+                   text=sn.get("textDisplay", ""), by_owner=owner)
 
 
 class YouTube:
@@ -213,6 +216,12 @@ class YouTube:
             if desc is not None:
                 body["description"] = desc
         self.service.videos().update(part="snippet", body={"id": self.video_id, "snippet": body}).execute()
+
+    def update_comment(self, comment_id: str, text: str) -> None:
+        """Rewrite one of the channel owner's own comments (the pinned status comment)."""
+        self.quota.spend(COST["comments.update"])
+        self.service.comments().update(
+            part="snippet", body={"id": comment_id, "snippet": {"textOriginal": text}}).execute()
 
     def set_thumbnail(self, path: str | None) -> None:
         from googleapiclient.http import MediaFileUpload

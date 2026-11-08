@@ -174,3 +174,59 @@ def test_force_thumbnail_uploads_even_when_not_due():
     assert yt.thumbs == 1
     engine.tick(w, LAUNCH + 600, yt, force_thumbnail=True)
     assert yt.thumbs == 2
+
+
+class PinYT(FakeYT):
+    def __init__(self, comments=()):
+        super().__init__(comments)
+        self.updates = []
+
+    def update_comment(self, cid, text):
+        self.updates.append((cid, text))
+
+
+def owner_status(cid="Ugpin"):
+    return Comment(cid, "UCowner", "2027-01-15T08:00:00Z", "Latest changes to the universe will appear here",
+                   by_owner=True)
+
+
+def test_owner_status_comment_is_found_and_not_played():
+    w, yt = world(), PinYT([owner_status(), comment("a", "u1", "glider 10,10")])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    assert w.pinned_id == "Ugpin"
+    assert [e["command"] for e in ev if e["type"] == "injection"] == ["glider 10,10 se"]  # the status comment adds nothing
+    cid, text = yt.updates[-1]
+    assert cid == "Ugpin" and text.startswith("Latest changes to the universe (this comment updates itself):")
+    assert "• gen 0: glider 10,10 se" in text and "davidackerman.github.io/still-life" in text
+
+
+def test_owner_comments_without_the_marker_still_play():
+    w, yt = world(), PinYT([Comment("o1", "UCowner", "2027-01-15T08:00:00Z", "block 5,5", by_owner=True)])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    assert [e["command"] for e in ev if e["type"] == "injection"] == ["block 5,5"] and w.pinned_id is None
+
+
+def test_pinned_comment_updates_only_when_changed_and_at_most_every_30_minutes():
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    assert len(yt.updates) == 1 and "nothing yet" in yt.updates[0][1]
+    engine.tick(w, LAUNCH + 300, yt)
+    assert len(yt.updates) == 1  # nothing new
+    yt.comments.append(comment("b", "u2", "rpent 90,20"))
+    engine.tick(w, LAUNCH + 600, yt)
+    assert len(yt.updates) == 1  # new event, but too soon
+    engine.tick(w, LAUNCH + 1800, yt)
+    assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]
+
+
+def test_pinned_comment_lists_phase_changes_newest_first():
+    w, yt = world(), PinYT([owner_status()])
+    for t in range(0, 70 * 3600, 1800):  # past the acorn's loop at gen 1855 (61.8 h)
+        engine.tick(w, LAUNCH + t, yt)
+    assert w.recent[0] == "gen 1,855: got stuck in a loop: the 24-hour countdown started"
+
+
+def test_pinned_link_can_be_turned_off():
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt, pinned_link=False)
+    assert "davidackerman.github.io" not in yt.updates[-1][1]

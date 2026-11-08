@@ -39,6 +39,7 @@ class Comment:
     author: str  # authorChannelId.value, or "name:" + display name when absent
     published_at: str  # ISO 8601 as returned by the API, e.g. 2026-11-08T00:20:13Z
     text: str  # textDisplay with textFormat=plainText
+    by_owner: bool = False  # posted by the channel that owns the video
 
     @property
     def epoch(self) -> float:

@@ -161,3 +161,14 @@ def test_genesis_fixes_the_config(tmp_path, env, monkeypatch):
     monkeypatch.setenv("GEN_SECONDS", "30")  # ignored after creation
     tick.run(d, LAUNCH + 1200, lambda w: FakeYT(), KEY, thumb_path=None)
     assert json.load(open(os.path.join(d, "state.json")))["universe"]["generation"] == 10
+
+
+def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
+    d = str(tmp_path / "state")
+    live(d, FakeYT(), 3600, comments_at=[(600, "block 5,5")])
+    p = os.path.join(d, "state.json")
+    st = json.load(open(p))
+    st["display"].pop("recent", None)  # as written by the bot before this feature
+    json.dump(st, open(p, "w"))
+    tick.run(d, LAUNCH + 3600, lambda w: FakeYT(), KEY, thumb_path=None)
+    assert json.load(open(p))["display"]["recent"] == ["gen 2: block 5,5"]  # lands where the previous run stopped

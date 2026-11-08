@@ -44,6 +44,7 @@ jobs:
           VIDEO_ID: ${{ secrets.VIDEO_ID }}
           STATE_KEY: ${{ secrets.STATE_KEY }}
           FORCE_THUMBNAIL: ${{ inputs.force_thumbnail || 'false' }}
+          PINNED_LINK: ${{ vars.PINNED_LINK || 'true' }}
           # Never uploads or changes privacy while "true". The owner changes this by hand.
           DRY_RUN: "true"
 

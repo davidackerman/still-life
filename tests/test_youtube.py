@@ -139,3 +139,22 @@ def test_braille_grid_fits_the_description_limit():
     text = render.braille(full)
     assert len(text.splitlines()) == 18 and all(len(r) == 64 for r in text.splitlines())
     assert youtube.with_grid("", text) is not None
+
+
+def test_owner_comments_are_flagged():
+    owner = thread("a", T0, author="UCme")
+    owner["snippet"]["channelId"] = "UCme"
+    other = thread("b", T0, author="UCyou")
+    other["snippet"]["channelId"] = "UCme"
+    assert youtube.comment_from_thread(owner).by_owner
+    assert not youtube.comment_from_thread(other).by_owner
+
+
+def test_update_comment_rewrites_text_and_counts_quota():
+    svc = FakeService([])
+    svc.comments = lambda: svc
+    y = yt(svc)
+    y.update_comment("Ugpin", "Latest changes to the universe ...")
+    kind, body = svc.calls[-1]
+    assert kind == "update" and body == {"id": "Ugpin", "snippet": {"textOriginal": "Latest changes to the universe ..."}}
+    assert y.quota.used == 50
