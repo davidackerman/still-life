@@ -24,6 +24,12 @@ main.wide { max-width: 68rem; }
 .narrow { max-width: 42rem; margin: 0 auto; }
 .live { margin: 1.5rem 0 2.5rem; }
 .live canvas { display: block; width: 100%; height: auto; border-radius: 8px; background: #0a0c10; }
+.boardwrap { position: relative; }
+.tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 8px; }
+.tag { position: absolute; transform: translate(-50%, .35rem); white-space: nowrap; background: #ffffff; color: #0a0c10;
+       font: 600 .78rem/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; padding: .15rem .45rem; border-radius: 6px;
+       box-shadow: 0 1px 4px rgba(0,0,0,.5); }
+.tag.above { transform: translate(-50%, calc(-100% - .35rem)); }
 .statusbar { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: .5rem; }
 .phase { font-weight: 700; font-size: 1.6rem; letter-spacing: .02em; }
 .gen { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -51,3 +57,6 @@ main.wide { max-width: 68rem; }
 .events { margin: .6rem 0 0; padding-left: 1.2rem; max-height: 14rem; overflow-y: auto; font-size: .92rem; }
 .events li { margin: .2rem 0; }
 .events a { color: var(--accent); text-decoration: none; font-variant-numeric: tabular-nums; }
+.toplinks { margin: -.6rem 0 1rem; font-size: .92rem; color: var(--muted); }
+.toplinks a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.toplinks a:hover { text-decoration: underline; }

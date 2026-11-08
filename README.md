@@ -1,28 +1,23 @@
 # still-life
 
-**This video dies when its universe gets stuck in a loop.**
+### A YouTube video that dies when its universe gets stuck in a loop.
 
-A YouTube video hosts a live Conway's Game of Life universe: 128×72 cells on a
-torus, one generation every two minutes. The thumbnail shows the grid and the
-title counts down to its death: "This Game of Life video dies in 3d 13h 45m if
-nobody comments", and so does the thumbnail ("DIES IN 9 DAYS"). Every comment injects cells. A finite universe left
-alone must eventually return to a state it has been in before, and from then
-on it is stuck in a loop forever. When that happens, a 24-hour flatline
-countdown starts. If no comment breaks the cycle in time, the universe dies. An obituary
-video is uploaded and this one goes private.
+**[▶ The video](https://www.youtube.com/watch?v=oFWeLMe4bhI)** · **[Watch it live](https://davidackerman.github.io/still-life/)** · [The Short](https://youtube.com/shorts/m-JcepjW41U) · [How it lives and dies](#how-the-universe-lives-and-dies)
 
-*Every comment changes this universe. Some save it. Some kill it.*
+<p align="center"><img src="docs/acorn.gif" width="640" alt="An acorn, seven living cells, exploding into a whole universe of Conway's Game of Life"></p>
 
-**The video:** <https://www.youtube.com/watch?v=oFWeLMe4bhI>. Comment there to change the universe.
+**Every comment changes this universe. Some save it. Some kill it.**
 
-**Watch it live:** <https://davidackerman.github.io/still-life/>. The page
-computes the same universe in your browser from the bot's latest state,
-forecasts when it will get stuck if nobody comments, and has a slider to rewind
-through its whole life (link to a moment with `?gen=1234`).
+- 🧬 **A real Game of Life**, running around the clock: 128×72 cells on a torus, one generation every 2 minutes, from a 7-cell acorn.
+- 💬 **Every comment adds cells.** `glider 40,20 ne`, `acorn 64,30`, or just say anything. Replies count, and so do comments on the Short.
+- ⏳ **The video updates itself.** Its title counts down to its own death ("dies in 8d 21h 30m if nobody comments") and its thumbnail is the universe.
+- 🔁 **Left alone, it always gets stuck.** A finite universe must eventually repeat a state, and then it loops forever. That starts a 24-hour countdown.
+- ⚫ **If nobody breaks the loop, it dies.** An obituary video replays its life, the video goes private, and a bigger universe is born on the obituary.
+- 🔍 **Nothing to trust.** Every run is in a hash-chained public log; anyone can replay the whole life from the seed and check it.
 
-> Status: under construction. Steps 1–3 of 4 are done: credentials and smoke test;
-> simulation and local simulator; the scheduled bot (titles, thumbnails, comments,
-> log and replay). Step 4, the death sequence and obituary, is next.
+No server: a Python bot on GitHub Actions wakes every 5 minutes, steps the universe, reads comments and rewrites the video. The [live page](https://davidackerman.github.io/still-life/) computes the same universe in your browser, forecasts when it gets stuck, and rewinds through its whole life (`?gen=1234` links to a moment).
+
+**Status:** live since November 8, 2026. The death sequence is built and rehearsed, and runs in dry-run mode for now.
 
 ## Rules for viewers
 

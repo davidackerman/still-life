@@ -11,13 +11,17 @@
 <main class="wide">
 <h1>still-life</h1>
 <p class="lede">This video dies when its universe gets stuck in a loop.</p>
+<p class="toplinks"><a href="https://www.youtube.com/watch?v=oFWeLMe4bhI">The video on YouTube ↗</a> · <a href="https://github.com/davidackerman/still-life">How it works, open source on GitHub ↗</a></p>
 
 <section class="live" aria-label="The universe, live">
   <div class="statusbar">
     <span id="phase" class="phase">loading…</span>
     <span id="gen" class="gen"></span>
   </div>
-  <canvas id="board" width="1280" height="720" aria-label="The current grid"></canvas>
+  <div class="boardwrap">
+    <canvas id="board" width="1280" height="720" aria-label="The current grid"></canvas>
+    <div id="tags" class="tags" aria-live="polite"></div>
+  </div>
   <div class="scrub">
     <button id="play" class="iconbtn" aria-label="Play the whole life">▶</button>
     <div class="track">
@@ -50,7 +54,7 @@
 <tr><td><code>cells x,y x,y …</code></td><td>up to 25 single cells</td></tr>
 <tr><td>anything else</td><td>a 5×5 random patch derived from a hash of your comment</td></tr>
 </table>
-<p><code>x</code> is 0–127 and <code>y</code> is 0–71, from the top-left. Each channel gets one injection per hour. New comments are picked up within about five minutes; cells from recent comments are drawn in white.</p>
+<p><code>x</code> is 0–127 and <code>y</code> is 0–71, from the top-left. Each channel gets one injection per hour. New comments are picked up within about five minutes; for two hours after a comment lands, its cells are circled on the board with its command beside them.</p>
 
 <h2>Verifiable</h2>
 <p>Every run is recorded in a hash-chained public log, and anyone can replay the whole life from the seed to check it. The source, the full rules and the log are on <a href="https://github.com/davidackerman/still-life">GitHub</a>.</p>
@@ -72,6 +76,7 @@ const BASE = new URLSearchParams(location.search).get("base")
 const COLOR = { ALIVE: "#78e6a0", FLATLINING: "#f05a5a", CONTESTED: "#fac850", DIED: "#7a7a87" };
 let CELL = 10;  // px per cell; smaller on bigger boards (set from the state's shape)
 const POLL_MS = 60000, FORECAST_GENS = 30000, RECENT = 15;
+const TAG_GENS = 60, TAG_MAX = 6;  // comments stay circled for 2 hours (60 generations); at most 6 at once
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("board"), ctx = canvas.getContext("2d");
@@ -152,6 +157,55 @@ function recentCells(gen) {
   return cells;
 }
 
+// Comments that landed in the last TAG_GENS generations before `gen`, newest first.
+function commentsNear(gen) {
+  const out = [];
+  if (!TL) return out;
+  for (let g = gen; g >= Math.max(0, gen - TAG_GENS) && out.length < TAG_MAX; g--)
+    for (const e of TL.injections.get(g) || []) out.push({ gen: g, cells: e.cells, command: e.command, changed: e.changed });
+  return out.slice(0, TAG_MAX);
+}
+
+// A pattern can straddle the wrapping edge (glider 64,71 nw also has cells at the
+// top): ring its biggest connected-across-the-edge part.
+function mainPiece(cells) {
+  const [x0, y0] = cells[0], { w, h } = S, parts = new Map();
+  for (const [x, y] of cells) {
+    const ux = x0 + ((x - x0 + w / 2 + w) % w) - w / 2, uy = y0 + ((y - y0 + h / 2 + h) % h) - h / 2;
+    const k = `${Math.floor(ux / w)},${Math.floor(uy / h)}`;
+    if (!parts.has(k)) parts.set(k, []);
+    parts.get(k).push([x, y]);
+  }
+  return [...parts.values()].sort((a, b) => b.length - a.length)[0];
+}
+
+function drawTags(gen) {
+  const box = $("tags");
+  box.textContent = "";
+  for (const c of commentsNear(gen)) {
+    const piece = mainPiece(c.cells);
+    const px = piece.map(([x, y]) => [(x + 0.5) * CELL, (y + 0.5) * CELL]);
+    const cx = px.reduce((s, p) => s + p[0], 0) / px.length, cy = px.reduce((s, p) => s + p[1], 0) / px.length;
+    const r = Math.max(3 * CELL, Math.max(...px.map(([x, y]) => Math.hypot(x - cx, y - cy))) + 2 * CELL);
+    const fade = 1 - 0.75 * (gen - c.gen) / TAG_GENS;
+    ctx.save();
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, CELL * 0.35);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
+    ctx.restore();
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.style.opacity = fade.toFixed(2);
+    tag.textContent = c.changed ? c.command : `${c.command} (changed nothing)`;
+    const below = cy < canvas.height * 0.6;  // label on the roomier side of the ring
+    tag.style.left = `${(100 * Math.min(Math.max(cx, canvas.width * 0.12), canvas.width * 0.88)) / canvas.width}%`;
+    tag.style.top = `${(100 * (below ? cy + r : cy - r)) / canvas.height}%`;
+    tag.classList.add(below ? "below" : "above");
+    tag.title = `a comment at gen ${c.gen.toLocaleString()}`;
+    box.appendChild(tag);
+  }
+}
+
 function draw(gen) {
   const { h, w } = S, g = gridAt(gen), st = statusAt(gen), lit = recentCells(gen);
   ctx.fillStyle = "#16191f"; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -163,6 +217,7 @@ function draw(gen) {
     ctx.fillStyle = lit.has(i) ? "#ffffff" : COLOR[st.phase];
     ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
   }
+  drawTags(gen);
   const ph = $("phase");
   ph.textContent = st.phase; ph.style.color = `var(--${st.phase})`;
   let right = st.phase === "DIED" ? `died at gen ${(st.died ?? gen).toLocaleString()}` : `Gen ${gen.toLocaleString()}`;
