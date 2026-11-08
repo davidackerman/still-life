@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the explainer video that hosts the universe (about 70 s, 1080p, silent).
+"""Render the explainer video that hosts the universe (about a minute, 1080p, silent).
 
     python explainer.py [--out out/explainer.mp4] [--preview out/explainer_frames]
 
@@ -40,7 +40,9 @@ def font(weight: str, size: int):
 
 # ---------------------------------------------------------------- frame model
 class Frame:
-    def __init__(self, u: Universe, highlight=None, texts=(), grey=0.0, hud=True, extras=()):
+    def __init__(self, u: Universe, highlight=None, texts=(), grey=0.0, hud=True, extras=(), zoom=1.0, dim=0.7):
+        self.zoom = zoom  # >1 magnifies the centre of the grid
+        self.dim = dim  # how much the board darkens behind text (0..1)
         self.grid = u.grid.copy()
         self.phase, self.gen = u.phase, u.generation
         self.left = u.gens_left()
@@ -102,16 +104,22 @@ def hud(draw: ImageDraw.ImageDraw, f: Frame) -> None:
 
 
 def compose(f: Frame) -> bytes:
-    base = Image.fromarray(board_image(f)).convert("RGBA")
+    base = Image.fromarray(board_image(f))
+    if f.zoom > 1:
+        w, h = WIDTH / f.zoom, HEIGHT / f.zoom
+        box = ((WIDTH - w) / 2, (HEIGHT - h) / 2, (WIDTH + w) / 2, (HEIGHT + h) / 2)
+        base = base.resize((WIDTH, HEIGHT), Image.NEAREST, box=box)
+    base = base.convert("RGBA")
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     if f.texts:
         a = max(t[5] for t in f.texts)
-        d.rectangle([0, 0, WIDTH, HEIGHT - (120 if f.hud else 0)], fill=(5, 6, 9, int(150 * a)))
+        d.rectangle([0, 0, WIDTH, HEIGHT - (120 if f.hud else 0)], fill=(5, 6, 9, int(255 * f.dim * a)))
     if f.hud:
         hud(d, f)
     for text, weight, size, xy, anchor, alpha in f.texts:
-        d.text(xy, text, font=font(weight, size), fill=(255, 255, 255, int(255 * alpha)), anchor=anchor)
+        d.text(xy, text, font=font(weight, size), fill=(255, 255, 255, int(255 * alpha)), anchor=anchor,
+               stroke_width=max(3, size // 16), stroke_fill=(0, 0, 0, int(255 * alpha)))
     for extra in f.extras:
         extra(d)
     return Image.alpha_composite(base, layer).convert("RGB").tobytes()
@@ -164,24 +172,45 @@ def build() -> list[Frame]:
     frames: list[Frame] = []
     u = Universe(life.mask(life.centered("acorn")), flatline_gens())
 
-    # 1. the hook (4 s), still acorn
+    # 1. the hook (4 s)
     n = 4 * FPS
     for i in range(n):
         frames.append(Frame(u, texts=centre_block(
             [("This video dies", "bold", 110), ("when its universe repeats itself.", "bold", 110)],
-            fade(i, n), y0=HEIGHT // 2 - 110), hud=False))
+            fade(i, n), y0=HEIGHT // 2 - 110), hud=False, dim=0.85))
 
-    # 2. what it is (8 s), one generation per frame
-    n = 8 * FPS
+    # 2. it starts with an acorn: zoom in on the 7 cells (4 s)
+    ZOOM = 5.0
+    n = 4 * FPS
     for i in range(n):
-        u.advance_to(u.generation + 1)
-        frames.append(Frame(u, texts=centre_block(
-            [("A Game of Life universe lives here.", "bold", 76),
-             ("128 × 72 cells · edges wrap around", "medium", 46),
-             ("one generation every 2 minutes, around the clock", "medium", 46)], fade(i, n))))
+        z = 1 + (ZOOM - 1) * min(1.0, i / 40) ** 0.5
+        frames.append(Frame(u, zoom=z, hud=False, dim=0.25, texts=[
+            ("It all starts with an acorn:", "bold", 72, (WIDTH // 2, 150), "mm", fade(i, n)),
+            ("seven living cells.", "bold", 72, (WIDTH // 2, 950), "mm", fade(i, n))]))
 
-    # 3. thumbnail + title (8 s)
-    n = 8 * FPS
+    # 3. the rule, watched up close: one generation every half second (6 s)
+    n = 6 * FPS
+    for i in range(n):
+        if i and i % 15 == 0:
+            u.advance_to(u.generation + 1)
+        a = fade(i, n)
+        frames.append(Frame(u, zoom=ZOOM, hud=False, dim=0.25, texts=[
+            ("Each generation, every cell counts its 8 neighbours.", "bold", 60, (WIDTH // 2, 130), "mm", a),
+            ("Born with exactly 3.  Survives with 2 or 3.  Otherwise it dies.", "demi", 52,
+             (WIDTH // 2, 960), "mm", a)]))
+
+    # 4. pull back as it grows into the whole grid (5 s)
+    n = 5 * FPS
+    for i in range(n):
+        u.advance_to(u.generation + 1 + i // 50)
+        z = 1 + (ZOOM - 1) * (1 - min(1.0, i / 75)) ** 2
+        frames.append(Frame(u, zoom=z, dim=0.45, texts=centre_block(
+            [("From seven cells, a whole world.", "bold", 72),
+             ("128 × 72 cells, edges wrap around,", "medium", 46),
+             ("one generation every 2 minutes, around the clock.", "medium", 46)], fade(i, n), y0=430)))
+
+    # 5. thumbnail + title (6 s)
+    n = 6 * FPS
     for i in range(n):
         u.advance_to(u.generation + 1)
         a = fade(i, n)
@@ -189,9 +218,9 @@ def build() -> list[Frame]:
             [("The thumbnail is its window.", "bold", 76), ("The title is its pulse.", "bold", 76)], a,
             y0=360), extras=[title_bar(f"This video dies when its universe repeats · Gen {u.generation:,} · ALIVE", a)]))
 
-    # 4. comments inject cells (12 s)
-    n = 12 * FPS
-    plan = {20: ("glider 14,40 se", "demo-1"), 110: ("rpent 96,50", "demo-2"), 200: ("hello universe!", babble_id())}
+    # 6. comments inject cells (10 s)
+    n = 10 * FPS
+    plan = {15: ("glider 14,40 se", "demo-1"), 95: ("rpent 96,50", "demo-2"), 175: ("hello universe!", babble_id())}
     lit, labels = None, []
     for i in range(n):
         if i in plan:
@@ -211,25 +240,25 @@ def build() -> list[Frame]:
             ("anything else becomes a random 5×5 patch made from your comment", "medium", 40,
              (WIDTH // 2, 245), "mm", a)]))
 
-    # 5. it repeats -> FLATLINING (6 s fast-forward + 4 s countdown)
+    # 7. it repeats -> FLATLINING (5 s fast-forward + 3 s countdown)
     probe = copy.deepcopy(u)
     while probe.phase == ALIVE:
         probe.advance_to(probe.generation + 1)
     start, target = u.generation, probe.generation
-    n = 6 * FPS
+    n = 5 * FPS
     for i in range(n):
         u.advance_to(start + round((target - start) * ((i + 1) / n) ** 1.6))
         frames.append(Frame(u, texts=centre_block(
             [("Left alone, every universe", "bold", 76), ("eventually repeats itself.", "bold", 76)],
             fade(i, n, 15), y0=420)))
-    n = 4 * FPS
+    n = 3 * FPS
     for i in range(n):
         u.advance_to(u.generation + 2)
         frames.append(Frame(u, texts=centre_block(
             [("Then a 24-hour countdown starts.", "bold", 76)], fade(i, n), y0=470)))
     flatlined = copy.deepcopy(u)
 
-    # 6. a comment breaks the loop -> CONTESTED -> survives (search for a saving glider)
+    # 8. a comment breaks the loop -> CONTESTED -> survives (search for a saving glider)
     deadline = u.deadline_gen
     saver = None
     for y in range(4, 68, 8):
@@ -241,7 +270,7 @@ def build() -> list[Frame]:
                     continue
                 ev = trial.advance_to(deadline)
                 # ...and stays ALIVE through the "Saved." beat and the end card (12 s, 1 gen/frame)
-                ev += trial.advance_to(deadline + 12 * FPS + 30)
+                ev += trial.advance_to(deadline + 10 * FPS + 30)
                 if [e["reason"] for e in ev if e["type"] == "phase"] == ["survived_deadline"]:
                     saver = f"glider {x},{y} {d}"
                     break
@@ -263,7 +292,7 @@ def build() -> list[Frame]:
         u.advance_to(u.generation + 1)
         frames.append(Frame(u, highlight=lit, extras=[label(cmd.cells, saver, min(1.0, (i + 1) / 8))]))
     start = u.generation
-    n = 5 * FPS
+    n = 4 * FPS
     for i in range(n):
         u.advance_to(start + round((deadline - start) * (i + 1) / n))
         a = fade(i, n) if i < n - 30 else 0.0
@@ -275,10 +304,10 @@ def build() -> list[Frame]:
         u.advance_to(u.generation + 1)
         frames.append(Frame(u, texts=centre_block([("Saved.", "bold", 110)], fade(i, n), y0=470)))
 
-    # 7. what if nobody had commented: it dies (6 s)
+    # 9. what if nobody had commented: it dies (5 s)
     dead = flatlined
     dead.advance_to(deadline)
-    n = 6 * FPS
+    n = 5 * FPS
     for i in range(n):
         g = min(1.0, i / 45)
         frames.append(Frame(dead, grey=g, texts=centre_block(
@@ -286,8 +315,8 @@ def build() -> list[Frame]:
              ("An obituary video is uploaded,", "medium", 52), ("and this video goes private.", "medium", 52)],
             fade(i, n), y0=400)))
 
-    # 8. end card (10 s) over the live, saved universe
-    n = 10 * FPS
+    # 10. end card (8 s) over the live, saved universe
+    n = 8 * FPS
     for i in range(n):
         u.advance_to(u.generation + 1)
         a = min(1.0, (i + 1) / 15)
@@ -297,7 +326,8 @@ def build() -> list[Frame]:
             ("Comment below.", "demi", 56, (WIDTH // 2, 560), "mm", a),
             ("x is 0–127 and y is 0–71, from the top-left · one per channel per hour", "medium", 38,
              (WIDTH // 2, 650), "mm", a),
-            (f"Watch it live: {LIVE_URL}", "demi", 46, (WIDTH // 2, 790), "mm", a)]))
+            ("Watch it live, generation by generation:", "medium", 40, (WIDTH // 2, 760), "mm", a),
+            (LIVE_URL, "demi", 50, (WIDTH // 2, 820), "mm", a)]))
     return frames
 
 
