@@ -385,7 +385,7 @@ def build(state_dir: str) -> list:
     pick = render.suggestion(u)
     spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
     top = [("Comment anything to add cells.", "bold", 84)]
-    bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the linked video", "demi", 50)]
+    bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the main video on this channel", "demi", 50)]
     n = max(rf(*[s for s, _, _ in top + bottom]), 5 * FPS)
     for i in range(n):
         if i % 6 == 0:
