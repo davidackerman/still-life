@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a vertical Short (1080x1920, about half a minute) from the live universe.
+"""Render a vertical Short (1080x1920, about 40 s) from the live universe.
 
     python short.py                                   # out/short.mp4 from state/
     python short.py --preview out/short_frames        # also save a PNG every second
@@ -9,8 +9,10 @@ it landed, the board as it stands now, and its future if nobody comments (the
 same forecast the title uses). Re-render whenever there is news, e.g. when the
 universe gets stuck and the 24-hour countdown starts.
 
-The board is shown rotated 90 degrees so that its 128 x 72 cells fill a phone
-screen at 15 px each; a small caption says so.
+The whole board sits the right way up in a band across the middle (as in the
+main video's thumbnail), with text above and below, so a comment's x,y and
+direction match what appears on screen. For each comment the view zooms in on
+where it landed.
 
 Upload it by hand in YouTube Studio and set its "Related video" to the main
 video. Then add its ID to the EXTRA_VIDEO_IDS secret so its comments play too.
@@ -26,18 +28,24 @@ import subprocess
 import numpy as np
 from PIL import Image, ImageDraw
 
+import commands
 import explainer as ex
 import life
 import render
 from render import BG, GRID, HIGHLIGHT, PHASE_COLOR
 from store import read_log
-from universe import ALIVE, DIED, FLATLINING, Universe
+from universe import DIED, Universe
 
 PW, PH = 1080, 1920
-CELL = PH // life.W  # 15: the rotated board (72 wide, 128 tall) fills the screen exactly
+CELL = 15  # board image: 128 x 72 cells -> 1920 x 1080
+BW, BH = life.W * CELL, life.H * CELL
+BAND_W, BAND_H = PW, round(PW * BH / BW)  # the whole board across the screen: 1080 x 608
+BAND_Y = 600  # top of the board on screen
+TOP_Y = 365  # centre of the text area above the board
+BOTTOM_Y = 1330  # centre of the text area below it, clear of the Shorts title and buttons
+CX = 520  # text centre, nudged left of the Shorts buttons
+TEXT_W = 900
 FPS = ex.FPS
-CX = 500  # text centre: the Shorts buttons cover the right edge
-TEXT_W = 880  # widest text line
 FORECAST_GENS = 30000
 # Shorts viewers read fast: 17 characters/s (the top of the subtitle guidelines
 # explainer.py cites), less time to look, shorter fades.
@@ -52,23 +60,52 @@ def fade(i: int, n: int) -> float:
     return ex.fade(i, n, FADE)
 
 
+def ease(p: float) -> float:
+    p = min(1.0, max(0.0, p))
+    return p * p * (3 - 2 * p)
+
+
 # ---------------------------------------------------------------- geometry
-def to_screen(x: float, y: float) -> tuple[float, float]:
-    """Grid (x, y) -> screen pixels of the cell centre, for the clockwise rotation below."""
-    return (life.H - 1 - y + 0.5) * CELL, (x + 0.5) * CELL
+def cell_px(x: float, y: float) -> tuple[float, float]:
+    """Grid cell centre in board-image pixels."""
+    return (x + 0.5) * CELL, (y + 0.5) * CELL
 
 
+def main_piece(cells) -> list[tuple[int, int]]:
+    """A pattern can straddle the torus edge (glider 64,71 nw wraps to the top
+    rows). Return its largest connected-across-the-edge part, to ring and zoom on."""
+    x0, y0 = cells[0]
+    parts: dict[tuple[int, int], list] = {}
+    for x, y in cells:
+        ux = x0 + (x - x0 + life.W // 2) % life.W - life.W // 2
+        uy = y0 + (y - y0 + life.H // 2) % life.H - life.H // 2
+        parts.setdefault((ux // life.W, uy // life.H), []).append((x, y))
+    return max(parts.values(), key=len)
+
+
+def centre(cells) -> tuple[float, float]:
+    pts = np.array([cell_px(x, y) for x, y in cells])
+    return tuple(pts.mean(axis=0))
+
+
+def view(f) -> tuple[float, float, float, float]:
+    """The part of the board image on screen: (x0, y0, w, h)."""
+    w, h = BW / f.zoom, BH / f.zoom
+    fx, fy = f.focus
+    return min(max(fx - w / 2, 0), BW - w), min(max(fy - h / 2, 0), BH - h), w, h
+
+
+# ---------------------------------------------------------------- drawing
 _tile = None
 
 
 def board(f) -> Image.Image:
     global _tile
-    g = np.rot90(f.grid, -1)  # clockwise: grid x runs down the screen
     if _tile is None:
         inner = np.zeros((CELL, CELL), bool)
         inner[1:-1, 1:-1] = True
-        _tile = np.tile(inner, g.shape)
-    big = g.repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
+        _tile = np.tile(inner, (life.H, life.W))
+    big = f.grid.repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
     colour = np.array(PHASE_COLOR[f.phase], float)
     if f.grey:
         colour = colour * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
@@ -77,7 +114,7 @@ def board(f) -> Image.Image:
     img[_tile] = BG
     img[big] = colour.astype(np.uint8)
     if f.highlight is not None:
-        lit = np.rot90(f.grid & f.highlight, -1).repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
+        lit = (f.grid & f.highlight).repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
         img[lit] = HIGHLIGHT
     return Image.fromarray(img)
 
@@ -95,67 +132,72 @@ def wrap(s: str, weight: str, size: int, width: int = TEXT_W) -> list[str]:
     return out + [line] if line else out
 
 
-def block(lines, y0: int, alpha: float):
-    """[(text, weight, size)] -> explainer-style text tuples, wrapped and centred on CX."""
-    out, y = [], y0
-    for s, weight, size in lines:
-        for ln in wrap(s, weight, size):
-            out.append((ln, weight, size, (CX, y), "mm", alpha))
-            y += int(size * 1.3)
-        y += int(size * 0.25)
+def block(lines, yc: int, alpha: float):
+    """[(text, weight, size)] -> explainer-style text tuples, wrapped, centred on (CX, yc)."""
+    rows = [(ln, weight, size) for s, weight, size in lines for ln in wrap(s, weight, size)]
+    steps = [int(size * 1.25) for _, _, size in rows]
+    y = yc - (sum(steps) - steps[-1]) / 2 if rows else yc
+    out = []
+    for (ln, weight, size), step in zip(rows, steps):
+        out.append((ln, weight, size, (CX, round(y)), "mm", alpha))
+        y += step
     return out
 
 
-def tag(cells, caption: str, alpha: float, y: int = 560):
-    """A ring around freshly injected cells, and a caption at a fixed spot joined to it."""
-    x0, y0 = cells[0]  # a pattern can straddle the torus edge: unwrap it around its first cell
-    unwrapped = [(x0 + (x - x0 + life.W // 2) % life.W - life.W // 2,
-                  y0 + (y - y0 + life.H // 2) % life.H - life.H // 2) for x, y in cells]
-    pts = np.array([to_screen(x, y) for x, y in unwrapped])
-    cx, cy = pts.mean(axis=0)
-    r = np.hypot(*(pts - (cx, cy)).T).max() + 34
-
-    def draw(d):
+def ring(cells, alpha: float, caption: str | None = None, dashed: bool = False):
+    """A ring around cells on the board, optionally joined to a caption below the board."""
+    def draw(d, to_canvas):
         a = int(255 * alpha)
-        f = ex.font("demi", 50)
-        w = d.textlength(caption, font=f)
-        x0 = CX - w / 2
-        top, bottom = y - 40, y + 40
-        ring_y = cy - r if cy > bottom else cy + r  # the side of the ring facing the caption
-        d.line((CX, bottom if cy > bottom else top, cx, ring_y), fill=(255, 255, 255, a), width=4)
-        d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, a), width=6)
-        d.rounded_rectangle((x0 - 22, top, x0 + w + 22, bottom), radius=16, fill=(255, 255, 255, int(240 * alpha)))
-        ex.text(d, (CX, y), caption, "demi", 50, alpha, fill=(10, 12, 16), anchor="mm", outline=False)
+        pts = np.array([to_canvas(*cell_px(x, y)) for x, y in cells])
+        cx, cy = pts.mean(axis=0)
+        r = max(38.0, np.hypot(*(pts - (cx, cy)).T).max() + 24)
+        cx = min(max(cx, r + 4), PW - r - 4)  # on screen; it may overhang the board's edge
+        if dashed:
+            for k in range(0, 360, 20):
+                d.arc((cx - r, cy - r, cx + r, cy + r), k, k + 11, fill=(255, 255, 255, a), width=5)
+        else:
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, a), width=6)
+        if caption:
+            f = ex.font("demi", 50)
+            w = d.textlength(caption, font=f)
+            top = BOTTOM_Y - 40
+            d.line((cx, cy + r, CX, top), fill=(255, 255, 255, a), width=4)
+            d.rounded_rectangle((CX - w / 2 - 22, top, CX + w / 2 + 22, BOTTOM_Y + 40), radius=16,
+                                fill=(255, 255, 255, int(240 * alpha)))
+            ex.text(d, (CX, BOTTOM_Y), caption, "demi", 50, alpha, fill=(10, 12, 16), anchor="mm", outline=False)
     return draw
 
 
 def arrow_down(x: int, y: int, alpha: float):
-    def draw(d):
+    def draw(d, to_canvas):
         a = int(255 * alpha)
-        d.rectangle((x - 9, y - 70, x + 9, y), fill=(255, 255, 255, a))
-        d.polygon([(x - 34, y - 8), (x + 34, y - 8), (x, y + 36)], fill=(255, 255, 255, a))
+        d.rectangle((x - 8, y - 60, x + 8, y), fill=(255, 255, 255, a))
+        d.polygon([(x - 30, y - 6), (x + 30, y - 6), (x, y + 32)], fill=(255, 255, 255, a))
     return draw
 
 
 def compose(f) -> bytes:
-    base = board(f)
-    if f.zoom > 1:
-        fx, fy = f.focus
-        w, h = PW / f.zoom, PH / f.zoom
-        x0 = min(max(fx - w / 2, 0), PW - w)
-        y0 = min(max(fy - h / 2, 0), PH - h)
-        base = base.resize((PW, PH), Image.NEAREST, box=(x0, y0, x0 + w, y0 + h))
-    base = base.convert("RGBA")
-    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    x0, y0, w, h = view(f)
+    resample = Image.NEAREST if f.zoom * BAND_W / BW >= 1 else Image.LANCZOS
+    band = board(f).resize((BAND_W, BAND_H), resample, box=(x0, y0, x0 + w, y0 + h))
+    canvas = Image.new("RGBA", (PW, PH), (0, 0, 0, 255))
+    canvas.paste(band, (0, BAND_Y))
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    if f.texts:
-        a = max(t[5] for t in f.texts)
-        d.rectangle((0, 0, PW, PH), fill=(5, 6, 9, int(255 * f.dim * a)))
+    edge = (38, 42, 52, 255)
+    d.line((0, BAND_Y - 1, PW, BAND_Y - 1), fill=edge, width=2)
+    d.line((0, BAND_Y + BAND_H, PW, BAND_Y + BAND_H), fill=edge, width=2)
+    if f.dim:
+        d.rectangle((0, BAND_Y, PW, BAND_Y + BAND_H), fill=(5, 6, 9, int(255 * f.dim)))
+
+    def to_canvas(bx, by):
+        return (bx - x0) * BAND_W / w, BAND_Y + (by - y0) * BAND_H / h
+
     for s, weight, size, xy, anchor, alpha in f.texts:
         ex.text(d, xy, s, weight, size, alpha, anchor=anchor)
     for extra in f.extras:
-        extra(d)
-    return Image.alpha_composite(base, layer).convert("RGB").tobytes()
+        extra(d, to_canvas)
+    return Image.alpha_composite(canvas, layer).convert("RGB").tobytes()
 
 
 # ---------------------------------------------------------------- the real history
@@ -204,10 +246,10 @@ def days(gens: int, gen_seconds: int) -> int:
 def build(state_dir: str) -> list:
     h = History(state_dir)
     frames = []
+    whole = (BW / 2, BH / 2)
 
-    def add(u, texts=(), **kw):
-        focus = kw.pop("focus", (PW / 2, PH / 2))
-        f = ex.Frame(u, texts=texts, hud=False, **kw)
+    def add(u, texts=(), zoom=1.0, focus=whole, extras=(), **kw):
+        f = ex.Frame(u, texts=texts, hud=False, zoom=zoom, dim=kw.pop("dim", 0.0), extras=extras, **kw)
         f.focus = focus
         frames.append(f)
 
@@ -222,58 +264,59 @@ def build(state_dir: str) -> list:
     moves = sum(len(b) for b in h.batches.values())
 
     # 1. hook over the live board (its real future, one generation per frame)
-    hook = [("THIS SHORT", "bold", 124), ("DIES", "bold", 210), ("if nobody comments", "demi", 80)]
     u = copy.deepcopy(now)
     n = int(2.7 * FPS)  # on screen from the very first frame: it is the thumbnail
     for i in range(n):
         u.advance_to(u.generation + 1)
-        add(u, block(hook, 700, 1.0 if i < n - FADE else fade(i, n)), dim=0.55)
+        a = 1.0 if i < n - FADE else fade(i, n)
+        add(u, block([("THIS SHORT", "bold", 112), ("DIES", "bold", 196)], TOP_Y, a)
+            + block([("if nobody comments", "demi", 80)], BOTTOM_Y, a))
 
     # 2. the acorn, up close
     u = h.fresh()
-    acorn = life.centered(h.genesis["seed"])
-    focus = (np.mean([to_screen(x, y)[0] for x, y in acorn]), np.mean([to_screen(x, y)[1] for x, y in acorn]))
-    lines = [("It started as 7 cells.", "bold", 88)]
+    acorn = centre(life.centered(h.genesis["seed"]))
     n = int(2.5 * FPS)
     for i in range(n):
         if i > n // 2 and i % 6 == 0:
             h.goto(u, u.generation + 1)
-        add(u, block(lines, 420, fade(i, n)), zoom=6.0, focus=focus, dim=0.2)
+        add(u, block([("It started as 7 cells.", "bold", 88)], TOP_Y, fade(i, n)), zoom=8.0, focus=acorn)
 
-    # 3. pull back as it grows
-    lines = [("Conway's Game of Life.", "bold", 80), ("1 generation every 2 minutes.", "demi", 62),
-             ("(shown sideways to fit your phone)", "medium", 40)]
+    # 3. pull back as it grows, stopping short of the first comment we show
+    shown = sorted(h.batches)[-4:]  # name the latest few; earlier ones still land and light up
+    stop = (shown[0] - 15) if shown else h.now_gen
+    lines = [("Conway's Game of Life.", "bold", 84), ("1 generation every 2 minutes.", "demi", 62)]
     n = rf(*[s for s, _, _ in lines])
     for i in range(n):
-        h.goto(u, u.generation + 1 + i // 30)
-        z = 1 + 5.0 * (1 - min(1.0, i / 60)) ** 2
-        add(u, block(lines, 700, fade(i, n)), zoom=z, focus=focus, dim=0.45)
+        h.goto(u, max(u.generation, min(u.generation + 1 + i // 30, stop)))
+        add(u, block(lines, TOP_Y, fade(i, n)), zoom=1 + 7.0 * (1 - ease(i / 60)), focus=acorn)
 
-    # 4. the real history, slowing down for each comment
+    # 4. the real history; the view zooms in on each comment where it landed
     head = [("Every comment adds cells.", "bold", 84)]
-    shown = sorted(h.batches)[-4:]  # name the latest few; earlier ones still land and light up
     lit = None
-    seg_frames = max(24, int(4.5 * FPS) // (len(shown) + 1))
-    targets = shown + [h.now_gen]
-    for k, target in enumerate(targets):
+    seg = max(24, int(4.5 * FPS) // (len(shown) + 1))
+    for target in shown + [h.now_gen]:
         start = u.generation
-        for i in range(seg_frames):
-            cells = h.goto(u, start + round((target - start) * ((i + 1) / seg_frames) ** 1.4))
+        for i in range(seg):
+            cells = h.goto(u, max(u.generation, start + round((target - start) * ((i + 1) / seg) ** 1.4)))
             if cells:
                 lit = life.mask(cells)
-            add(u, block(head, 330, 1.0), highlight=lit, dim=0.25)
-        if target in shown:
-            batch = h.batches[target]
-            cells = [tuple(c) for e in batch for c in e["cells"]]
-            lit = life.mask(cells)
-            caption = f"a comment: {batch[-1]['command']}" + (f" (+{len(batch) - 1} more)" if len(batch) > 1 else "")
-            hold = int(1.8 * FPS)
-            for i in range(hold):
-                if i and i % 3 == 0:
-                    h.goto(u, u.generation + 1)
-                cue = ("inject", float(np.mean([c[0] for c in cells]))) if i == 0 else None
-                add(u, block(head, 330, 1.0), highlight=lit, cue=cue, dim=0.25,
-                    extras=[tag(cells, caption, min(1.0, (i + 1) / 6, (hold - i) / 6))])
+            add(u, block(head, TOP_Y, 1.0), highlight=lit)
+        if target not in shown:
+            continue
+        batch = h.batches[target]
+        cells = [tuple(c) for e in batch for c in e["cells"]]
+        piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
+        lit = life.mask(cells)
+        caption = f"a comment: {batch[-1]['command']}" + (f" (+{len(batch) - 1} more)" if len(batch) > 1 else "")
+        hold, z = int(2.4 * FPS), 2.6
+        for i in range(hold):
+            if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
+                h.goto(u, u.generation + 1)
+            zoom = 1 + (z - 1) * min(ease(i / 14), ease((hold - i) / 14))
+            alpha = min(1.0, (i + 1) / 6, (hold - i) / 6)
+            cue = ("inject", float(np.mean([c[0] for c in cells]))) if i == 0 else None
+            add(u, block(head, TOP_Y, 1.0), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
+                extras=[ring(piece, alpha, caption)])
 
     # 5. what the comments did
     if stuck_seed is not None and moves:
@@ -282,18 +325,18 @@ def build(state_dir: str) -> list:
                  else f"{days(FORECAST_GENS + F, h.gen_seconds)}+")
         what = "stretched" if stuck_now is None or stuck_now > stuck_seed else "changed"
         noun = "comment" if moves == 1 else "comments"
-        lines = [(f"{moves} {noun} so far {what} its life from {before} days to {after}.", "bold", 80)]
-        n = rf(lines[0][0])
+        text = f"{moves} {noun} so far {what} its life from {before} days to {after}."
+        n = rf(text)
         for i in range(n):
             if i % 4 == 0:
                 h.goto(u, u.generation + 1)
-            add(u, block(lines, 760, fade(i, n)), dim=0.6)
+            add(u, block([(text, "bold", 76)], TOP_Y, fade(i, n)))
 
     # 6. the future if nobody comments: stuck, countdown, death
     fut = copy.deepcopy(now)
     if stuck_now is not None:
-        lines = [("Left alone, it gets stuck in a loop.", "bold", 80)]
-        n = rf(lines[0][0])
+        text = "Left alone, it gets stuck in a loop."
+        n = rf(text)
         start = fut.generation
         for i in range(n):
             p = min(1.0, (i + 1) / (n * 0.55))
@@ -301,27 +344,29 @@ def build(state_dir: str) -> list:
                 fut.advance_to(start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
             elif i % 2 == 0:
                 fut.advance_to(fut.generation + 1)
-            add(fut, block(lines, 760, fade(i, n)), dim=0.5)
-        lines = [("Then it has 24 hours.", "bold", 84),
-                 ("If nobody saves it, this Short goes private. For good.", "demi", 62)]
-        n = rf(*[s for s, _, _ in lines])
+            add(fut, block([(text, "bold", 80)], TOP_Y, fade(i, n)))
+        top = [("Then it has 24 hours.", "bold", 88)]
+        bottom = [("If nobody saves it, this Short goes private. For good.", "demi", 62)]
+        n = rf(*[s for s, _, _ in top + bottom])
         for i in range(n):
             if i % 2 == 0:
                 fut.advance_to(fut.generation + 1)
-            add(fut, block(lines, 700, fade(i, n)), dim=0.55, grey=max(0.0, (i - n * 0.55) / (n * 0.3)))
+            add(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
+                grey=max(0.0, (i - n * 0.55) / (n * 0.3)))
 
-    # 7. the call to action over the present board
+    # 7. the call to action over the present board, with the suggested spot marked
     u = copy.deepcopy(now)
     pick = render.suggestion(u)
-    lines = [("Comment anything to add cells.", "bold", 84), (f"or aim one: {pick}", "demi", 62)]
-    small = [("Live countdown: the linked video", "demi", 52)]
-    n = max(rf(*[s for s, _, _ in lines + small]), 5 * FPS)
+    spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
+    top = [("Comment anything to add cells.", "bold", 84)]
+    bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the linked video", "demi", 50)]
+    n = max(rf(*[s for s, _, _ in top + bottom]), 5 * FPS)
     for i in range(n):
         if i % 6 == 0:
             u.advance_to(u.generation + 1)
         a = min(1.0, (i + 1) / FADE)
-        add(u, block(lines, 640, a) + block(small, 1180, a), dim=0.55,
-            extras=[arrow_down(CX, 1330, a)])
+        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a),
+            extras=[ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)])
     return frames
 
 

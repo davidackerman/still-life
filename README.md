@@ -235,10 +235,11 @@ it feeds the same universe as the main video, and is edited at most hourly.
 python short.py          # out/short.mp4: 1080x1920, ~40 s, from state/ (needs ffmpeg)
 ```
 
-It replays the real log: the acorn, every comment at the generation it landed,
-the board as it stands, and its future if nobody comments (stuck, then grey).
-The board is rotated 90° so it fills a phone screen. Re-render when there is
-news, such as the 24-hour countdown starting.
+It replays the real log: the acorn, every comment at the generation it landed
+(zooming in on where it landed), the board as it stands, and its future if
+nobody comments (stuck, then grey). The board is the right way up, as in the
+main video's thumbnail, so a comment's x,y matches the screen. Re-render when
+there is news, such as the 24-hour countdown starting.
 
 Upload it in YouTube Studio, set its **Related video** to the main video (the
 only clickable link a Short can have), and add its ID to `EXTRA_VIDEO_IDS` so
