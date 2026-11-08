@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  issues: write  # alerts: an issue when the universe gets stuck, is saved or dies
 
 concurrency:
   group: tick
@@ -64,3 +65,9 @@ jobs:
             sleep $((attempt * 5))
           done
           echo "push failed" && exit 1
+
+      - name: Alerts
+        if: hashFiles('out/alerts.json') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python alerts.py post out/alerts.json

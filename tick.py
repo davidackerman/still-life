@@ -38,6 +38,20 @@ from store import Store
 from universe import DIED, Universe, flatline_gens
 
 THUMB_PATH = os.path.join("out", "thumbnail.png")
+ALERTS_PATH = os.path.join("out", "alerts.json")  # posted as GitHub issues by the workflow
+
+
+def write_alerts(events: list[dict], world, video_id: str | None, path: str = ALERTS_PATH) -> list[dict]:
+    import json
+
+    import alerts
+    found = alerts.alerts_for(events, world.launch_time, world.gen_seconds,
+                              f"https://www.youtube.com/watch?v={video_id}" if video_id else None)
+    if found:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(found, f, ensure_ascii=False, indent=1)
+    return found
 
 
 def env_flag(name: str, default: str) -> bool:
@@ -103,14 +117,17 @@ def main(argv=None) -> int:
         print(f"config error: {e}", file=sys.stderr)
         return 2
 
-    quota = {}
+    quota, seen = {}, {}
 
     def make_yt(world):
+        seen["world"] = world
         quota["q"] = youtube.Quota(world.quota, now)
         return youtube.YouTube(service, video_id, quota["q"], env_flag("DESCRIPTION_GRID", "false"),
                                extra_video_ids=extra_ids, reply_counts=world.reply_counts, key=key)
 
     events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"))
+    for a in write_alerts(events, seen["world"], video_id):
+        print(f"alert: {a['title']}")
     for e in events:
         if e["type"] in ("phase", "youtube_error", "display_skipped", "display"):
             print({k: v for k, v in e.items() if k not in ("cells",)})
