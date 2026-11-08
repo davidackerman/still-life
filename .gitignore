@@ -1,0 +1,19 @@
+# Secrets: never commit
+client_secret*.json
+.env
+.env.*
+*.token
+token*.json
+smoke_backup.json
+
+# Local output
+out/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS
+.DS_Store
