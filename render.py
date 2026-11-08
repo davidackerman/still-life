@@ -176,7 +176,7 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
 
 
 # ---------------------------------------------------------------- pinned comment
-PINNED_MARKERS = ("Latest changes to the universe", "This video is alive")  # recognise the owner's comment
+PINNED_MARKERS = ("Latest changes to the universe", "This video is alive", "This Short is alive")  # the owner's status comment
 LIVE_ADDRESS = "davidackerman.github.io/still-life"
 PHASE_WORDS = {
     "cycle_detected": "got stuck in a loop: the 24-hour countdown started",
@@ -247,10 +247,17 @@ def suggestion(u: Universe) -> str:
     return f"{pattern} {x},{y}"
 
 
-def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True) -> str:
-    lines = [status,
-             "This video is alive: the thumbnail is its universe, the title counts down to its death, "
-             "and every comment adds cells.", "", "Latest moves:"]
+INTRO_MAIN = ("This video is alive: the thumbnail is its universe, the title counts down to its death, "
+              "and every comment (replies too) adds cells.")
+INTRO_EXTRA = ("This Short is alive: every comment here (replies too) adds cells to the same universe "
+               "as the linked video, whose thumbnail shows it live. If the universe dies, both videos die.")
+
+
+def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,
+                main: bool = True) -> str:
+    """The self-updating status comment. `main` is the video whose title and
+    thumbnail show the universe; other videos (a Short) only feed it comments."""
+    lines = [status, INTRO_MAIN if main else INTRO_EXTRA, "", "Latest moves:"]
     lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
     lines.append("")
     if suggest:

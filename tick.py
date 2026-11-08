@@ -3,6 +3,10 @@
 
 Environment:
   VIDEO_ID, CLIENT_ID, CLIENT_SECRET, REFRESH_TOKEN   YouTube access (secrets)
+  EXTRA_VIDEO_IDS  optional, comma-separated: more of the channel's videos
+                   (e.g. a Short) whose comments also play. Their owner status
+                   comments are kept up to date; title and thumbnail stay on
+                   VIDEO_ID only.
   STATE_KEY        secret for the keyed hashes of comment/author IDs (any long
                    random string; changing it forgets who already commented)
   DRY_RUN          "true" (default): the death sequence never uploads or changes
@@ -10,7 +14,7 @@ Environment:
   DESCRIPTION_GRID "true" to also keep a braille rendering in the description
                    (default off)
   FORCE_THUMBNAIL  "true" to upload a fresh thumbnail this run (e.g. after a
-                   design change); normally every 3 h and on phase changes
+                   design change); normally every 4 h and on phase changes
   PINNED_LINK      "false" to leave the live-page address out of the pinned
                    status comment (if YouTube holds comments with links)
   First run only (later runs read these from the log's genesis line):
@@ -89,6 +93,7 @@ def main(argv=None) -> int:
     now = args.now if args.now is not None else time.time()
     try:
         video_id = youtube.require_env("VIDEO_ID")["VIDEO_ID"]
+        extra_ids = [v.strip() for v in os.environ.get("EXTRA_VIDEO_IDS", "").split(",") if v.strip()]
         service = youtube.build_service(youtube.credentials_from_env())
     except youtube.ConfigError as e:
         print(f"config error: {e}", file=sys.stderr)
@@ -98,7 +103,8 @@ def main(argv=None) -> int:
 
     def make_yt(world):
         quota["q"] = youtube.Quota(world.quota, now)
-        return youtube.YouTube(service, video_id, quota["q"], env_flag("DESCRIPTION_GRID", "false"))
+        return youtube.YouTube(service, video_id, quota["q"], env_flag("DESCRIPTION_GRID", "false"),
+                               extra_video_ids=extra_ids, reply_counts=world.reply_counts, key=key)
 
     events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"))
     for e in events:

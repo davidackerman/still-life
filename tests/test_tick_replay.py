@@ -16,7 +16,7 @@ class FakeYT:
     def __init__(self):
         self.comments, self.titles, self.thumbs = [], [], 0
 
-    def fetch_comments(self, since):
+    def fetch_comments(self, since, watch=(), now=None):
         return list(self.comments)
 
     def set_title(self, t, grid_text=""):

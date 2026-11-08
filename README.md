@@ -45,7 +45,9 @@ Comment on the video. The first command in your comment wins (case-insensitive):
 - Cells are added to whatever is already there; nothing is erased.
 - Each channel gets one injection per hour. Each run applies at most 20
   injections, and the rest wait for the next run.
-- Replies are ignored. Only top-level comments count.
+- Replies count exactly like comments, including replies under the pinned
+  status comment.
+- Comments on the still-life Short count too: it feeds the same universe.
 - Deleting your comment does not undo it.
 - Comments that YouTube holds for review (spam filter) are invisible to the
   API, so they do nothing while held.
@@ -153,11 +155,16 @@ python -c "import json;print(json.load(open('client_secret.json'))['installed'][
 python -c "import json;print(json.load(open('client_secret.json'))['installed']['client_secret'])" | gh secret set CLIENT_SECRET
 security find-generic-password -s still-life-refresh-token -w | gh secret set REFRESH_TOKEN
 echo -n "YOUR_VIDEO_ID" | gh secret set VIDEO_ID
+echo -n "SHORT_ID,OTHER_ID" | gh secret set EXTRA_VIDEO_IDS   # optional, see below
 python -c "import secrets;print(secrets.token_urlsafe(32))" | gh secret set STATE_KEY
 ```
 
 `STATE_KEY` keys the hashes of commenter IDs. Nobody needs to know it, but
 keep it stable: changing it makes the bot forget who already commented.
+
+`EXTRA_VIDEO_IDS` (optional) lists more of the channel's videos, such as a
+Short, whose comments and replies also play. The title and thumbnail stay on
+`VIDEO_ID`. Each extra video costs about 290 quota units a day to read.
 
 Then switch the workflow on and start the first run:
 
@@ -179,7 +186,11 @@ the countdown ("dies in 3d 13h 45m") ticks every 15 minutes at 51 units each. Th
 self-imposed 8,000. It never skips reading comments.
 
 **Known limitations**: comments that YouTube holds for review are invisible
-until approved, and comments older than 48 hours are never read. GitHub may
+until approved, and comments older than 48 hours are never read. Replies are
+read from the threads the bot pages through (newest first, back 48 hours) and
+from the pinned status comments; a reply to an older thread on a busy video can
+be missed. A thread whose replies don't all arrive inline is read in full only
+when its reply count changes. GitHub may
 delay or drop scheduled runs during heavy load. GitHub disables scheduled
 workflows in repositories with no activity for 60 days; the bot's own commits
 probably count as activity, but GitHub's documentation doesn't say.
@@ -198,7 +209,7 @@ from then on rewrites it:
 
 ```
 🟢 ALIVE · this video dies in ~9 days if nobody comments
-This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells.
+This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment (replies too) adds cells.
 
 Latest moves:
 • gen 220: glider 16,61 sw
@@ -213,6 +224,10 @@ When a comment saves the universe from a countdown, it is credited:
 edited only when something real changes (a move, a phase change, the coarse
 countdown), at most every 30 minutes, at 50 quota units each. If YouTube holds
 it because of the link, run `gh variable set PINNED_LINK --body false`.
+
+Each video in `EXTRA_VIDEO_IDS` can have its own status comment, posted and
+pinned the same way. It shows the same status and moves, with a line saying
+it feeds the same universe as the main video, and is edited at most hourly.
 
 ## Data policy
 

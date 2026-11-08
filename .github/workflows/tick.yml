@@ -42,6 +42,7 @@ jobs:
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           VIDEO_ID: ${{ secrets.VIDEO_ID }}
+          EXTRA_VIDEO_IDS: ${{ secrets.EXTRA_VIDEO_IDS }}
           STATE_KEY: ${{ secrets.STATE_KEY }}
           FORCE_THUMBNAIL: ${{ inputs.force_thumbnail || 'false' }}
           PINNED_LINK: ${{ vars.PINNED_LINK || 'true' }}

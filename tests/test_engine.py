@@ -11,7 +11,7 @@ class FakeYT:
         self.comments, self.fail = list(comments), set(fail)
         self.titles, self.thumbs = [], 0
 
-    def fetch_comments(self, since):
+    def fetch_comments(self, since, watch=(), now=None):
         if "fetch" in self.fail:
             raise RuntimeError("fetch failed")
         return self.comments
@@ -263,3 +263,63 @@ def test_a_save_credits_the_comment_that_broke_the_loop():
     assert w.universe.phase == "ALIVE"
     assert w.recent[0] == "🫀 gen 2,575: SAVED, thanks to glider 4,20 ne (gen 1,875)"
     assert w.contest_by is None  # cleared once it is ALIVE again
+
+
+def test_replies_play_like_comments():
+    w, yt = world(), PinYT([owner_status(), Comment("Ugpin.r1", "u9", "2027-01-15T08:00:00Z", "rpent 30,30",
+                                                    reply=True)])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    assert [e["command"] for e in ev if e["type"] == "injection"] == ["rpent 30,30"]
+
+
+def test_an_owner_reply_quoting_the_marker_is_still_a_move():
+    r = Comment("x.r1", "UCowner", "2027-01-15T08:00:00Z", "This video is alive, glider 5,5", by_owner=True,
+                reply=True)
+    w, yt = world(), PinYT([r])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    assert w.pinned == {} and [e["command"] for e in ev if e["type"] == "injection"] == ["glider 5,5 se"]
+
+
+def test_each_video_keeps_its_own_status_comment():
+    short = Comment("Ugshort", "UCowner", "2027-01-15T08:01:00Z", "Latest changes to the universe will appear here",
+                    by_owner=True, video=1)
+    w, yt = world(), PinYT([owner_status(), short, Comment("s1", "u5", "2027-01-15T08:02:00Z", "hello", video=1)])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    assert {v: p["id"] for v, p in w.pinned.items()} == {"0": "Ugpin", "1": "Ugshort"}
+    assert len([e for e in ev if e["type"] == "injection"]) == 1  # the Short's comment played
+    texts = dict(yt.updates)
+    assert "This video is alive" in texts["Ugpin"] and "This Short is alive" in texts["Ugshort"]
+    assert texts["Ugpin"].splitlines()[0] == texts["Ugshort"].splitlines()[0]  # same status line
+    # the Short's comment is refreshed at most hourly, the main one every 30 min
+    yt.comments.append(comment("b", "u2", "rpent 90,20"))
+    engine.tick(w, LAUNCH + 600 + 1800, yt)
+    assert [cid for cid, _ in yt.updates[2:]] == ["Ugpin"]
+    engine.tick(w, LAUNCH + 600 + 3600, yt)
+    assert [cid for cid, _ in yt.updates[3:]] == ["Ugshort"]
+
+
+def test_status_comments_are_watched_so_old_threads_still_count():
+    seen = []
+
+    class WatchYT(PinYT):
+        def fetch_comments(self, since, watch=(), now=None):
+            seen.append(list(watch))
+            return self.comments
+
+    w, yt = world(), WatchYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    engine.tick(w, LAUNCH + 300, yt)
+    assert seen == [[], ["Ugpin"]]
+
+
+def test_old_state_with_a_single_pinned_id_still_loads():
+    import json
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    d, hist = w.to_state()
+    disp = d["display"]
+    p = disp.pop("pinned")["0"]
+    disp.update({"pinned_id": p["id"], "pinned_text": p["text"], "pinned_at": p["at"]})
+    d.pop("reply_counts")
+    w2 = engine.World.from_state(json.loads(json.dumps(d)), hist, w.key)
+    assert w2.pinned == w.pinned and w2.pinned_id == "Ugpin" and w2.reply_counts == {}

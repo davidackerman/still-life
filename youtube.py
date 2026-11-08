@@ -4,8 +4,8 @@ YouTube is display and input only. Nothing in this module may touch the
 authoritative simulation state; callers decide what to do with failures.
 
 Quota costs (checked 2026-11-07, developers.google.com/youtube/v3/determine_quota_cost):
-commentThreads.list 1, videos.list 1, videos.update 50, thumbnails.set 50,
-channels.list 1. videos.insert is billed in its own "Video Uploads" bucket
+commentThreads.list 1 (any parts), comments.list 1, videos.list 1,
+videos.update 50, thumbnails.set 50, comments.update 50, channels.list 1. videos.insert is billed in its own "Video Uploads" bucket
 (1 unit, 100 uploads/day), not the 10,000-unit pool. Every call costs at least
 1 unit even when it fails. The pool resets at midnight Pacific.
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import time
 from zoneinfo import ZoneInfo
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.force-ssl"]
@@ -117,8 +118,8 @@ def http_error_reason(err) -> tuple[int, str, str]:
 # --------------------------------------------------------------------------- quota
 DAILY_BUDGET = 8000  # self-imposed; Google's default pool is 10,000/day
 PACIFIC = ZoneInfo("America/Los_Angeles")
-COST = {"commentThreads.list": 1, "videos.list": 1, "videos.update": 50, "thumbnails.set": 50,
-        "comments.update": 50}
+COST = {"commentThreads.list": 1, "comments.list": 1, "videos.list": 1, "videos.update": 50,
+        "thumbnails.set": 50, "comments.update": 50}
 
 
 class QuotaExceeded(RuntimeError):
@@ -164,42 +165,123 @@ def with_grid(description: str, grid_text: str) -> str | None:
     return out
 
 
-def comment_from_thread(item: dict):
-    """admission.Comment from a commentThreads.list item (top-level comment only)."""
+def _comment(c: dict, video_channel: str | None, video: int, reply: bool):
+    """admission.Comment from a comment resource (top-level or reply)."""
     from admission import Comment
 
-    top = item["snippet"]["topLevelComment"]
-    sn = top["snippet"]
+    sn = c["snippet"]
     channel = (sn.get("authorChannelId") or {}).get("value")
     author = channel or "name:" + sn.get("authorDisplayName", "")
-    owner = bool(channel) and channel == item["snippet"].get("channelId")  # the video's own channel
-    return Comment(id=top["id"], author=author, published_at=sn["publishedAt"],
-                   text=sn.get("textDisplay", ""), by_owner=owner)
+    owner = bool(channel) and channel == video_channel  # the video's own channel
+    return Comment(id=c["id"], author=author, published_at=sn["publishedAt"],
+                   text=sn.get("textDisplay", ""), by_owner=owner, reply=reply, video=video)
+
+
+def comment_from_thread(item: dict, video: int = 0):
+    """admission.Comment for a commentThreads item's top-level comment."""
+    return _comment(item["snippet"]["topLevelComment"], item["snippet"].get("channelId"), video, False)
+
+
+def replies_in_thread(item: dict, video: int = 0) -> list:
+    """The replies a commentThreads item carries inline (often only some of them).
+    Replies have no videoId of their own, so ownership is judged against the thread's channel."""
+    channel = item["snippet"].get("channelId")
+    return [_comment(r, channel, video, True) for r in (item.get("replies") or {}).get("comments", [])]
 
 
 class YouTube:
-    """The engine's view of YouTube: comments in, title and thumbnail out."""
+    """The engine's view of YouTube: comments in, title and thumbnail out.
 
-    def __init__(self, service, video_id: str, quota: Quota, description_grid: bool = False):
+    Title and thumbnail belong to `video_id`. Comments (and replies) are read
+    from it and from every id in `extra_video_ids` (e.g. a Short that feeds the
+    same universe); Comment.video is the index into [video_id, *extra_video_ids].
+
+    `reply_counts` (a dict owned by the caller and persisted, like the quota
+    state) remembers how many replies each busy thread had when we last fetched
+    them all, keyed by HMAC under `key`, so a thread is re-read only when its
+    count changes.
+    """
+
+    def __init__(self, service, video_id: str, quota: Quota, description_grid: bool = False,
+                 extra_video_ids=(), reply_counts: dict | None = None, key: bytes = b""):
         self.service, self.video_id, self.quota = service, video_id, quota
         self.description_grid = description_grid
+        self.videos = [video_id, *[v for v in extra_video_ids if v and v != video_id]]
+        self.reply_counts = {} if reply_counts is None else reply_counts
+        self.key = key
 
-    def fetch_comments(self, since: float) -> list:
-        """Top-level comments, newest first, paging until older than `since`."""
+    def _threads(self, video: int, since: float) -> list[dict]:
+        """Threads on one video, newest first, paging until older than `since`."""
         from admission import parse_time
 
         out, token = [], None
         for _ in range(MAX_PAGES):
             self.quota.spend(COST["commentThreads.list"], critical=True)
             resp = self.service.commentThreads().list(
-                part="snippet", videoId=self.video_id, order="time", maxResults=100,
+                part="snippet,replies", videoId=self.videos[video], order="time", maxResults=100,
                 textFormat="plainText", pageToken=token,
             ).execute()
-            items = [comment_from_thread(i) for i in resp.get("items", [])]
+            items = resp.get("items", [])
             out += items
             token = resp.get("nextPageToken")
-            if not token or not items or min(parse_time(c.published_at) for c in items) < since:
+            if not token or not items or min(
+                    parse_time(i["snippet"]["topLevelComment"]["snippet"]["publishedAt"]) for i in items) < since:
                 break
+        return out
+
+    def _all_replies(self, item: dict, video: int) -> list:
+        """Every reply in a thread, via comments.list (the thread's inline list is partial)."""
+        out, token = [], None
+        channel = item["snippet"].get("channelId")
+        for _ in range(MAX_PAGES):
+            self.quota.spend(COST["comments.list"], critical=True)
+            resp = self.service.comments().list(
+                part="snippet", parentId=item["id"], maxResults=100, textFormat="plainText", pageToken=token,
+            ).execute()
+            out += [_comment(r, channel, video, True) for r in resp.get("items", [])]
+            token = resp.get("nextPageToken")
+            if not token:
+                break
+        return out
+
+    def fetch_comments(self, since: float, watch=(), now: float | None = None) -> list:
+        """Top-level comments and their replies on every configured video.
+
+        Threads are paged newest first until older than `since`. The thread of
+        each comment ID in `watch` (the pinned status comments) is fetched too,
+        even when it is older, because people reply under it. A thread whose
+        inline replies are partial is read in full, but only when its reply
+        count changed since the last full read.
+        """
+        from admission import RETENTION_S, keyed
+
+        now = time.time() if now is None else now
+        found: dict[str, tuple[dict, int]] = {}
+        for v in range(len(self.videos)):
+            for item in self._threads(v, since):
+                found.setdefault(item["id"], (item, v))
+        missing = [t for t in watch if t and t not in found]
+        if missing:
+            self.quota.spend(COST["commentThreads.list"], critical=True)
+            resp = self.service.commentThreads().list(
+                part="snippet,replies", id=",".join(missing), textFormat="plainText").execute()
+            for item in resp.get("items", []):
+                vid = item["snippet"].get("videoId")
+                found.setdefault(item["id"], (item, self.videos.index(vid) if vid in self.videos else 0))
+
+        for k in [k for k, v in self.reply_counts.items() if v[1] < now - RETENTION_S]:
+            del self.reply_counts[k]
+        out = []
+        for item, v in found.values():
+            out.append(comment_from_thread(item, v))
+            inline = replies_in_thread(item, v)
+            total = item["snippet"].get("totalReplyCount", len(inline))
+            k = keyed(self.key, "thread", item["id"])
+            if total > len(inline) and (self.reply_counts.get(k) or [None])[0] != total:
+                out += self._all_replies(item, v)
+                self.reply_counts[k] = [total, now]
+            else:
+                out += inline
         return out
 
     def set_title(self, title: str, grid_text: str = "") -> None:

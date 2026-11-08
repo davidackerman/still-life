@@ -40,6 +40,8 @@ class Comment:
     published_at: str  # ISO 8601 as returned by the API, e.g. 2026-11-08T00:20:13Z
     text: str  # textDisplay with textFormat=plainText
     by_owner: bool = False  # posted by the channel that owns the video
+    reply: bool = False  # a reply under another comment (plays exactly like a top-level one)
+    video: int = 0  # which of the configured videos: 0 = the main one, 1+ = extras (e.g. a Short)
 
     @property
     def epoch(self) -> float:

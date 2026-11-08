@@ -77,7 +77,7 @@ class FakeYouTube:
         self.thumbnails = 0
         self.thumbs_dir = thumbs_dir
 
-    def fetch_comments(self, since):
+    def fetch_comments(self, since, watch=(), now=None):
         lo = bisect.bisect_left(self.times, max(since, self.now - 7200))
         hi = bisect.bisect_right(self.times, self.now)
         return self.comments[lo:hi]

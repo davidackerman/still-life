@@ -4,8 +4,9 @@ Shared by simulate.py (fake YouTube, fake clock) and tick.py (real YouTube,
 state on disk). Pure apart from the `yt` object it is handed.
 
 `yt` must provide:
-    fetch_comments(since: float) -> list[admission.Comment]   top-level comments
-                                                                published after `since`
+    fetch_comments(since: float, watch: list[str], now: float) -> list[admission.Comment]
+        comments and replies published after `since` on every configured video,
+        plus the threads of the comment IDs in `watch` (the status comments)
     set_title(title: str, grid_text: str) -> None   grid_text is used only if the
                                                      client has the description grid on
     set_thumbnail(path: str | None) -> None
@@ -26,7 +27,8 @@ import render
 from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 TITLE_MIN_INTERVAL_S = 15 * 60
-PINNED_MIN_INTERVAL_S = 30 * 60
+PINNED_MIN_INTERVAL_S = 30 * 60  # the main video's status comment
+PINNED_EXTRA_MIN_INTERVAL_S = 60 * 60  # status comments on extra videos (quota)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.
@@ -54,9 +56,9 @@ class World:
     highlight: set = field(default_factory=set)  # cells injected since the last thumbnail
     forecast: dict | None = None  # display only: {"key", "stuck_gen", "horizon"}
     recent: list | None = None  # latest event lines for the pinned comment (game data only)
-    pinned_id: str | None = None  # the owner's own pinned status comment
-    pinned_text: str | None = None
-    pinned_at: float | None = None
+    # The owner's own status comment on each video, by video index ("0" = main):
+    # {"id": comment id, "text": last text set, "at": when}
+    pinned: dict = field(default_factory=dict)
     pinned_core: str | None = None  # the comment without the suggestion; a change re-picks the suggestion
     pinned_suggest: str | None = None
     contest_by: dict | None = None  # the comment that broke the current loop: {"gen", "command"}
@@ -64,6 +66,11 @@ class World:
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
+    reply_counts: dict = field(default_factory=dict)  # owned by youtube.YouTube (keyed thread -> [n, t])
+
+    @property
+    def pinned_id(self) -> str | None:  # the main video's status comment
+        return (self.pinned.get("0") or {}).get("id")
 
     def to_state(self) -> tuple[dict, bytes]:
         u, history = self.universe.to_state()
@@ -74,17 +81,21 @@ class World:
             "display": {"last_title": self.last_title, "last_title_at": self.last_title_at,
                         "last_thumb_at": self.last_thumb_at, "last_thumb_phase": self.last_thumb_phase,
                         "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff,
-                        "forecast": self.forecast, "recent": self.recent, "pinned_id": self.pinned_id,
-                        "pinned_text": self.pinned_text, "pinned_at": self.pinned_at,
+                        "forecast": self.forecast, "recent": self.recent, "pinned": self.pinned,
                         "pinned_core": self.pinned_core, "pinned_suggest": self.pinned_suggest,
                         "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline},
             "last_changer": self.last_changer,
             "quota": self.quota,
+            "reply_counts": dict(sorted(self.reply_counts.items())),
         }, history)
 
     @classmethod
     def from_state(cls, d: dict, history: bytes, key: bytes) -> "World":
         disp = d["display"]
+        pinned = disp.get("pinned")
+        if pinned is None:  # state written before status comments on several videos
+            pinned = ({"0": {"id": disp["pinned_id"], "text": disp.get("pinned_text"),
+                             "at": disp.get("pinned_at")}} if disp.get("pinned_id") else {})
         return cls(
             universe=Universe.from_state(d["universe"], history),
             launch_time=d["config"]["launch_time"], seed=d["config"]["seed"],
@@ -94,8 +105,8 @@ class World:
             last_thumb_at=disp["last_thumb_at"], last_thumb_phase=disp["last_thumb_phase"],
             highlight={tuple(c) for c in disp["highlight"]}, backoff=dict(disp["backoff"]),
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
-            forecast=disp.get("forecast"), recent=disp.get("recent"), pinned_id=disp.get("pinned_id"),
-            pinned_text=disp.get("pinned_text"), pinned_at=disp.get("pinned_at"),
+            forecast=disp.get("forecast"), recent=disp.get("recent"), pinned=pinned,
+            reply_counts=dict(d.get("reply_counts", {})),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
             contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
         )
@@ -156,17 +167,24 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
 
     # 1. comments (input). A fetch failure skips input for this run only.
     try:
-        comments = yt.fetch_comments(now - admission.FETCH_WINDOW_S)
+        comments = yt.fetch_comments(now - admission.FETCH_WINDOW_S,
+                                     watch=[p["id"] for p in world.pinned.values()], now=now)
     except Exception as e:  # noqa: BLE001
         comments = []
         events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
-    # The owner's status comment is not a move in the game: note its ID, skip it.
+    # The owner's status comment on each video is not a move in the game: note
+    # its ID, skip it. Replies never count as status comments.
+    known = {p["id"] for p in world.pinned.values()}
+
     def is_status(c):
-        return c.id == world.pinned_id or (c.by_owner and any(m.lower() in c.text.lower()
-                                                              for m in render.PINNED_MARKERS))
+        return c.id in known or (c.by_owner and not c.reply and any(
+            m.lower() in c.text.lower() for m in render.PINNED_MARKERS))
     status = [c for c in comments if is_status(c)]
-    if status and world.pinned_id not in {c.id for c in status}:
-        world.pinned_id = max(status, key=lambda c: (c.epoch, c.id)).id
+    for v in sorted({c.video for c in status}):
+        mine = [c for c in status if c.video == v]
+        slot = world.pinned.get(str(v))
+        if not slot or slot["id"] not in {c.id for c in mine}:
+            world.pinned[str(v)] = {"id": max(mine, key=lambda c: (c.epoch, c.id)).id, "text": None, "at": None}
     comments = [c for c in comments if not is_status(c)]
     counts = admission.admit(world.admission, comments, now, world.key, dead=(u.phase == DIED),
                              shape=u.grid.shape)
@@ -239,12 +257,16 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     if core != world.pinned_core:  # something real changed: re-pick the suggested move too
         world.pinned_core = core
         world.pinned_suggest = render.suggestion(u) if u.phase != DIED else None
-    text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link)
-    pinned_due = world.pinned_at is None or now - world.pinned_at >= PINNED_MIN_INTERVAL_S
-    if world.pinned_id and hasattr(yt, "update_comment") and text != world.pinned_text and pinned_due:
-        if _display(world, "update_pinned", now, lambda: yt.update_comment(world.pinned_id, text), events):
-            world.pinned_text, world.pinned_at = text, now
-            events.append({"type": "display", "what": "pinned_comment"})
+    for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
+        main = v == "0"
+        text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main)
+        gap = PINNED_MIN_INTERVAL_S if main else PINNED_EXTRA_MIN_INTERVAL_S
+        due = slot.get("at") is None or now - slot["at"] >= gap
+        if hasattr(yt, "update_comment") and text != slot.get("text") and due:
+            op = "update_pinned" if main else f"update_pinned_{v}"
+            if _display(world, op, now, lambda: yt.update_comment(slot["id"], text), events):
+                slot["text"], slot["at"] = text, now
+                events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
 
     if events or u.generation != gen_start or counts["new"]:
         events.append({"type": "tick", "now": run_at, "gen_start": gen_start, "gen_end": u.generation,
