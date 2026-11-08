@@ -228,3 +228,29 @@ def test_replay_rejects_injections_after_death():
     seed = board(("blinker", 2, 2))
     with pytest.raises(ValueError):
         replay(seed, F, [(50, [{"cells": [[1, 1]]}])], 60)
+
+
+# --- forecast (display only) ----------------------------------------------------
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_forecast_matches_what_actually_happens(seed):
+    rng = np.random.default_rng(seed)
+    u = Universe((rng.random(SHAPE) < 0.3).astype(np.uint8), F)
+    u.advance_to(7)
+    predicted = u.forecast_stuck(5000)
+    ev = u.advance_to(6000)
+    assert predicted == [e["gen"] for e in ev if e["type"] == "phase"][0]
+
+
+def test_forecast_accounts_for_states_since_the_last_injection():
+    u = blinker_universe()
+    u.advance_to(1)  # history already holds gen 0 and gen 1
+    assert u.forecast_stuck(100) == 2
+
+
+def test_forecast_is_read_only_and_only_for_alive():
+    u = flatlining()
+    assert u.forecast_stuck(100) is None
+    a = blinker_universe()
+    h, gen = a.hash, a.generation
+    a.forecast_stuck(100)
+    assert (a.hash, a.generation, a.phase) == (h, gen, ALIVE)

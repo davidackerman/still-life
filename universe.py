@@ -143,6 +143,23 @@ class Universe:
         return events
 
     # ------------------------------------------------------------------ status
+    def forecast_stuck(self, max_gens: int) -> int | None:
+        """If nobody comments: the generation at which this ALIVE universe would be
+        found stuck in a loop (the same check advance_to makes), or None if not
+        within max_gens. Read-only; display use only."""
+        if self.phase != ALIVE:
+            return None
+        seen = set(self._index)  # states since the last board-changing injection
+        g, gen = self.grid, self.generation
+        for _ in range(max_gens):
+            g = life.step(g)
+            gen += 1
+            h = life.state_hash(g)
+            if h in seen:
+                return gen
+            seen.add(h)
+        return None
+
     def gens_left(self) -> int | None:
         if self.deadline_gen is None or self.phase not in (FLATLINING, CONTESTED):
             return None

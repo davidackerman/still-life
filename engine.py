@@ -23,9 +23,10 @@ from dataclasses import dataclass, field
 
 import admission
 import render
-from universe import DIED, GEN_SECONDS, Universe, target_generation
+from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 TITLE_MIN_INTERVAL_S = 15 * 60
+FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
 THUMB_INTERVAL_S = 3 * 3600
 BACKOFF_BASE_S = 15 * 60
 BACKOFF_MAX_S = 24 * 3600
@@ -45,6 +46,7 @@ class World:
     last_thumb_at: float | None = None
     last_thumb_phase: str | None = None
     highlight: set = field(default_factory=set)  # cells injected since the last thumbnail
+    forecast: dict | None = None  # display only: {"key", "stuck_gen", "horizon"}
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
@@ -57,7 +59,8 @@ class World:
             "admission": self.admission.to_dict(),
             "display": {"last_title": self.last_title, "last_title_at": self.last_title_at,
                         "last_thumb_at": self.last_thumb_at, "last_thumb_phase": self.last_thumb_phase,
-                        "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff},
+                        "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff,
+                        "forecast": self.forecast},
             "last_changer": self.last_changer,
             "quota": self.quota,
         }, history)
@@ -74,7 +77,26 @@ class World:
             last_thumb_at=disp["last_thumb_at"], last_thumb_phase=disp["last_thumb_phase"],
             highlight={tuple(c) for c in disp["highlight"]}, backoff=dict(disp["backoff"]),
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
+            forecast=disp.get("forecast"),
         )
+
+
+def refresh_forecast(world: World) -> dict | None:
+    """When the universe gets stuck if nobody comments. Without comments the
+    future is fixed, so this is recomputed only after an injection changes the
+    board, a phase change, or when an empty forecast's horizon runs low."""
+    u = world.universe
+    if u.phase != ALIVE:
+        world.forecast = None
+        return None
+    key = [u.history_base, u.phase]
+    f = world.forecast
+    stale = (f is None or f["key"] != key
+             or (f["stuck_gen"] is None and u.generation > f["horizon"] - FORECAST_GENS // 2))
+    if stale:
+        world.forecast = {"key": key, "stuck_gen": u.forecast_stuck(FORECAST_GENS),
+                          "horizon": u.generation + FORECAST_GENS}
+    return world.forecast
 
 
 def _display(world: World, op: str, now: float, call, events: list[dict]) -> bool:
@@ -139,7 +161,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None) -> list[di
         events += u.advance_to(target_generation(now, world.launch_time, world.gen_seconds))
 
     # 3. display (best effort)
-    title = render.title(u, world.gen_seconds)
+    f = refresh_forecast(world)
+    title = render.title(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS)
     title_due = world.last_title_at is None or now - world.last_title_at >= TITLE_MIN_INTERVAL_S
     if title != world.last_title and title_due:
         if _display(world, "set_title", now, lambda: yt.set_title(title, render.braille(u.grid)), events):

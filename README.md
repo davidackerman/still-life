@@ -4,7 +4,8 @@
 
 A YouTube video hosts a live Conway's Game of Life universe: 128×72 cells on a
 torus, one generation every two minutes. The thumbnail shows the grid and the
-title shows its status. Every comment injects cells. A finite universe left
+title counts down to its death: "This video dies in 2 days, 14 hours if nobody
+comments". Every comment injects cells. A finite universe left
 alone must eventually return to a state it has been in before, and from then
 on it is stuck in a loop forever. When that happens, a 24-hour flatline
 countdown starts. If no comment breaks the cycle in time, the universe dies. An obituary
@@ -173,8 +174,9 @@ uploads anything or changes privacy until you change that line yourself.
 To pause, run `gh variable set TICK_ENABLED --body false`. Missed runs are
 harmless: each run catches the universe up to the current time.
 
-**Quota**: about 5,600 of the default 10,000 units a day, mostly title updates
-(51 units every 15 minutes). The bot skips title and thumbnail updates past a
+**Quota**: roughly 2,000–3,000 of the default 10,000 units a day. Each title
+update costs 51 units, and the countdown title only changes when its hours or
+minutes tick over (at most every 15 minutes). The bot skips title and thumbnail updates past a
 self-imposed 8,000. It never skips reading comments.
 
 **Known limitations**: comments that YouTube holds for review are invisible

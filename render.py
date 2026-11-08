@@ -25,19 +25,48 @@ PHASE_COLOR = {
 
 
 def time_left(gens: int, gen_seconds: int = GEN_SECONDS) -> str:
+    """Short form for the thumbnail: '14h left', '45m left'."""
     secs = gens * gen_seconds
     if secs >= 3600:
         return f"{math.ceil(secs / 3600)}h left"
     return f"{max(1, math.ceil(secs / 60))}m left"
 
 
-def title(u: Universe, gen_seconds: int = GEN_SECONDS) -> str:
+def duration(secs: float) -> str:
+    """Countdown wording for titles: '2 days, 14 hours', '14 hours', '45 minutes'."""
+    def n(k, unit):
+        return f"{k} {unit}" + ("" if k == 1 else "s")
+    secs = max(0, int(secs))
+    days, hours = secs // 86400, secs % 86400 // 3600
+    if days:
+        return n(days, "day") + (f", {n(hours, 'hour')}" if hours else "")
+    if hours:
+        return n(hours, "hour")
+    return n(max(1, math.ceil(secs / 60)), "minute")
+
+
+VERB = "dies"  # one place to change the title's verb (e.g. "self-destructs")
+
+
+def title(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
+          horizon_gens: int | None = None) -> str:
+    """The video title: a countdown to death.
+
+    ALIVE needs the forecast (`stuck_gen`: when it would get stuck if nobody
+    comments; None with `horizon_gens` = not within that many generations)."""
     if u.phase == DIED:
-        return f"{TITLE_BASE} · DIED at gen {u.died_gen:,}"
-    parts = [TITLE_BASE, f"Gen {u.generation:,}", u.phase]
-    if u.phase in (FLATLINING, CONTESTED):
-        parts.append(time_left(u.gens_left(), gen_seconds))
-    return " · ".join(parts)
+        return f"This video died: its universe got stuck in a loop"
+    if u.phase == FLATLINING:
+        return f"This video {VERB} in {duration(u.gens_left() * gen_seconds)}: its universe is stuck in a loop"
+    if u.phase == CONTESTED:
+        return f"This video might die in {duration(u.gens_left() * gen_seconds)}: a comment broke the loop"
+    if stuck_gen is not None:
+        when = duration((stuck_gen + u.flatline_gens - u.generation) * gen_seconds)
+    elif horizon_gens is not None:
+        when = f"{(horizon_gens + u.flatline_gens) * gen_seconds // 86400}+ days"
+    else:
+        return f"{TITLE_BASE} · Game of Life"
+    return f"This video {VERB} in {when} if nobody comments · Game of Life"
 
 
 _BRAILLE_BITS = ((0, 0, 0x01), (0, 1, 0x02), (0, 2, 0x04), (1, 0, 0x08),

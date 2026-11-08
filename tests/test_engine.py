@@ -81,11 +81,19 @@ def test_fetch_failure_skips_input_but_still_steps():
     assert not w.admission.seen  # picked up on a later run
 
 
-def test_title_at_most_every_15_minutes():
+def test_title_at_most_every_15_minutes_and_only_when_changed():
     w, yt = world(), FakeYT()
-    for t in range(0, 3600, 300):  # 12 runs, 5 minutes apart
+    stamps = []
+    real = yt.set_title
+    yt.set_title = lambda t, g="": (stamps.append(w_now[0]), real(t, g))
+    w_now = [0]
+    for t in range(0, 12 * 3600, 300):  # 12 hours, a run every 5 minutes
+        w_now[0] = t
         engine.tick(w, LAUNCH + t, yt)
-    assert len(yt.titles) == 4  # minutes 0, 15, 30, 45
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
+    assert stamps and min(gaps) >= 15 * 60
+    assert all(a != b for a, b in zip(yt.titles, yt.titles[1:]))  # never re-sent unchanged
+    assert 10 <= len(yt.titles) <= 13  # the countdown's hour changes about hourly
 
 
 def test_thumbnail_every_3_hours_and_on_phase_change():
@@ -142,3 +150,18 @@ def test_world_state_roundtrip():
     # and both continue identically
     e1, e2 = engine.tick(w, LAUNCH + 4 * 3600, yt), engine.tick(w2, LAUNCH + 4 * 3600, yt)
     assert e1 == e2 and w.universe.hash == w2.universe.hash
+
+
+def test_forecast_is_cached_until_a_comment_changes_the_board(monkeypatch):
+    w = world()
+    calls = []
+    real = Universe.forecast_stuck
+    monkeypatch.setattr(Universe, "forecast_stuck", lambda self, n: calls.append(self.generation) or real(self, n))
+    yt = FakeYT()
+    for t in range(0, 3600, 300):
+        engine.tick(w, LAUNCH + t, yt)
+    assert len(calls) == 1 and w.forecast["stuck_gen"] == 1855
+    yt.comments = [comment("a")]
+    engine.tick(w, LAUNCH + 3600, yt)
+    assert len(calls) == 2 and w.forecast["stuck_gen"] != 1855
+    assert yt.titles[-1].startswith("This video dies in ") and yt.titles[-1].endswith("if nobody comments · Game of Life")
