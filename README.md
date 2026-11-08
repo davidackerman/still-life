@@ -229,6 +229,21 @@ Each video in `EXTRA_VIDEO_IDS` can have its own status comment, posted and
 pinned the same way. It shows the same status and moves, with a line saying
 it feeds the same universe as the main video, and is edited at most hourly.
 
+### 7. A Short (optional)
+
+```sh
+python short.py          # out/short.mp4: 1080x1920, ~40 s, from state/ (needs ffmpeg)
+```
+
+It replays the real log: the acorn, every comment at the generation it landed,
+the board as it stands, and its future if nobody comments (stuck, then grey).
+The board is rotated 90° so it fills a phone screen. Re-render when there is
+news, such as the 24-hour countdown starting.
+
+Upload it in YouTube Studio, set its **Related video** to the main video (the
+only clickable link a Short can have), and add its ID to `EXTRA_VIDEO_IDS` so
+its comments play. Give it its own status comment as in step 6.
+
 ## Data policy
 
 YouTube's developer policies allow storing other users' API data for at most
@@ -248,6 +263,7 @@ python simulate.py --rate 0.1 --thumbs out/sim          # also write every thumb
 python simulate.py --sweep 0,0.1,0.25,1 --seeds 5       # compare comment rates
 python simulate.py --flatline-hours 6 --gen-seconds 30  # try other tunings
 python explainer.py                                     # render the host video (needs ffmpeg)
+python short.py                                         # render a vertical Short from state/
 ```
 
 ## Archive
@@ -269,7 +285,8 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `replay.py` | verifies the log and rebuilds the life from the seed (no secrets needed) |
 | `.github/workflows/tick.yml` | runs `tick.py` every 5 minutes and commits `state/` |
 | `docs/` | GitHub Pages: the live view (`index.html`, `life.js`), the rewind slider and history (`history.js`, which replays the public log in the browser), and the privacy policy |
-| `explainer.py` | renders the ~70 s explainer video that hosts the universe (`out/explainer.mp4`) |
+| `explainer.py` | renders the ~2 min explainer video that hosts the universe (`out/explainer.mp4`) |
+| `short.py` | renders a vertical Short from the real log (`out/short.mp4`) |
 | `render.py` | status title and the 1280×720 thumbnail |
 | `simulate.py` | local mode: fake YouTube, fake clock, synthetic commenters |
 | `auth.py` | one-time OAuth desktop flow (loopback + PKCE); prints a refresh token |
