@@ -119,7 +119,7 @@ def _display(world: World, op: str, now: float, call, events: list[dict]) -> boo
     return True
 
 
-def tick(world: World, now: float, yt, thumb_path: str | None = None) -> list[dict]:
+def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thumbnail: bool = False) -> list[dict]:
     """Advance the world to wall-clock `now`. Returns the run's log events.
 
     Order: fetch + admit comments -> apply up to MAX_PER_RUN injections at the
@@ -172,7 +172,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None) -> list[di
     # Refresh every 3 h and immediately on a phase change; a dead universe never
     # changes again, so after the DIED thumbnail there is nothing to refresh.
     periodic = world.last_thumb_at is None or now - world.last_thumb_at >= THUMB_INTERVAL_S
-    if u.phase != world.last_thumb_phase or (periodic and u.phase != DIED):
+    if force_thumbnail or u.phase != world.last_thumb_phase or (periodic and u.phase != DIED):
         def upload():
             if thumb_path:
                 render.thumbnail(u, thumb_path, world.highlight, world.gen_seconds)

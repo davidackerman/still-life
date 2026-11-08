@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "*/5 * * * *"  # GitHub may delay or drop scheduled runs; each run catches up
   workflow_dispatch:
+    inputs:
+      force_thumbnail:
+        description: "Upload a fresh thumbnail this run"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,6 +43,7 @@ jobs:
           REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
           VIDEO_ID: ${{ secrets.VIDEO_ID }}
           STATE_KEY: ${{ secrets.STATE_KEY }}
+          FORCE_THUMBNAIL: ${{ inputs.force_thumbnail || 'false' }}
           # Never uploads or changes privacy while "true". The owner changes this by hand.
           DRY_RUN: "true"
 

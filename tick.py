@@ -9,6 +9,8 @@ Environment:
                    privacy (step 4). Title and thumbnail updates always happen.
   DESCRIPTION_GRID "true" to also keep a braille rendering in the description
                    (default off)
+  FORCE_THUMBNAIL  "true" to upload a fresh thumbnail this run (e.g. after a
+                   design change); normally every 3 h and on phase changes
   First run only (later runs read these from the log's genesis line):
   LAUNCH_TIME      epoch seconds for generation 0 (default: now)
   SEED             starting pattern (default acorn)
@@ -50,7 +52,8 @@ def create_world(now: float, key: bytes) -> tuple[engine.World, dict]:
     return world, genesis
 
 
-def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | None = THUMB_PATH) -> list[dict]:
+def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | None = THUMB_PATH,
+        force_thumbnail: bool = False) -> list[dict]:
     """Load (or create), tick once, save. `yt_factory(world)` builds the YouTube client."""
     store = Store(state_dir)
     if store.exists():
@@ -59,7 +62,7 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world, genesis = create_world(now, key)
         store.create(world, genesis)
         print(f"created a new universe in {state_dir}: {genesis['seed']}, launch {genesis['launch_time']:.0f}")
-    events = engine.tick(world, now, yt_factory(world), thumb_path)
+    events = engine.tick(world, now, yt_factory(world), thumb_path, force_thumbnail)
     store.save(world, events)
     return events
 
@@ -89,7 +92,7 @@ def main(argv=None) -> int:
         quota["q"] = youtube.Quota(world.quota, now)
         return youtube.YouTube(service, video_id, quota["q"], env_flag("DESCRIPTION_GRID", "false"))
 
-    events = run(args.state_dir, now, make_yt, key)
+    events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"))
     for e in events:
         if e["type"] in ("phase", "youtube_error", "display_skipped", "display"):
             print({k: v for k, v in e.items() if k not in ("cells",)})

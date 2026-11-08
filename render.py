@@ -116,18 +116,20 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
     band = Image.new("RGBA", im.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(band)
     W, H = im.size
-    d.rectangle([0, H - 130, W, H], fill=(0, 0, 0, 200))
+    # Everything sits bottom-LEFT: YouTube overlays the video length on the
+    # bottom-right corner (and hover icons on the top-right).
+    for i in range(70):  # soft fade into the band
+        d.line([(0, H - 210 - i), (W, H - 210 - i)], fill=(0, 0, 0, int(200 * (1 - i / 70))))
+    d.rectangle([0, H - 210, W, H], fill=(0, 0, 0, 200))
     status = "DIED" if u.phase == DIED else u.phase
-    d.text((40, H - 118), status, font=_font(96), fill=PHASE_COLOR[u.phase] + (255,))
     if u.phase == DIED:
-        right = f"at gen {u.died_gen:,}"
+        line = f"at generation {u.died_gen:,}"
     elif u.phase in (FLATLINING, CONTESTED):
-        right = f"Gen {u.generation:,} · {time_left(u.gens_left(), gen_seconds)}"
+        line = f"Gen {u.generation:,} · {time_left(u.gens_left(), gen_seconds)}"
     else:
-        right = f"Gen {u.generation:,}"
-    font = _font(56)
-    tw = d.textlength(right, font=font)
-    d.text((W - 40 - tw, H - 96), right, font=font, fill=(235, 235, 240, 255))
+        line = f"Gen {u.generation:,}"
+    d.text((40, H - 150), line, font=_font(52), fill=(235, 235, 240, 255), anchor="ls")
+    d.text((36, H - 36), status, font=_font(104), fill=PHASE_COLOR[u.phase] + (255,), anchor="ls")
     im = Image.alpha_composite(im, band).convert("RGB")
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

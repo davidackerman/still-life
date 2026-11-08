@@ -165,3 +165,12 @@ def test_forecast_is_cached_until_a_comment_changes_the_board(monkeypatch):
     engine.tick(w, LAUNCH + 3600, yt)
     assert len(calls) == 2 and w.forecast["stuck_gen"] != 1855
     assert yt.titles[-1].startswith("This video dies in ") and yt.titles[-1].endswith("if nobody comments · Game of Life")
+
+
+def test_force_thumbnail_uploads_even_when_not_due():
+    w, yt = world(), FakeYT()
+    engine.tick(w, LAUNCH, yt)
+    engine.tick(w, LAUNCH + 300, yt)
+    assert yt.thumbs == 1
+    engine.tick(w, LAUNCH + 600, yt, force_thumbnail=True)
+    assert yt.thumbs == 2
