@@ -91,9 +91,46 @@ def _font(size: int):
     return ImageFont.load_default(size=size)
 
 
-def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECONDS) -> int:
+def big_left(secs: float) -> str:
+    """Thumbnail countdown, rounded down: '9 DAYS', '1 DAY' (24-48 h), '14 HOURS', '45 MINUTES'.
+    Hours only in the last day, so hourly thumbnail refreshes happen only in the crisis."""
+    secs = max(0, int(secs))
+    if secs >= 2 * 86400:
+        return f"{secs // 86400} DAYS"
+    if secs >= 86400:
+        return "1 DAY"
+    if secs >= 2 * 3600:
+        return f"{secs // 3600} HOURS"
+    if secs >= 3600:
+        return "1 HOUR"
+    m = max(1, secs // 60)
+    return f"{m} MINUTE" + ("" if m == 1 else "S")
+
+
+def headline(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
+             horizon_gens: int | None = None) -> tuple[str, str]:
+    """(big countdown, small context line) for the thumbnail."""
+    if u.phase == DIED:
+        return "DIED", f"its universe got stuck in a loop · gen {u.died_gen:,}"
+    if u.phase in (FLATLINING, CONTESTED):
+        left = big_left(u.gens_left() * gen_seconds)
+        if u.phase == FLATLINING:
+            return f"DIES IN {left}", f"stuck in a loop · gen {u.generation:,}"
+        return f"MIGHT DIE IN {left}", f"a comment broke the loop · gen {u.generation:,}"
+    if stuck_gen is not None:
+        big = "DIES IN " + big_left((stuck_gen + u.flatline_gens - u.generation) * gen_seconds)
+    elif horizon_gens is not None:
+        big = f"DIES IN {(horizon_gens + u.flatline_gens) * gen_seconds // 86400}+ DAYS"
+    else:
+        big = "ALIVE"
+    return big, f"if nobody comments · gen {u.generation:,}"
+
+
+def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECONDS,
+              stuck_gen: int | None = None, horizon_gens: int | None = None) -> int:
     """Write the thumbnail PNG. `highlight` is an iterable of (x, y) cells to
-    emphasize if alive (cells injected since the last render). Returns bytes."""
+    emphasize if alive (cells injected since the last render). The text is the
+    countdown from headline(). Returns bytes."""
     from PIL import Image, ImageDraw
 
     h, w = u.grid.shape
@@ -121,15 +158,12 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
     for i in range(70):  # soft fade into the band
         d.line([(0, H - 210 - i), (W, H - 210 - i)], fill=(0, 0, 0, int(200 * (1 - i / 70))))
     d.rectangle([0, H - 210, W, H], fill=(0, 0, 0, 200))
-    status = "DIED" if u.phase == DIED else u.phase
-    if u.phase == DIED:
-        line = f"at generation {u.died_gen:,}"
-    elif u.phase in (FLATLINING, CONTESTED):
-        line = f"Gen {u.generation:,} · {time_left(u.gens_left(), gen_seconds)}"
-    else:
-        line = f"Gen {u.generation:,}"
-    d.text((40, H - 150), line, font=_font(52), fill=(235, 235, 240, 255), anchor="ls")
-    d.text((36, H - 36), status, font=_font(104), fill=PHASE_COLOR[u.phase] + (255,), anchor="ls")
+    big, small = headline(u, gen_seconds, stuck_gen, horizon_gens)
+    size = 110
+    while size > 60 and d.textlength(big, font=_font(size)) > W * 0.76:  # stay clear of the duration badge
+        size -= 4
+    d.text((40, H - 150), small, font=_font(50), fill=(235, 235, 240, 255), anchor="ls")
+    d.text((36, H - 36), big, font=_font(size), fill=PHASE_COLOR[u.phase] + (255,), anchor="ls")
     im = Image.alpha_composite(im, band).convert("RGB")
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
@@ -141,7 +175,7 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
 
 
 # ---------------------------------------------------------------- pinned comment
-PINNED_MARKER = "Latest changes to the universe"  # how the bot recognises the owner's comment
+PINNED_MARKERS = ("Latest changes to the universe", "This video is alive")  # recognise the owner's comment
 LIVE_ADDRESS = "davidackerman.github.io/still-life"
 PHASE_WORDS = {
     "cycle_detected": "got stuck in a loop: the 24-hour countdown started",
@@ -151,6 +185,20 @@ PHASE_WORDS = {
     "survived_deadline": "saved: still changing when the countdown ran out",
     "deadline": "died",
 }
+EMOJI = {ALIVE: "🟢", FLATLINING: "🔴", CONTESTED: "🟡", DIED: "⚫"}
+
+
+def coarse_left(secs: float) -> str:
+    """Pinned-comment countdown, coarse so the comment isn't edited constantly:
+    '~4 days', '~1 day', then hours only in the last day."""
+    secs = max(0, int(secs))
+    if secs >= 2 * 86400:
+        return f"~{secs // 86400} days"  # rounded down, like the title and thumbnail
+    if secs >= 86400:
+        return "~1 day"
+    if secs >= 2 * 3600:
+        return f"~{secs // 3600} hours"
+    return "under 2 hours"
 
 
 def event_line(ev: dict) -> str | None:
@@ -162,9 +210,49 @@ def event_line(ev: dict) -> str | None:
     return None
 
 
-def pinned_text(recent: list[str], link: bool = True) -> str:
-    lines = [f"{PINNED_MARKER} (this comment updates itself):"]
-    lines += [f"• {r}" for r in recent] or ["• nothing yet. Be the first: comment something like glider 60,30"]
-    lines.append(f"Watch it live and see exactly what each comment did: {LIVE_ADDRESS}" if link
-                 else "Watch it live: the address is at the end of the video.")
+def pinned_status(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
+                  horizon_gens: int | None = None) -> str:
+    if u.phase == DIED:
+        return f"{EMOJI[DIED]} DIED at generation {u.died_gen:,}: its universe got stuck in a loop"
+    if u.phase == FLATLINING:
+        return (f"{EMOJI[FLATLINING]} FLATLINING · stuck in a loop: this video dies in "
+                f"{coarse_left(u.gens_left() * gen_seconds)} unless a comment breaks it")
+    if u.phase == CONTESTED:
+        return (f"{EMOJI[CONTESTED]} CONTESTED · a comment broke the loop. If it's still changing in "
+                f"{coarse_left(u.gens_left() * gen_seconds)}, it lives")
+    if stuck_gen is not None:
+        when = coarse_left((stuck_gen + u.flatline_gens - u.generation) * gen_seconds)
+    elif horizon_gens is not None:
+        when = f"{(horizon_gens + u.flatline_gens) * gen_seconds // 86400}+ days"
+    else:
+        return f"{EMOJI[ALIVE]} ALIVE"
+    return f"{EMOJI[ALIVE]} ALIVE · this video dies in {when} if nobody comments"
+
+
+def quiet_spot(grid, win_w: int = 24, win_h: int = 14) -> tuple[int, int]:
+    """Top-left (x, y) of the emptiest win_w x win_h window (wrapping), for suggestions."""
+    h, w = grid.shape
+    padded = np.pad(grid, ((0, win_h), (0, win_w)), mode="wrap").astype(np.int32)
+    c = padded.cumsum(0).cumsum(1)
+    c = np.pad(c, ((1, 0), (1, 0)))
+    sums = c[win_h:win_h + h, win_w:win_w + w] - c[:h, win_w:win_w + w] - c[win_h:win_h + h, :w] + c[:h, :w]
+    y, x = np.unravel_index(np.argmin(sums), sums.shape)  # first minimum: deterministic
+    return int((x + win_w // 2 - 3) % w), int((y + win_h // 2 - 1) % h)
+
+
+def suggestion(u: Universe) -> str:
+    x, y = quiet_spot(u.grid)
+    pattern = ("acorn", "rpent", "glider")[(u.generation // 180) % 3]
+    return f"{pattern} {x},{y}"
+
+
+def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True) -> str:
+    lines = [status,
+             "This video is alive: the thumbnail is its universe, the title counts down to its death, "
+             "and every comment adds cells.", "", "Latest moves:"]
+    lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
+    lines.append("")
+    if suggest:
+        lines.append(f"Try one: {suggest} (a quiet corner right now) · or just say anything")
+    lines.append(f"Rewind every move: {LIVE_ADDRESS}" if link else "Rewind every move: the address is at the end of the video.")
     return "\n".join(lines)

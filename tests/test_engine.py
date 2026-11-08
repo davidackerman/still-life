@@ -101,9 +101,10 @@ def test_thumbnail_every_3_hours_and_on_phase_change():
     for t in range(0, 4 * 86400, 300):
         engine.tick(w, LAUNCH + t, yt)
     # acorn: FLATLINING at gen 1855 (61.83 h), DIED at gen 2575 (85.83 h).
-    # 0, 3, ..., 60 h (21) + FLATLINING (1) + 64.83 ... 82.83 h (7) + DIED (1);
-    # nothing after death even though the loop runs to 96 h.
-    assert yt.thumbs == 30
+    # Every 3 h, on each phase change, and (at most hourly) when the countdown
+    # headline changes: days until the last day, then hours. Nothing after death.
+    assert 38 <= yt.thumbs <= 46
+    assert w.last_thumb_headline == "DIED"
 
 
 def test_failures_back_off_exponentially_and_reset_on_success():
@@ -196,8 +197,9 @@ def test_owner_status_comment_is_found_and_not_played():
     assert w.pinned_id == "Ugpin"
     assert [e["command"] for e in ev if e["type"] == "injection"] == ["glider 10,10 se"]  # the status comment adds nothing
     cid, text = yt.updates[-1]
-    assert cid == "Ugpin" and text.startswith("Latest changes to the universe (this comment updates itself):")
-    assert "• gen 0: glider 10,10 se" in text and "davidackerman.github.io/still-life" in text
+    assert cid == "Ugpin" and text.startswith("🟢 ALIVE · this video dies in ~")
+    assert "This video is alive:" in text and "• gen 0: glider 10,10 se" in text
+    assert "Try one: " in text and "davidackerman.github.io/still-life" in text
 
 
 def test_owner_comments_without_the_marker_still_play():
@@ -209,7 +211,7 @@ def test_owner_comments_without_the_marker_still_play():
 def test_pinned_comment_updates_only_when_changed_and_at_most_every_30_minutes():
     w, yt = world(), PinYT([owner_status()])
     engine.tick(w, LAUNCH, yt)
-    assert len(yt.updates) == 1 and "nothing yet" in yt.updates[0][1]
+    assert len(yt.updates) == 1 and "none yet" in yt.updates[0][1]
     engine.tick(w, LAUNCH + 300, yt)
     assert len(yt.updates) == 1  # nothing new
     yt.comments.append(comment("b", "u2", "rpent 90,20"))
@@ -230,3 +232,34 @@ def test_pinned_link_can_be_turned_off():
     w, yt = world(), PinYT([owner_status()])
     engine.tick(w, LAUNCH, yt, pinned_link=False)
     assert "davidackerman.github.io" not in yt.updates[-1][1]
+
+
+def test_status_comment_stays_out_of_play_after_its_text_changes():
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    # the bot rewrote it; the old marker phrase is gone, but it is still recognised by ID
+    yt.comments = [Comment("Ugpin", "UCowner", "2027-01-15T08:00:00Z", "🟢 ALIVE · glider 1,1 ...", by_owner=True)]
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    assert not [e for e in ev if e["type"] == "injection"]
+
+
+def test_suggestion_only_changes_when_something_real_changes():
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    first = w.pinned_suggest
+    for t in range(1800, 4 * 3600, 1800):  # board evolves; countdown stays "~3 days"
+        engine.tick(w, LAUNCH + t, yt)
+    assert w.pinned_suggest == first and len(yt.updates) == 1
+
+
+def test_a_save_credits_the_comment_that_broke_the_loop():
+    w, yt = world(), PinYT([owner_status()])
+    for t in range(0, 63 * 3600, 1800):  # acorn gets stuck at 61.8 h
+        engine.tick(w, LAUNCH + t, yt)
+    assert w.universe.phase == "FLATLINING"
+    yt.comments.append(Comment("save", "UCsaver", "2027-01-17T23:00:00Z", "glider 4,20 ne"))  # breaks the loop for good
+    for t in range(63 * 3600, 90 * 3600, 1800):
+        engine.tick(w, LAUNCH + t, yt)
+    assert w.universe.phase == "ALIVE"
+    assert w.recent[0] == "🫀 gen 2,575: SAVED, thanks to glider 4,20 ne (gen 1,875)"
+    assert w.contest_by is None  # cleared once it is ALIVE again

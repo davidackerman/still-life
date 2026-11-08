@@ -5,7 +5,7 @@
 A YouTube video hosts a live Conway's Game of Life universe: 128×72 cells on a
 torus, one generation every two minutes. The thumbnail shows the grid and the
 title counts down to its death: "This video dies in 3d 13h 45m if nobody
-comments". Every comment injects cells. A finite universe left
+comments", and so does the thumbnail ("DIES IN 9 DAYS"). Every comment injects cells. A finite universe left
 alone must eventually return to a state it has been in before, and from then
 on it is stuck in a loop forever. When that happens, a 24-hour flatline
 countdown starts. If no comment breaks the cycle in time, the universe dies. An obituary
@@ -188,19 +188,26 @@ probably count as activity, but GitHub's documentation doesn't say.
 
 Post a comment on the video that contains **Latest changes to the universe**,
 then pin it (⋮ → Pin). Within about 5 minutes the bot finds it (your own
-comment, with that phrase), leaves it out of the game, and from then on
-rewrites it with the latest events, newest first:
+comment, with that phrase), remembers its ID, leaves it out of the game, and
+from then on rewrites it:
 
 ```
-Latest changes to the universe (this comment updates itself):
+🟢 ALIVE · this video dies in ~9 days if nobody comments
+This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells.
+
+Latest moves:
 • gen 220: glider 16,61 sw
 • gen 166: glider 64,71 nw
-Watch it live and see exactly what each comment did: davidackerman.github.io/still-life
+
+Try one: rpent 39,6 (a quiet corner right now) · or just say anything
+Rewind every move: davidackerman.github.io/still-life
 ```
 
-It updates only when something new happened, at most every 30 minutes (50
-quota units each). If YouTube holds the comment because of the link, run
-`gh variable set PINNED_LINK --body false` to leave the address out.
+When a comment saves the universe from a countdown, it is credited:
+`🫀 gen 2,575: SAVED, thanks to glider 4,20 ne (gen 1,875)`. The comment is
+edited only when something real changes (a move, a phase change, the coarse
+countdown), at most every 30 minutes, at 50 quota units each. If YouTube holds
+it because of the link, run `gh variable set PINNED_LINK --body false`.
 
 ## Data policy
 

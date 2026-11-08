@@ -27,6 +27,7 @@ from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 TITLE_MIN_INTERVAL_S = 15 * 60
 PINNED_MIN_INTERVAL_S = 30 * 60
+THUMB_HEADLINE_MIN_S = 60 * 60  # a changed countdown headline refreshes the thumbnail, at most hourly
 RECENT_MAX = 8
 FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
 THUMB_INTERVAL_S = 3 * 3600
@@ -53,6 +54,10 @@ class World:
     pinned_id: str | None = None  # the owner's own pinned status comment
     pinned_text: str | None = None
     pinned_at: float | None = None
+    pinned_core: str | None = None  # the comment without the suggestion; a change re-picks the suggestion
+    pinned_suggest: str | None = None
+    contest_by: dict | None = None  # the comment that broke the current loop: {"gen", "command"}
+    last_thumb_headline: str | None = None
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
@@ -67,7 +72,9 @@ class World:
                         "last_thumb_at": self.last_thumb_at, "last_thumb_phase": self.last_thumb_phase,
                         "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff,
                         "forecast": self.forecast, "recent": self.recent, "pinned_id": self.pinned_id,
-                        "pinned_text": self.pinned_text, "pinned_at": self.pinned_at},
+                        "pinned_text": self.pinned_text, "pinned_at": self.pinned_at,
+                        "pinned_core": self.pinned_core, "pinned_suggest": self.pinned_suggest,
+                        "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline},
             "last_changer": self.last_changer,
             "quota": self.quota,
         }, history)
@@ -86,6 +93,8 @@ class World:
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
             forecast=disp.get("forecast"), recent=disp.get("recent"), pinned_id=disp.get("pinned_id"),
             pinned_text=disp.get("pinned_text"), pinned_at=disp.get("pinned_at"),
+            pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
+            contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
         )
 
 
@@ -149,11 +158,13 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         comments = []
         events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
     # The owner's status comment is not a move in the game: note its ID, skip it.
-    marker = render.PINNED_MARKER.lower()
-    status = [c for c in comments if c.by_owner and marker in c.text.lower()]
-    if status:
+    def is_status(c):
+        return c.id == world.pinned_id or (c.by_owner and any(m.lower() in c.text.lower()
+                                                              for m in render.PINNED_MARKERS))
+    status = [c for c in comments if is_status(c)]
+    if status and world.pinned_id not in {c.id for c in status}:
         world.pinned_id = max(status, key=lambda c: (c.epoch, c.id)).id
-    comments = [c for c in comments if not (c.by_owner and marker in c.text.lower())]
+    comments = [c for c in comments if not is_status(c)]
     counts = admission.admit(world.admission, comments, now, world.key, dead=(u.phase == DIED),
                              shape=u.grid.shape)
     sim_from = len(events)
@@ -178,8 +189,19 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
 
     if world.recent is None:
         world.recent = []
+    last_cmd = None
     for ev in events[sim_from:]:
-        line = render.event_line(ev)
+        if ev["type"] == "injection" and ev["changed"]:
+            last_cmd = (ev["gen"], ev["command"])
+        if ev["type"] == "phase" and ev["reason"] == "injection" and last_cmd:
+            world.contest_by = {"gen": last_cmd[0], "command": last_cmd[1]}
+        if ev["type"] == "phase" and ev["reason"] == "survived_deadline" and world.contest_by:
+            line = (f"🫀 gen {ev['gen']:,}: SAVED, thanks to {world.contest_by['command']} "
+                    f"(gen {world.contest_by['gen']:,})")
+        else:
+            line = render.event_line(ev)
+        if ev["type"] == "phase" and ev["to"] in (ALIVE, DIED):
+            world.contest_by = None
         if line:
             world.recent = ([line] + world.recent)[:RECENT_MAX]
 
@@ -195,17 +217,26 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     # Refresh every 3 h and immediately on a phase change; a dead universe never
     # changes again, so after the DIED thumbnail there is nothing to refresh.
     periodic = world.last_thumb_at is None or now - world.last_thumb_at >= THUMB_INTERVAL_S
-    if force_thumbnail or u.phase != world.last_thumb_phase or (periodic and u.phase != DIED):
+    big, _ = render.headline(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS)
+    moved = (big != world.last_thumb_headline and world.last_thumb_at is not None
+             and now - world.last_thumb_at >= THUMB_HEADLINE_MIN_S)
+    if force_thumbnail or u.phase != world.last_thumb_phase or (periodic and u.phase != DIED) or moved:
         def upload():
             if thumb_path:
-                render.thumbnail(u, thumb_path, world.highlight, world.gen_seconds)
+                render.thumbnail(u, thumb_path, world.highlight, world.gen_seconds,
+                                 f and f["stuck_gen"], f and FORECAST_GENS)
             yt.set_thumbnail(thumb_path)
         if _display(world, "set_thumbnail", now, upload, events):
-            world.last_thumb_at, world.last_thumb_phase = now, u.phase
+            world.last_thumb_at, world.last_thumb_phase, world.last_thumb_headline = now, u.phase, big
             world.highlight = set()
             events.append({"type": "display", "what": "thumbnail", "gen": u.generation, "phase": u.phase})
 
-    text = render.pinned_text(world.recent, pinned_link)
+    status_line = render.pinned_status(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS)
+    core = render.pinned_text(status_line, world.recent, None, pinned_link)
+    if core != world.pinned_core:  # something real changed: re-pick the suggested move too
+        world.pinned_core = core
+        world.pinned_suggest = render.suggestion(u) if u.phase != DIED else None
+    text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link)
     pinned_due = world.pinned_at is None or now - world.pinned_at >= PINNED_MIN_INTERVAL_S
     if world.pinned_id and hasattr(yt, "update_comment") and text != world.pinned_text and pinned_due:
         if _display(world, "update_pinned", now, lambda: yt.update_comment(world.pinned_id, text), events):

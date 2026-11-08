@@ -61,3 +61,34 @@ def test_thumbnail_is_1280x720_png_under_2mb(tmp_path):
     size = render.thumbnail(u, str(path), highlight={(0, 0)})
     im = Image.open(path)
     assert im.size == (1280, 720) and im.format == "PNG" and size < 2 * 1024 * 1024
+
+
+def test_thumbnail_headlines():
+    u = acorn()
+    assert render.headline(u, stuck_gen=1855) == ("DIES IN 3 DAYS", "if nobody comments · gen 0")
+    u.advance_to(1855)
+    assert render.headline(u)[0] == "DIES IN 1 DAY"
+    u.advance_to(2575 - 360)
+    assert render.headline(u) == ("DIES IN 12 HOURS", "stuck in a loop · gen 2,215")
+    u.inject([{"cells": [[0, 0], [1, 0], [0, 1], [1, 1]]}])
+    assert render.headline(u)[0] == "MIGHT DIE IN 12 HOURS"
+    d = acorn()
+    d.advance_to(9000)
+    assert render.headline(d) == ("DIED", "its universe got stuck in a loop · gen 2,575")
+
+
+def test_pinned_status_lines():
+    u = acorn()
+    assert render.pinned_status(u, stuck_gen=1855) == "🟢 ALIVE · this video dies in ~3 days if nobody comments"
+    u.advance_to(1855)
+    assert render.pinned_status(u).startswith("🔴 FLATLINING · stuck in a loop: this video dies in ~1 day")
+    u.advance_to(2575 - 100)
+    assert "dies in ~3 hours unless a comment breaks it" in render.pinned_status(u)
+
+
+def test_quiet_spot_finds_the_empty_corner():
+    import numpy as np
+    g = np.ones((72, 128), np.uint8)
+    g[40:60, 90:120] = 0
+    x, y = render.quiet_spot(g)
+    assert 90 <= x < 120 and 40 <= y < 60
