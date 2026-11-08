@@ -103,7 +103,7 @@ def test_thumbnail_every_3_hours_and_on_phase_change():
     # acorn: FLATLINING at gen 1855 (61.83 h), DIED at gen 2575 (85.83 h).
     # Every 3 h, on each phase change, and (at most hourly) when the countdown
     # headline changes: days until the last day, then hours. Nothing after death.
-    assert 38 <= yt.thumbs <= 46
+    assert 28 <= yt.thumbs <= 34  # ~every 3 h + phase changes: the 429 limit is tight
     assert w.last_thumb_headline == "DIED"
 
 

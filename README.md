@@ -184,6 +184,11 @@ delay or drop scheduled runs during heavy load. GitHub disables scheduled
 workflows in repositories with no activity for 60 days; the bot's own commits
 probably count as activity, but GitHub's documentation doesn't say.
 
+**Thumbnail limit**: YouTube answers HTTP 429 ("uploaded too many thumbnails
+recently") after a handful of thumbnail uploads in a day. The bot refreshes the
+thumbnail every 3 hours and on phase changes only, and backs off when refused;
+avoid forcing extra uploads.
+
 ### 6. Pinned status comment (optional)
 
 Post a comment on the video that contains **Latest changes to the universe**,

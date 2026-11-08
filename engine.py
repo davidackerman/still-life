@@ -27,7 +27,10 @@ from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 TITLE_MIN_INTERVAL_S = 15 * 60
 PINNED_MIN_INTERVAL_S = 30 * 60
-THUMB_HEADLINE_MIN_S = 60 * 60  # a changed countdown headline refreshes the thumbnail, at most hourly
+# A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
+# thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
+# so no more often than the regular 3-hour refresh. Phase changes stay immediate.
+THUMB_HEADLINE_MIN_S = 3 * 3600
 RECENT_MAX = 8
 FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
 THUMB_INTERVAL_S = 3 * 3600
