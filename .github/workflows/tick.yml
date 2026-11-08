@@ -1,0 +1,58 @@
+name: tick
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"  # GitHub may delay or drop scheduled runs; each run catches up
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    # Off until the owner sets the repository variable TICK_ENABLED=true (after
+    # the secrets exist). Also keeps forks from running it.
+    if: vars.TICK_ENABLED == 'true' && github.repository == 'davidackerman/still-life'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt  # numpy pillow google-api-python-client google-auth
+
+      - name: Tick
+        run: python tick.py
+        env:
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          VIDEO_ID: ${{ secrets.VIDEO_ID }}
+          STATE_KEY: ${{ secrets.STATE_KEY }}
+          # Never uploads or changes privacy while "true". The owner changes this by hand.
+          DRY_RUN: "true"
+
+      - name: Commit state
+        run: |
+          git config user.name "still-life bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add state/
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -q -m "tick: $(python -c "import json; s=json.load(open('state/state.json'))['universe']; print(f\"gen {s['generation']} {s['phase']}\")")"
+          for attempt in 1 2 3; do
+            git pull -q --rebase && git push -q && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "push failed" && exit 1

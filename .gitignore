@@ -17,3 +17,6 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Partial writes from an interrupted run
+state/*.tmp

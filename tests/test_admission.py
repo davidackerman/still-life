@@ -1,4 +1,9 @@
-from admission import Admission, Comment, admit, take_batch
+import json
+
+from admission import RETENTION_S, Admission, Comment, admit, keyed, parse_time, take_batch
+
+KEY = b"test-key-0123456789"
+T0 = parse_time("2026-11-08T00:00:00Z")
 
 
 def C(cid, author, minute, text="block 1,1"):
@@ -6,70 +11,105 @@ def C(cid, author, minute, text="block 1,1"):
     return Comment(cid, author, f"2026-11-08T{hh:02d}:{mm:02d}:00Z", text)
 
 
-def test_dedupe_by_comment_id_forever():
+def run(s, comments, minute_now=120, dead=False):
+    return admit(s, comments, T0 + minute_now * 60, KEY, dead=dead)
+
+
+def queued(s):
+    return [q["comment"] for q in s.queue]
+
+
+def k(cid):
+    return keyed(KEY, "comment", cid)
+
+
+def test_dedupe_by_comment_id():
     s = Admission()
-    admit(s, [C("a", "u1", 0)])
-    admit(s, [C("a", "u1", 0)])
-    admit(s, [C("a", "u1", 0, "edited text")])
-    assert [q["comment_id"] for q in s.queue] == ["a"]
+    run(s, [C("a", "u1", 0)])
+    run(s, [C("a", "u1", 0)])
+    run(s, [C("a", "u1", 0, "edited text")])
+    assert queued(s) == [k("a")]
 
 
 def test_processing_order_is_published_at_then_id():
     s = Admission()
-    admit(s, [C("z", "u1", 5), C("b", "u2", 1), C("a", "u3", 1)])
-    assert [q["comment_id"] for q in s.queue] == ["a", "b", "z"]
+    run(s, [C("z", "u1", 5), C("b", "u2", 1), C("a", "u3", 1)])
+    assert queued(s) == [k("a"), k("b"), k("z")]
 
 
 def test_one_injection_per_author_per_hour():
     s = Admission()
-    ev = admit(s, [C("a", "u1", 0), C("b", "u1", 30), C("c", "u1", 59), C("d", "u1", 60)])
-    assert [q["comment_id"] for q in s.queue] == ["a", "d"]
-    assert [(e["comment_id"], e["reason"]) for e in ev] == [("b", "author_rate_limit"), ("c", "author_rate_limit")]
+    c = run(s, [C("a", "u1", 0), C("b", "u1", 30), C("c", "u1", 59), C("d", "u1", 60)])
+    assert queued(s) == [k("a"), k("d")]
+    assert c == {"new": 4, "accepted": 2, "rejected": {"author_rate_limit": 2}}
 
 
 def test_cooldown_counts_from_the_last_accepted_comment():
     s = Admission()
-    admit(s, [C("a", "u1", 0), C("b", "u1", 50), C("c", "u1", 61)])
-    assert [q["comment_id"] for q in s.queue] == ["a", "c"]
+    run(s, [C("a", "u1", 0), C("b", "u1", 50), C("c", "u1", 61)])
+    assert queued(s) == [k("a"), k("c")]
 
 
-def test_rate_limit_spans_runs():
+def test_rate_limit_spans_runs_and_late_arrivals():
     s = Admission()
-    admit(s, [C("a", "u1", 0)])
-    ev = admit(s, [C("b", "u1", 10)])
-    assert ev[0]["reason"] == "author_rate_limit" and len(s.queue) == 1
+    run(s, [C("a", "u1", 30)])
+    assert run(s, [C("b", "u1", 40)])["rejected"] == {"author_rate_limit": 1}
+    # published *before* the accepted one but fetched later (e.g. approved after review)
+    assert run(s, [C("c", "u1", 0)])["rejected"] == {"author_rate_limit": 1}
+    assert len(s.queue) == 1
 
 
 def test_different_authors_are_independent():
     s = Admission()
-    admit(s, [C("a", "u1", 0), C("b", "u2", 0)])
+    run(s, [C("a", "u1", 0), C("b", "u2", 0)])
     assert len(s.queue) == 2
 
 
-def test_after_death_comments_are_rejected_but_marked_processed():
+def test_after_death_comments_are_rejected_but_marked_seen():
     s = Admission()
-    ev = admit(s, [C("a", "u1", 0)], dead=True)
-    assert ev[0]["reason"] == "universe_dead" and not s.queue and "a" in s.processed_ids
+    c = run(s, [C("a", "u1", 0)], dead=True)
+    assert c["rejected"] == {"universe_dead": 1} and not s.queue and k("a") in s.seen
+
+
+def test_comments_outside_the_48h_window_are_ignored():
+    s = Admission()
+    c = admit(s, [C("old", "u1", 0)], T0 + 49 * 3600, KEY)
+    assert c["new"] == 0 and not s.queue and not s.seen
 
 
 def test_global_cap_queues_the_excess():
     s = Admission()
-    admit(s, [C(f"c{i:02d}", f"u{i}", 0) for i in range(25)])
+    run(s, [C(f"c{i:02d}", f"u{i}", 0) for i in range(25)])
     first, second = take_batch(s), take_batch(s)
     assert len(first) == 20 and len(second) == 5
-    assert [q["comment_id"] for q in first + second] == [f"c{i:02d}" for i in range(25)]
+    assert [q["comment"] for q in first + second] == [k(f"c{i:02d}") for i in range(25)]
 
 
-def test_queued_injection_records_parsed_cells():
+def test_queued_injection_has_cells_but_no_raw_comment_data():
     s = Admission()
-    admit(s, [C("a", "u1", 0, "glider 3,4 ne")])
+    run(s, [C("Ugx-secret-id", "UC-secret-author", 0, "glider 3,4 ne please")])
     q = s.queue[0]
-    assert q["command"] == "glider 3,4 ne" and len(q["cells"]) == 5 and q["text"] == "glider 3,4 ne"
+    assert q["command"] == "glider 3,4 ne" and len(q["cells"]) == 5
+    blob = json.dumps(s.to_dict())
+    for raw in ("Ugx-secret-id", "UC-secret-author", "please"):
+        assert raw not in blob
+
+
+def test_keyed_ids_depend_on_the_key():
+    assert keyed(b"k1" * 8, "comment", "a") != keyed(b"k2" * 8, "comment", "a")
+    assert keyed(KEY, "comment", "a") != keyed(KEY, "author", "a")
+
+
+def test_old_hashes_are_pruned():
+    s = Admission()
+    run(s, [C("a", "u1", 0)])
+    admit(s, [], T0 + RETENTION_S + 3600, KEY)
+    assert not s.seen and not s.last_accepted
 
 
 def test_roundtrip_dict():
     s = Admission()
-    admit(s, [C(f"c{i:02d}", f"u{i}", i) for i in range(25)])
+    run(s, [C(f"c{i:02d}", f"u{i}", i) for i in range(25)])
     take_batch(s)
-    s2 = Admission.from_dict(s.to_dict())
-    assert s2.processed_ids == s.processed_ids and s2.last_accepted == s.last_accepted and s2.queue == s.queue
+    s2 = Admission.from_dict(json.loads(json.dumps(s.to_dict())))
+    assert s2.seen == s.seen and s2.last_accepted == s.last_accepted and s2.queue == s.queue

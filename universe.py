@@ -71,7 +71,7 @@ class Universe:
 
     def _event(self, new_phase: str, reason: str, **extra) -> dict:
         ev = {"type": "phase", "gen": self.generation, "from": self.phase, "to": new_phase,
-              "reason": reason, "hash": self.hash.hex(), **extra}
+              "reason": reason, "state_hash": self.hash.hex(), **extra}
         self.phase = new_phase
         return ev
 
@@ -147,6 +147,39 @@ class Universe:
         if self.deadline_gen is None or self.phase not in (FLATLINING, CONTESTED):
             return None
         return max(0, self.deadline_gen - self.generation)
+
+    # ------------------------------------------------------------------ persistence
+    def to_state(self) -> tuple[dict, bytes]:
+        """(JSON-able dict, history bytes) for state.json and history.bin."""
+        return ({
+            "generation": self.generation,
+            "shape": list(self.grid.shape),
+            "grid": life.encode(self.grid),
+            "flatline_gens": self.flatline_gens,
+            "phase": self.phase,
+            "deadline_gen": self.deadline_gen,
+            "cycle": sorted(h.hex() for h in self.cycle),
+            "died_gen": self.died_gen,
+            "history_base": self.history_base,
+            "hash": self.hash.hex(),
+        }, b"".join(self.history))
+
+    @classmethod
+    def from_state(cls, d: dict, history: bytes) -> "Universe":
+        shape = tuple(d["shape"])
+        u = cls(life.decode(d["grid"], shape), d["flatline_gens"], d["generation"])
+        if u.hash.hex() != d["hash"]:
+            raise ValueError("state grid does not match its recorded hash")
+        if len(history) % 32 or not history:
+            raise ValueError("history.bin is not a non-empty sequence of 32-byte hashes")
+        u.phase, u.deadline_gen, u.died_gen = d["phase"], d["deadline_gen"], d["died_gen"]
+        u.cycle = frozenset(bytes.fromhex(h) for h in d["cycle"])
+        u.history = [history[i:i + 32] for i in range(0, len(history), 32)]
+        u.history_base = d["history_base"]
+        u._index = {h: u.history_base + i for i, h in enumerate(u.history)}
+        if u.history_base + len(u.history) - 1 > u.generation:
+            raise ValueError("history.bin runs past the current generation")
+        return u
 
     def summary(self) -> dict:
         return {"gen": self.generation, "phase": self.phase, "deadline_gen": self.deadline_gen,

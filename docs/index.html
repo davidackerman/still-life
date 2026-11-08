@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>still-life</title>
+<meta name="description" content="A Game of Life universe on a YouTube video that dies when it repeats itself.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<pre class="grid" aria-hidden="true"> ■
+   ■
+■■  ■■■</pre>
+<h1>still-life</h1>
+<p class="lede">This video dies when its universe repeats itself.</p>
+
+<p>A YouTube video hosts a live universe running Conway's Game of Life: 128×72 cells on a torus, one generation every two minutes, around the clock. The thumbnail shows the grid and the title shows its status.</p>
+<p>Every comment on the video injects cells. Left alone, a finite universe must eventually repeat a state. When that happens a 24-hour countdown starts. If no comment breaks the cycle in time, the universe dies. An obituary video is uploaded and the original goes private.</p>
+<p class="pitch">Every comment changes this universe. Some save it. Some kill it.</p>
+
+<h2>How to comment</h2>
+<table>
+<tr><td><code>glider x,y [ne|nw|se|sw]</code></td><td>a glider (default <code>se</code>)</td></tr>
+<tr><td><code>block x,y</code> · <code>blinker x,y</code> · <code>rpent x,y</code> · <code>acorn x,y</code></td><td>a pattern with its top-left corner at (x, y)</td></tr>
+<tr><td><code>cells x,y x,y …</code></td><td>up to 25 single cells</td></tr>
+<tr><td>anything else</td><td>a 5×5 random patch derived from a hash of your comment</td></tr>
+</table>
+<p><code>x</code> is 0–127 and <code>y</code> is 0–71, from the top-left. Each channel gets one injection per hour.</p>
+
+<h2>Verifiable</h2>
+<p>Every run is recorded in a hash-chained public log, and anyone can replay the whole life from the seed to check it. The source, the rules in full, and the log are on <a href="https://github.com/davidackerman/still-life">GitHub</a>.</p>
+
+<footer>
+<a href="privacy.html">Privacy policy</a> · <a href="https://github.com/davidackerman/still-life">Source</a> · <a href="https://github.com/davidackerman/still-life/issues">Contact</a>
+</footer>
+</main>
+</body>
+</html>

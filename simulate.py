@@ -20,11 +20,13 @@ import statistics
 
 import numpy as np
 
+import admission
 import engine
 import life
 from admission import Comment
 from universe import CONTESTED, DIED, FLATLINING, GEN_SECONDS, Universe, flatline_gens
 
+SIM_KEY = b"simulate.py: not a secret"
 LAUNCH = 1_800_000_000.0  # arbitrary fixed epoch for the fake clock (2027-01-15)
 CHATTER = ["first!", "save it", "let it die", "what am I looking at", "hello universe", "RIP",
            "this is oddly calming", "is it still alive?", "🔥🔥🔥", "come on little gliders",
@@ -75,12 +77,12 @@ class FakeYouTube:
         self.thumbnails = 0
         self.thumbs_dir = thumbs_dir
 
-    def fetch_comments(self):
-        lo = bisect.bisect_left(self.times, self.now - 7200)
+    def fetch_comments(self, since):
+        lo = bisect.bisect_left(self.times, max(since, self.now - 7200))
         hi = bisect.bisect_right(self.times, self.now)
         return self.comments[lo:hi]
 
-    def set_title(self, title):
+    def set_title(self, title, grid_text=""):
         self.titles.append((self.now, title))
 
     def set_thumbnail(self, path):
@@ -115,11 +117,12 @@ def run(rate, days=30, seed=1, authors=30, command_frac=0.5, pattern="acorn",
     times, comments = synthetic_comments(rng, rate, days, authors, command_frac, shape)
     yt = FakeYouTube(times, comments, thumbs_dir)
     u = Universe(life.mask(life.centered(pattern)), flatline_gens(hours, gen_seconds))
-    world = engine.World(universe=u, launch_time=LAUNCH, gen_seconds=gen_seconds)
+    world = engine.World(universe=u, launch_time=LAUNCH, gen_seconds=gen_seconds, key=SIM_KEY)
+    authors_by_key = {admission.keyed(SIM_KEY, "author", c.author): c.author for c in comments}
     thumb_path = os.path.join("out", "sim_thumbnail.png") if thumbs_dir else None
 
     stats = {"applied": 0, "changed": 0, "rate_limited": 0, "dead_rejected": 0, "flatlines": 0,
-             "saves": 0, "failed_saves": 0, "last_changer": None}
+             "saves": 0, "failed_saves": 0}
     if not quiet:
         print(f"rate {rate}/h · {len(comments)} comments over {days} days · seed {seed} · "
               f"{pattern} · flatline {hours:g}h · 1 gen / {gen_seconds}s")
@@ -131,11 +134,10 @@ def run(rate, days=30, seed=1, authors=30, command_frac=0.5, pattern="acorn",
             t = ev["type"]
             if t == "injection":
                 stats["applied"] += 1
-                if ev["changed"]:
-                    stats["changed"] += 1
-                    stats["last_changer"] = (ev["author"], ev["command"], ev["gen"])
-            elif t == "rejected":
-                stats["rate_limited" if ev["reason"] == "author_rate_limit" else "dead_rejected"] += 1
+                stats["changed"] += ev["changed"]
+            elif t == "tick":
+                stats["rate_limited"] += ev["rejected"].get("author_rate_limit", 0)
+                stats["dead_rejected"] += ev["rejected"].get("universe_dead", 0)
             elif t == "phase":
                 if ev["to"] == FLATLINING and ev["reason"] != "reentered_cycle":
                     stats["flatlines"] += 1
@@ -157,12 +159,13 @@ def run(rate, days=30, seed=1, authors=30, command_frac=0.5, pattern="acorn",
             print(f"\n  DIED at gen {u.died_gen:,}, {stats['died_day']:.1f} days after launch.")
         else:
             print(f"\n  Still {u.phase} at gen {u.generation:,} after {days} days.")
-        lc = stats["last_changer"]
+        lc = world.last_changer
         print(f"  injections applied {stats['applied']} (changed the board: {stats['changed']}), "
               f"rate-limited {stats['rate_limited']}, after death {stats['dead_rejected']}")
         print(f"  flatlines {stats['flatlines']}, saves {stats['saves']}, failed saves {stats['failed_saves']}")
         if lc:
-            print(f"  last injection that changed the universe: {lc[1]!r} by {lc[0]} at gen {lc[2]:,}")
+            print(f"  last injection that changed the universe: {lc['command']!r} by "
+                  f"{authors_by_key[lc['author']]} at gen {lc['gen']:,}")
         print(f"  display: {stats['titles']} title updates, {stats['thumbnails']} thumbnails, "
               f"~{stats['quota_per_day']:,.0f} quota units/day (estimate)")
     return stats

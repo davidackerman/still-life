@@ -11,8 +11,9 @@ video is uploaded and this one goes private.
 
 *Every comment changes this universe. Some save it. Some kill it.*
 
-> Status: under construction. Steps 1–2 of 4 are done: credentials and smoke test;
-> simulation, state machine, comment parser, local simulator.
+> Status: under construction. Steps 1–3 of 4 are done: credentials and smoke test;
+> simulation and local simulator; the scheduled bot (titles, thumbnails, comments,
+> log and replay). Step 4, the death sequence and obituary, is next.
 
 ## Rules for viewers
 
@@ -39,8 +40,14 @@ Comment on the video. The first command in your comment wins (case-insensitive):
 - Deleting your comment does not undo it.
 - Comments that YouTube holds for review (spam filter) are invisible to the
   API, so they do nothing while held.
-- Every event is recorded in a hash-chained log (`state/log.jsonl`), and
-  `replay.py` rebuilds the whole life from the seed to verify it.
+- Every run is recorded in a hash-chained public log (`state/log.jsonl`), and
+  `python replay.py` rebuilds the whole life from the seed to verify it.
+- The log holds game data only: generation, the parsed command and its cells.
+  Your comment's text, ID and channel are never stored (see
+  [privacy](https://davidackerman.github.io/still-life/privacy.html)). To find
+  your injection, look for your command's cells around the time you commented.
+  For a random patch, recompute it from your comment ID and text using the
+  formula in `commands.py`.
 
 ### How the universe lives and dies
 
@@ -111,11 +118,77 @@ units.
 Custom thumbnails also need a verified channel
 (<https://www.youtube.com/verify>). Without one, `thumbnails.set` returns 403.
 
+### 4. Public pages and publishing the OAuth app
+
+Google needs a home page and a privacy policy before the OAuth app can leave
+Testing mode, where refresh tokens expire after 7 days. Both pages live in
+`docs/` and are served by GitHub Pages:
+
+- Home: <https://davidackerman.github.io/still-life/>
+- Privacy: <https://davidackerman.github.io/still-life/privacy.html>
+
+1. In Google Cloud → Google Auth Platform → **Branding**, enter both URLs and
+   add the authorized domain `davidackerman.github.io`, then **Save**.
+2. Go to **Audience** → **Publish app**.
+3. Remove the old grant at <https://myaccount.google.com/connections>, run
+   `auth.py` again, and store the new token. Tokens issued in Testing mode
+   keep their 7-day expiry even after you publish.
+
+### 5. Run the bot on GitHub Actions
+
+Set the repository secrets. These commands pipe each value straight into
+`gh`, so nothing is echoed:
+
+```sh
+python -c "import json;print(json.load(open('client_secret.json'))['installed']['client_id'])" | gh secret set CLIENT_ID
+python -c "import json;print(json.load(open('client_secret.json'))['installed']['client_secret'])" | gh secret set CLIENT_SECRET
+security find-generic-password -s still-life-refresh-token -w | gh secret set REFRESH_TOKEN
+echo -n "YOUR_VIDEO_ID" | gh secret set VIDEO_ID
+python -c "import secrets;print(secrets.token_urlsafe(32))" | gh secret set STATE_KEY
+```
+
+`STATE_KEY` keys the hashes of commenter IDs. Nobody needs to know it, but
+keep it stable: changing it makes the bot forget who already commented.
+
+Then switch the workflow on and start the first run:
+
+```sh
+gh variable set TICK_ENABLED --body true
+gh workflow run tick.yml
+```
+
+The first run creates `state/` with generation 0 at that moment. Every 5
+minutes after that, `.github/workflows/tick.yml` runs `tick.py` and commits
+`state/`. `DRY_RUN` is `"true"` in the workflow, so the death sequence never
+uploads anything or changes privacy until you change that line yourself.
+
+To pause, run `gh variable set TICK_ENABLED --body false`. Missed runs are
+harmless: each run catches the universe up to the current time.
+
+**Quota**: about 5,600 of the default 10,000 units a day, mostly title updates
+(51 units every 15 minutes). The bot skips title and thumbnail updates past a
+self-imposed 8,000. It never skips reading comments.
+
+**Known limitations**: comments that YouTube holds for review are invisible
+until approved, and comments older than 48 hours are never read. GitHub may
+delay or drop scheduled runs during heavy load. GitHub disables scheduled
+workflows in repositories with no activity for 60 days; the bot's own commits
+probably count as activity, but GitHub's documentation doesn't say.
+
+## Data policy
+
+YouTube's developer policies allow storing other users' API data for at most
+30 days and require deleting it on request. This repository is public and its
+git history is permanent, so the bot never writes comment text, comment IDs
+or channel IDs to it. Duplicate detection and the one-per-hour limit use
+HMAC-SHA256 hashes under `STATE_KEY`, pruned after 72 hours. The log holds
+game data only.
+
 ## Development
 
 ```sh
 pip install -r requirements-dev.txt
-pytest                                                  # about 2 s
+pytest                                                  # about 5 s
 python simulate.py --rate 0.5 --days 30                 # one lifetime, with timeline
 python simulate.py --rate 0.1 --thumbs out/sim          # also write every thumbnail
 python simulate.py --sweep 0,0.1,0.25,1 --seeds 5       # compare comment rates
@@ -131,9 +204,14 @@ python simulate.py --flatline-hours 6 --gen-seconds 30  # try other tunings
 | `commands.py` | comment → cells parser, including the hashed random patch |
 | `admission.py` | dedupe, one injection per author per hour, 20 per run with a queue |
 | `engine.py` | one run: comments in, simulation forward, title/thumbnail out |
+| `tick.py` | the scheduled entry point: load state, run once, save |
+| `store.py` | `state.json`, `history.bin`, and the hash-chained `log.jsonl` |
+| `replay.py` | verifies the log and rebuilds the life from the seed (no secrets needed) |
+| `.github/workflows/tick.yml` | runs `tick.py` every 5 minutes and commits `state/` |
+| `docs/` | GitHub Pages: home page and privacy policy |
 | `render.py` | status title and the 1280×720 thumbnail |
 | `simulate.py` | local mode: fake YouTube, fake clock, synthetic commenters |
 | `auth.py` | one-time OAuth desktop flow (loopback + PKCE); prints a refresh token |
 | `smoke_test.py` | milestone 1: title and thumbnail round trip on `VIDEO_ID` |
-| `youtube.py` | YouTube API access (display and input only; never authoritative) |
+| `youtube.py` | YouTube client: comments, title, thumbnail, quota by Pacific day |
 | `tests/` | pytest suite |

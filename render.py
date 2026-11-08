@@ -40,6 +40,23 @@ def title(u: Universe, gen_seconds: int = GEN_SECONDS) -> str:
     return " · ".join(parts)
 
 
+_BRAILLE_BITS = ((0, 0, 0x01), (0, 1, 0x02), (0, 2, 0x04), (1, 0, 0x08),
+                 (1, 1, 0x10), (1, 2, 0x20), (0, 3, 0x40), (1, 3, 0x80))
+
+
+def braille(grid: np.ndarray) -> str:
+    """The grid as Unicode braille, 2x4 cells per character (128x72 -> 64x18).
+
+    About 3.5 KB of UTF-8, small enough for a video description (5000 bytes)."""
+    h, w = grid.shape
+    ph, pw = -h % 4, -w % 2
+    g = np.pad(grid, ((0, ph), (0, pw)))
+    code = np.zeros((g.shape[0] // 4, g.shape[1] // 2), dtype=np.int32)
+    for dx, dy, bit in _BRAILLE_BITS:
+        code += g[dy::4, dx::2].astype(np.int32) * bit
+    return "\n".join("".join(chr(0x2800 + c) for c in row) for row in code)
+
+
 def _font(size: int):
     from PIL import ImageFont
 

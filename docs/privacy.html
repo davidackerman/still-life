@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>still-life privacy policy</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<h1>Privacy policy</h1>
+<p class="lede">still-life · effective 7 November 2026</p>
+
+<p>still-life is an automated program (“the app”) run by the owner of the YouTube channel that hosts the still-life video. It turns comments on that video into cells in a Game of Life universe and shows the universe in the video's title and thumbnail. Its source code is public at <a href="https://github.com/davidackerman/still-life">github.com/davidackerman/still-life</a>.</p>
+
+<h2>YouTube API Services</h2>
+<p>The app uses YouTube API Services. By using the app, including by commenting on the still-life video, you agree to be bound by the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>. Google's handling of your data is described in the <a href="http://www.google.com/policies/privacy">Google Privacy Policy</a>.</p>
+
+<h2>What the app accesses</h2>
+<ul>
+<li><strong>The channel owner's account</strong>, with the owner's authorization: the still-life video's title, description, tags, category and language settings, so that it can change the title, the thumbnail and (optionally) a block in the description. When the universe dies, it also uploads an obituary video to the channel and makes the original video private.</li>
+<li><strong>Public comments on the still-life video</strong>: for each top-level comment, its ID, the author's channel ID (or display name if there is no channel ID), its text, and when it was published.</li>
+</ul>
+
+<h2>How it uses that data</h2>
+<ul>
+<li>The <strong>comment text</strong> is read once to work out which cells to add. The text is never stored.</li>
+<li>The <strong>author's channel ID</strong> limits each channel to one injection per hour.</li>
+<li>The <strong>comment ID</strong> makes sure a comment is processed only once.</li>
+</ul>
+<p>Nothing else is done with it: no profiles, no advertising, no analytics, no selling or sharing with anyone.</p>
+
+<h2>What is stored, and for how long</h2>
+<ul>
+<li>Comment IDs and author channel IDs are stored only as keyed hashes (HMAC-SHA256 with a secret key), and are deleted after at most 72 hours.</li>
+<li>The app keeps a permanent public log of the universe in the GitHub repository above. It contains only game data: the generation number, the time of each run, the parsed command (for example <code>glider 10,20 se</code>) and the cells it added. It contains no comment text, IDs, names, or anything else that identifies a commenter.</li>
+<li>When the universe dies, the obituary video credits the last comment that changed the universe. To do that, the app looks the comment up on YouTube at that moment and may show the author's public display name in the video. If the comment has been deleted, no name is shown.</li>
+</ul>
+<p>The repository is hosted by GitHub, whose own privacy statement covers that hosting.</p>
+
+<h2>Cookies and tracking</h2>
+<p>Neither the app nor these pages use cookies, trackers or third-party advertising.</p>
+
+<h2>Removing data and revoking access</h2>
+<p>Because nothing identifying is kept for more than 72 hours, there is normally nothing to remove. If you want something removed or have a question, open an issue at <a href="https://github.com/davidackerman/still-life/issues">github.com/davidackerman/still-life/issues</a>; requests are handled within 7 days.</p>
+<p>The channel owner can revoke the app's access to their account at any time at <a href="https://security.google.com/settings/security/permissions">security.google.com/settings/security/permissions</a>.</p>
+
+<h2>Changes</h2>
+<p>Changes to this policy are published on this page with a new effective date.</p>
+
+<footer><a href="index.html">still-life</a> · <a href="https://github.com/davidackerman/still-life/issues">Contact</a></footer>
+</main>
+</body>
+</html>
