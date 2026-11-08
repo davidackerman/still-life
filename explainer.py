@@ -275,7 +275,7 @@ def build() -> list[Frame]:
         frames.append(Frame(u, zoom=z, dim=0.45, texts=centre_block(lines, fade(i, n), 470)))
 
     # 5. thumbnail + title (2 s extra to read the title bar)
-    lines = [("The thumbnail is its window.", "bold", 76), ("The title is its pulse.", "bold", 76)]
+    lines = [("The thumbnail shows the universe.", "bold", 76), ("The title shows its vital signs.", "bold", 76)]
     n = read_frames(*[t for t, _, _ in lines]) + 2 * FPS
     for i in range(n):
         u.advance_to(u.generation + 1)
