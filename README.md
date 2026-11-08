@@ -4,8 +4,8 @@
 
 A YouTube video hosts a live Conway's Game of Life universe: 128×72 cells on a
 torus, one generation every two minutes. The thumbnail shows the grid and the
-title counts down to its death: "This video dies in 3d 13h 45m if nobody
-comments", and so does the thumbnail ("DIES IN 9 DAYS"). Every comment injects cells. A finite universe left
+title counts down to its death: "This Game of Life video dies in 3d 13h 45m if
+nobody comments", and so does the thumbnail ("DIES IN 9 DAYS"). Every comment injects cells. A finite universe left
 alone must eventually return to a state it has been in before, and from then
 on it is stuck in a loop forever. When that happens, a 24-hour flatline
 countdown starts. If no comment breaks the cycle in time, the universe dies. An obituary

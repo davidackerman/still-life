@@ -165,7 +165,7 @@ def test_forecast_is_cached_until_a_comment_changes_the_board(monkeypatch):
     yt.comments = [comment("a")]
     engine.tick(w, LAUNCH + 3600, yt)
     assert len(calls) == 2 and w.forecast["stuck_gen"] != 1855
-    assert yt.titles[-1].startswith("This video dies in ") and yt.titles[-1].endswith("if nobody comments · Game of Life")
+    assert yt.titles[-1].startswith("This Game of Life video dies in ") and yt.titles[-1].endswith("if nobody comments")
 
 
 def test_force_thumbnail_uploads_even_when_not_due():

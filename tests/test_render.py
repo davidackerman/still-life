@@ -12,8 +12,8 @@ def acorn():
 def test_titles_count_down_in_every_phase():
     u = acorn()
     stuck = u.forecast_stuck(30000)  # 1855: 2575 gens to death = 3 days, 13 hours, 50 minutes
-    assert render.title(u, stuck_gen=stuck) == "This video dies in 3d 13h 45m if nobody comments · Game of Life"
-    assert render.title(u, stuck_gen=None, horizon_gens=30000) == "This video dies in 42+ days if nobody comments · Game of Life"
+    assert render.title(u, stuck_gen=stuck) == "This Game of Life video dies in 3d 13h 45m if nobody comments"
+    assert render.title(u, stuck_gen=None, horizon_gens=30000) == "This Game of Life video dies in 42+ days if nobody comments"
     u.advance_to(1855)
     assert render.title(u) == "This video dies in 1d 00h 00m: its universe is stuck in a loop"
     u.advance_to(2575 - 25)

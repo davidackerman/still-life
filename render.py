@@ -64,8 +64,8 @@ def title(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = N
     elif horizon_gens is not None:
         when = f"{(horizon_gens + u.flatline_gens) * gen_seconds // 86400}+ days"  # beyond the forecast
     else:
-        return f"{TITLE_BASE} · Game of Life"
-    return f"This video {VERB} in {when} if nobody comments · Game of Life"
+        return f"{TITLE_BASE}"
+    return f"This Game of Life video {VERB} in {when} if nobody comments"
 
 
 _BRAILLE_BITS = ((0, 0, 0x01), (0, 1, 0x02), (0, 2, 0x04), (1, 0, 0x08),
@@ -162,8 +162,9 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
     size = 110
     while size > 60 and d.textlength(big, font=_font(size)) > W * 0.76:  # stay clear of the duration badge
         size -= 4
-    d.text((40, H - 150), small, font=_font(50), fill=(235, 235, 240, 255), anchor="ls")
-    d.text((36, H - 36), big, font=_font(size), fill=PHASE_COLOR[u.phase] + (255,), anchor="ls")
+    # Reads top to bottom: "DIES IN 9 DAYS" / "if nobody comments · gen 385"
+    d.text((36, H - 92), big, font=_font(size), fill=PHASE_COLOR[u.phase] + (255,), anchor="ls")
+    d.text((40, H - 34), small, font=_font(50), fill=(235, 235, 240, 255), anchor="ls")
     im = Image.alpha_composite(im, band).convert("RGB")
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
