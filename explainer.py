@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Render the explainer video that hosts the universe (about 1:50, 4K, silent).
+"""Render the explainer video that hosts the universe (about 1:50, 4K, with a soundtrack).
 
     python explainer.py                      # 4K: out/explainer.mp4
     python explainer.py --scale 1 --preview out/explainer_frames   # quick 1080p draft
 
 Everything on screen is a real run of universe.Universe: the acorn evolving,
 comments injecting cells, the loop that starts the countdown, a comment that
-saves it, and (as a "what if") the same universe dying. Needs ffmpeg.
+saves it, and (as a "what if") the same universe dying. The soundtrack is a heart
+monitor driven by the same frames (see soundtrack()). Needs ffmpeg.
 
 Layout is written in 1920x1080 design units and scaled at render time.
 Text durations follow reading speed: subtitle guidelines cap reading at
@@ -28,7 +29,7 @@ from PIL import Image, ImageDraw, ImageFont
 import commands
 import life
 from render import BG, GRID, HIGHLIGHT, PHASE_COLOR, TITLE_BASE
-from universe import ALIVE, CONTESTED, DIED, Universe, flatline_gens
+from universe import ALIVE, CONTESTED, DIED, FLATLINING, Universe, flatline_gens
 
 FPS = 30
 DW, DH = 1920, 1080  # design units
@@ -66,7 +67,9 @@ def S(*v):
 
 # ---------------------------------------------------------------- frame model
 class Frame:
-    def __init__(self, u: Universe, highlight=None, texts=(), grey=0.0, hud=True, extras=(), zoom=1.0, dim=0.7):
+    def __init__(self, u: Universe, highlight=None, texts=(), grey=0.0, hud=True, extras=(), zoom=1.0, dim=0.7,
+                 cue=None):
+        self.cue = cue  # sound cue: ("inject", x) or ("saved",)
         self.grid = u.grid.copy()
         self.phase, self.gen = u.phase, u.generation
         self.left = u.gens_left()
@@ -251,14 +254,16 @@ def build() -> list[Frame]:
             (bottom, "bold", 72, (DW // 2, 950), "mm", fade(i, n))]))
 
     # 3. the rule, up close: one generation every half second, in two cards
-    for line, size in [("Each generation, every cell counts its 8 neighbours.", 62),
-                       ("Born with exactly 3. Survives with 2 or 3. Otherwise it dies.", 60)]:
-        n = read_frames(line)
+    for lines in [[("Each generation, every cell looks at its eight neighbours.", 60)],
+                  [("Three neighbours bring an empty cell to life.", 54),
+                   ("Two or three keep a cell alive. Too few or too many, and it dies.", 54)]]:
+        n = read_frames(*[t for t, _ in lines])
+        ys = [960] if len(lines) == 1 else [905, 985]
         for i in range(n):
             if i and i % 15 == 0:
                 u.advance_to(u.generation + 1)
-            frames.append(Frame(u, zoom=ZOOM, hud=False, dim=0.25,
-                                texts=[(line, "bold", size, (DW // 2, 960), "mm", fade(i, n))]))
+            frames.append(Frame(u, zoom=ZOOM, hud=False, dim=0.25, texts=[
+                (t, "bold", size, (DW // 2, y), "mm", fade(i, n)) for (t, size), y in zip(lines, ys)]))
 
     # 4. pull back as it grows into the whole grid
     lines = [("From seven cells, a whole world.", "bold", 72),
@@ -297,7 +302,8 @@ def build() -> list[Frame]:
         a = fade(i, n)
         extras = [label(c, t, min(1.0, (i - s0 + 1) / 8, (s0 + 90 - i) / 8))
                   for s0, c, t in labels if s0 <= i < s0 + 90]
-        frames.append(Frame(u, highlight=lit, extras=extras, texts=[
+        cue = ("inject", float(np.mean([c[0] for c in cmd.cells]))) if i in plan else None
+        frames.append(Frame(u, highlight=lit, extras=extras, cue=cue, texts=[
             (head, "bold", 76, (DW // 2, 110), "mm", a), (cmds, "medium", 40, (DW // 2, 190), "mm", a),
             (rest, "medium", 40, (DW // 2, 245), "mm", a)]))
 
@@ -321,12 +327,14 @@ def build() -> list[Frame]:
     lit = life.mask(cmd.cells)
     for i in range(3 * FPS):
         u.advance_to(u.generation + 1)
-        frames.append(Frame(u, highlight=lit, extras=[label(cmd.cells, saver, min(1.0, (i + 1) / 8))]))
+        cue = ("inject", float(np.mean([c[0] for c in cmd.cells]))) if i == 0 else None
+        frames.append(Frame(u, highlight=lit, cue=cue, extras=[label(cmd.cells, saver, min(1.0, (i + 1) / 8))]))
     start = u.generation
     card([("…and if it’s still changing when", "bold", 70), ("the countdown ends, it lives.", "bold", 70)], 460,
          highlight=lit,
          step=lambda i, n: u.advance_to(start + round((deadline - start) * min(1.0, (i + 1) / max(1, n - 20)))))
     card([("Saved.", "bold", 110)], 500, n=int(MIN_S * FPS) + 2 * FADE, step=lambda i, n: u.advance_to(u.generation + 1))
+    frames[-(int(MIN_S * FPS) + 2 * FADE)].cue = ("saved",)
 
     # 9. what if nobody had: it dies
     dead = flatlined
@@ -350,12 +358,173 @@ def build() -> list[Frame]:
     return frames
 
 
+# ---------------------------------------------------------------- sound
+SR = 48000
+TICK = 9  # frames per musical tick (0.3 s)
+MASTER_RMS = 0.05  # overall level: about 7 dB quieter than the first draft
+# A major pentatonic from A3 up two octaves: higher on screen = higher note
+NOTES = [220.0 * 2 ** (st / 12) for st in (0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24)]
+
+
+def _note(freq, dur, amp, decay, attack=0.008, harmonics=((1, 1.0), (2, 0.25), (4, 0.06))):
+    """A soft plucked tone (kalimba-like): quick attack, exponential decay."""
+    t = np.arange(int(dur * SR)) / SR
+    env = np.minimum(1.0, t / attack) * np.exp(-t / decay)
+    sig = sum(w * np.sin(2 * np.pi * freq * k * t) * np.exp(-t * (k - 1) * 3) for k, w in harmonics)
+    return (amp * env * sig).astype(np.float32)
+
+
+def _reverb(x: np.ndarray, rt60=2.4, predelay=0.02, seed=11) -> np.ndarray:
+    """Stereo convolution with a synthetic, darkened noise tail."""
+    rng = np.random.default_rng(seed)
+    n_ir = int(SR * rt60)
+    t = np.arange(n_ir) / SR
+    ir = rng.standard_normal((2, n_ir)) * np.exp(-6.9 * t / rt60)
+    spec = np.fft.rfft(ir, axis=1)
+    f = np.fft.rfftfreq(n_ir, 1 / SR)
+    ir = np.fft.irfft(spec / (1 + (f / 2500) ** 2), n_ir, axis=1)  # darker tail
+    ir = np.concatenate([np.zeros((2, int(predelay * SR))), ir], axis=1)
+    ir /= np.sqrt((ir ** 2).sum(axis=1, keepdims=True))
+    m = x.shape[1] + ir.shape[1]
+    nfft = 1 << (m - 1).bit_length()
+    y = np.fft.irfft(np.fft.rfft(x, nfft, axis=1) * np.fft.rfft(ir, nfft, axis=1), nfft, axis=1)
+    return y[:, : x.shape[1]].astype(np.float32)
+
+
+def soundtrack(frames: list[Frame]) -> np.ndarray:
+    """Stereo float32 audio that follows the frames, meant to be soothing.
+
+    - cells: every 0.3 s, the cells born in that window play soft high notes and
+      the cells that died play soft low ones. More of either, more notes and a
+      little louder (none = silence; a loop = a repeating phrase). Pitch: height
+      on screen. Pan: left-right position.
+    - pulse: a soft monitor tone; ALIVE every 1.5 s, CONTESTED every 0.9 s,
+      FLATLINING low and every 2.2 s; DIED is one long fading tone
+    - a chime when a comment lands, a warm chord on "Saved."
+    - a faint airy chord that follows the phase
+    Everything except the pulse goes through a soft reverb.
+    """
+    spf = SR // FPS
+    n = len(frames) * spf
+    rng = np.random.default_rng(3)
+    music = np.zeros((2, n), np.float32)  # reverberated bus
+    dry = np.zeros((2, n), np.float32)
+
+    def add(bus, sig, at, pan=0.0):
+        at = int(at)
+        if at >= n:
+            return
+        sig = sig[: n - at]
+        a = (pan + 1) * np.pi / 4
+        bus[0, at:at + len(sig)] += np.cos(a) * sig
+        bus[1, at:at + len(sig)] += np.sin(a) * sig
+
+    def state(f):
+        return DIED if f.grey > 0 or f.phase == DIED else f.phase
+
+    # cells: births (bright, high) and deaths (soft, low) per tick -> notes
+    born_at = [np.zeros((0, 2), int)]
+    died_at = [np.zeros((0, 2), int)]
+    for a, b in zip(frames, frames[1:]):
+        born_at.append(np.argwhere((b.grid == 1) & (a.grid == 0)))
+        died_at.append(np.argwhere((b.grid == 0) & (a.grid == 1)))
+
+    def voices(events, t0, notes, max_k, amp_lo, amp_hi, decay, dur, offset):
+        window = [e for e, f in zip(events[t0:t0 + TICK], frames[t0:t0 + TICK]) if len(e) and state(f) != DIED]
+        if not window:
+            return
+        cells = np.unique(np.concatenate(window), axis=0)  # (y, x)
+        count = len(cells)
+        k = int(np.clip(np.ceil(np.log2(count + 1) / 1.6), 1, max_k))  # 1 cell: 1 note ... ~250: 5 notes
+        loud = amp_lo + (amp_hi - amp_lo) * min(1.0, np.log2(count + 1) / 8)
+        picks = cells[rng.choice(count, size=k, replace=False)]  # real cells: pitch by row, pan by column
+        for j, (y, x) in enumerate(sorted(picks.tolist(), key=lambda p: -p[0])):
+            freq = notes[int((life.H - 1 - y) / life.H * len(notes))]
+            add(music, _note(freq, dur, loud / np.sqrt(k), decay), t0 * spf + offset + j * int(0.055 * SR),
+                pan=x / (life.W - 1) * 1.4 - 0.7)
+
+    LOW = [f / 2 for f in NOTES[:6]]  # A2..A3 pentatonic, for deaths
+    for t0 in range(0, len(frames), TICK):
+        voices(born_at, t0, NOTES, 5, 0.035, 0.075, 0.55, 2.0, 0)
+        voices(died_at, t0, LOW, 3, 0.03, 0.06, 0.25, 1.0, int(0.14 * SR))  # a beat after the births
+
+    # pulse and the flatline tone
+    pulse = {ALIVE: (880.0, 1.5, 0.035), CONTESTED: (880.0, 0.9, 0.04), FLATLINING: (659.25, 2.2, 0.04)}
+    next_t, i = 0.8, 0
+    while i < len(frames):
+        t = i / FPS
+        st = state(frames[i])
+        if st == DIED:
+            j = i
+            while j < len(frames) and state(frames[j]) == DIED:
+                j += 1
+            dur = (j - i) / FPS
+            tt = np.arange(int(dur * SR)) / SR
+            env = np.minimum(1.0, tt / 0.05) * np.clip((dur - tt) / 3.0, 0, 1)
+            add(dry, (0.03 * env * np.sin(2 * np.pi * 880.0 * tt)).astype(np.float32), t * SR)
+            i, next_t = j, j / FPS + 1.0
+            continue
+        if t >= next_t:
+            freq, gap, amp = pulse[st]
+            beep = _note(freq, 0.6, amp, 0.12, attack=0.01, harmonics=((1, 1.0),))
+            add(dry, beep, t * SR)
+            add(music, beep * 0.5, t * SR)
+            next_t = t + gap
+        i += 1
+
+    # cues
+    for i, f in enumerate(frames):
+        if not f.cue:
+            continue
+        if f.cue[0] == "inject":
+            pan = f.cue[1] / (life.W - 1) * 1.4 - 0.7
+            for j, fr in enumerate((880.0, 1108.73, 1318.51)):  # a soft rising arpeggio
+                add(music, _note(fr, 2.5, 0.04, 0.8), i * spf + j * int(0.09 * SR), pan)
+        elif f.cue[0] == "saved":
+            for j, fr in enumerate((220.0, 277.18, 329.63, 440.0, 554.37)):
+                add(music, _note(fr, 4.0, 0.035, 1.6, attack=0.15, harmonics=((1, 1.0), (2, 0.15))),
+                    i * spf + j * int(0.05 * SR))
+
+    # a faint airy chord following the phase (no bass)
+    voices = [440.0, 493.88, 523.25, 554.37, 659.25]
+    chords = {ALIVE: {440.0, 554.37, 659.25}, FLATLINING: {440.0, 523.25, 659.25},
+              CONTESTED: {440.0, 493.88, 659.25}, DIED: set()}
+    gains = np.zeros((len(voices), len(frames)))
+    cur = np.zeros(len(voices))
+    for i, f in enumerate(frames):
+        target = np.array([1.0 if v in chords[state(f)] else 0.0 for v in voices]) * min(1.0, i / (FPS * 3))
+        cur += (target - cur) * 0.03
+        gains[:, i] = cur
+    t = np.arange(n) / SR
+    frame_t = np.arange(len(frames)) / FPS
+    for v, g in zip(voices, gains):
+        swell = 0.6 + 0.4 * np.sin(2 * np.pi * 0.07 * t + v) ** 2
+        music += (0.0022 * np.interp(t, frame_t, g) * swell * np.sin(2 * np.pi * v * t)).astype(np.float32)
+
+    out = dry + 0.75 * music + 0.55 * _reverb(music)
+    out = np.tanh(out * 1.2)
+    rms = np.sqrt((out ** 2).mean())
+    out *= min(MASTER_RMS / max(rms, 1e-6), 0.9 / max(1e-6, np.abs(out).max()))  # peak-safe
+    return out
+
+
+def write_wav(path: str, audio: np.ndarray) -> None:
+    import wave
+    pcm = (np.clip(audio.T, -1, 1) * 32767).astype("<i2").tobytes()
+    with wave.open(path, "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        w.writeframes(pcm)
+
+
 def main() -> None:
     global SCALE
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--out", default=os.path.join("out", "explainer.mp4"))
     ap.add_argument("--scale", type=int, default=2, help="1 = 1080p, 2 = 4K (default)")
     ap.add_argument("--preview", help="also save one frame every 2 s as PNG into this folder")
+    ap.add_argument("--audio-only", action="store_true", help="only write the soundtrack WAV")
     args = ap.parse_args()
     SCALE = args.scale
     frames = build()
@@ -364,10 +533,15 @@ def main() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     if args.preview:
         os.makedirs(args.preview, exist_ok=True)
+    wav = os.path.splitext(args.out)[0] + ".wav"
+    write_wav(wav, soundtrack(frames))
+    print(f"soundtrack: {wav}")
+    if args.audio_only:
+        return
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}",
-         "-r", str(FPS), "-i", "-", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-shortest",
-         "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac",
+         "-r", str(FPS), "-i", "-", "-i", wav, "-shortest",
+         "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
          "-movflags", "+faststart", args.out],
         stdin=subprocess.PIPE)
     for i, f in enumerate(frames):
