@@ -45,6 +45,7 @@ TOP_Y = 365  # centre of the text area above the board
 BOTTOM_Y = 1330  # centre of the text area below it, clear of the Shorts title and buttons
 CX = 520  # text centre, nudged left of the Shorts buttons
 TEXT_W = 900
+WRAP_DIM = 0.8  # the torus continues above and below the board: shown faintly (0 = off)
 FPS = ex.FPS
 FORECAST_GENS = 30000
 # Shorts viewers read fast: 17 characters/s (the top of the subtitle guidelines
@@ -129,17 +130,30 @@ def wrap(s: str, weight: str, size: int, width: int = TEXT_W) -> list[str]:
             line = w
         else:
             line = trial
-    return out + [line] if line else out
+    out = out + [line] if line else out
+    if 2 <= len(out) <= 3:  # balance: "Every comment / adds cells.", not "Every comment adds / cells."
+        from itertools import combinations
+        words = s.split()
+
+        def width(ws):
+            return d.textlength(" ".join(ws), font=ex.font(weight, size))
+        best = min(combinations(range(1, len(words)), len(out) - 1),
+                   key=lambda cuts: max(width(words[a:b]) for a, b in zip((0,) + cuts, cuts + (len(words),))))
+        out = [" ".join(words[a:b]) for a, b in zip((0,) + best, best + (len(words),))]
+    return out
 
 
 def block(lines, yc: int, alpha: float):
-    """[(text, weight, size)] -> explainer-style text tuples, wrapped, centred on (CX, yc)."""
-    rows = [(ln, weight, size) for s, weight, size in lines for ln in wrap(s, weight, size)]
+    """[(text, weight, size)] -> explainer-style text tuples, wrapped, centred on (cx, yc).
+    Above the board there are no Shorts buttons, so text there uses the full width."""
+    above = yc < BAND_Y
+    cx, width = (PW // 2, PW - 90) if above else (CX, TEXT_W)
+    rows = [(ln, weight, size) for s, weight, size in lines for ln in wrap(s, weight, size, width)]
     steps = [int(size * 1.25) for _, _, size in rows]
     y = yc - (sum(steps) - steps[-1]) / 2 if rows else yc
     out = []
     for (ln, weight, size), step in zip(rows, steps):
-        out.append((ln, weight, size, (CX, round(y)), "mm", alpha))
+        out.append((ln, weight, size, (cx, round(y)), "mm", alpha))
         y += step
     return out
 
@@ -179,12 +193,24 @@ def arrow_down(x: int, y: int, alpha: float):
 def compose(f) -> bytes:
     x0, y0, w, h = view(f)
     resample = Image.NEAREST if f.zoom * BAND_W / BW >= 1 else Image.LANCZOS
-    band = board(f).resize((BAND_W, BAND_H), resample, box=(x0, y0, x0 + w, y0 + h))
-    canvas = Image.new("RGBA", (PW, PH), (0, 0, 0, 255))
-    canvas.paste(band, (0, BAND_Y))
+    img = board(f)
+    if WRAP_DIM < 1:
+        # The whole screen, top to bottom, at the band's scale. Rows outside the
+        # board wrap around (it is a torus), so this is what really lies beyond its edges.
+        k = h / BAND_H  # board px per screen px
+        top, bottom = y0 - BAND_Y * k, y0 + (PH - BAND_Y) * k
+        r0, r1 = int(np.floor(top)), int(np.ceil(bottom))
+        tall = Image.fromarray(np.asarray(img)[np.arange(r0, r1) % BH])
+        canvas = tall.resize((PW, PH), resample, box=(x0, top - r0, x0 + w, bottom - r0)).convert("RGBA")
+        veil = Image.new("RGBA", (PW, PH), (0, 0, 0, int(255 * WRAP_DIM)))
+        veil.paste((0, 0, 0, 0), (0, BAND_Y, PW, BAND_Y + BAND_H))
+        canvas = Image.alpha_composite(canvas, veil)
+    else:
+        canvas = Image.new("RGBA", (PW, PH), (0, 0, 0, 255))
+        canvas.paste(img.resize((BAND_W, BAND_H), resample, box=(x0, y0, x0 + w, y0 + h)), (0, BAND_Y))
     layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
-    edge = (38, 42, 52, 255)
+    edge = (70, 76, 92, 255)
     d.line((0, BAND_Y - 1, PW, BAND_Y - 1), fill=edge, width=2)
     d.line((0, BAND_Y + BAND_H, PW, BAND_Y + BAND_H), fill=edge, width=2)
     if f.dim:
@@ -325,7 +351,7 @@ def build(state_dir: str) -> list:
                  else f"{days(FORECAST_GENS + F, h.gen_seconds)}+")
         what = "stretched" if stuck_now is None or stuck_now > stuck_seed else "changed"
         noun = "comment" if moves == 1 else "comments"
-        text = f"{moves} {noun} so far {what} its life from {before} days to {after}."
+        text = f"{moves} {noun} so far {what} its life from {before} to {after} days."
         n = rf(text)
         for i in range(n):
             if i % 4 == 0:
