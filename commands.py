@@ -6,14 +6,14 @@ Grammar (case-insensitive; the earliest valid command anywhere in the text wins)
     block x,y | blinker x,y | rpent x,y | acorn x,y
     cells x,y x,y ...            1 to 25 cells
 
-(x, y) is the top-left of the pattern's bounding box; x in 0..127, y in 0..71,
-origin top-left. Patterns that run past an edge wrap. A command with any
+(x, y) is the top-left of the pattern's bounding box; x in 0..W-1, y in 0..H-1
+(0..127 and 0..71 on the first universe's 128x72 board), origin top-left. Patterns that run past an edge wrap. A command with any
 coordinate out of range, or a `cells` list longer than 25, is invalid and
 ignored. A comment with no valid command injects a 5x5 random patch:
 
     d = BLAKE2b-256((comment_id + text).encode("utf-8"))
-    x = int.from_bytes(d[0:2], "big") % 128
-    y = int.from_bytes(d[2:4], "big") % 72
+    x = int.from_bytes(d[0:2], "big") % W     (W x H: the board size, 128 x 72 at first)
+    y = int.from_bytes(d[2:4], "big") % H
     bits = int.from_bytes(d[4:8], "big")
     cell (i % 5, i // 5) of the patch is alive iff bit i of `bits` is 1, i = 0..24
 

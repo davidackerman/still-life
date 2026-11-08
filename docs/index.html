@@ -39,7 +39,7 @@
 </section>
 
 <div class="narrow">
-<p>A YouTube video hosts this universe: Conway's Game of Life on 128×72 cells with wrapping edges, one generation every two minutes, around the clock. The video's thumbnail shows the grid and its title shows the status. What you see above is the same universe, computed in your browser from the bot's latest state.</p>
+<p>A YouTube video hosts this universe: Conway's Game of Life on <span id="size">128×72</span> cells with wrapping edges, one generation every two minutes, around the clock. The video's thumbnail shows the grid and its title shows the status. What you see above is the same universe, computed in your browser from the bot's latest state.</p>
 <p>Every comment on the video injects cells. Left alone, a finite universe must eventually return to a state it was in before, and from then on it is stuck in a loop forever. When that happens a 24-hour countdown starts. If no comment breaks the loop in time, the universe dies: an obituary video is uploaded and the original goes private.</p>
 <p class="pitch">Every comment changes this universe. Some save it. Some kill it.</p>
 
@@ -70,7 +70,8 @@ const VIDEO_URL = "https://www.youtube.com/watch?v=oFWeLMe4bhI";
 const BASE = new URLSearchParams(location.search).get("base")
   || "https://raw.githubusercontent.com/davidackerman/still-life/main/state/";
 const COLOR = { ALIVE: "#78e6a0", FLATLINING: "#f05a5a", CONTESTED: "#fac850", DIED: "#7a7a87" };
-const CELL = 10, POLL_MS = 60000, FORECAST_GENS = 30000, RECENT = 15;
+let CELL = 10;  // px per cell; smaller on bigger boards (set from the state's shape)
+const POLL_MS = 60000, FORECAST_GENS = 30000, RECENT = 15;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("board"), ctx = canvas.getContext("2d");
@@ -96,6 +97,9 @@ async function load() {
                                         fetch(`${BASE}log.jsonl?t=${t}`, { cache: "no-store" })]);
     if (!rs.ok) throw new Error(rs.status);
     const d = await rs.json(), u = d.universe, [h, w] = u.shape;
+    CELL = Math.max(4, Math.min(10, Math.floor(1280 / w)));
+    if (canvas.width !== w * CELL || canvas.height !== h * CELL) { canvas.width = w * CELL; canvas.height = h * CELL; }
+    $("size").textContent = `${w}×${h}`;
     const fresh = !S || S.hash !== u.hash;
     S = {
       h, w, gen: u.generation, phase: u.phase, hash: u.hash,

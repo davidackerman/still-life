@@ -12,6 +12,7 @@ from universe import ALIVE, CONTESTED, DIED, FLATLINING, GEN_SECONDS, Universe
 
 TITLE_BASE = "This video dies when its universe gets stuck in a loop"
 CELL = 10  # px per cell: 128x72 cells -> 1280x720
+THUMB_W, THUMB_H = 1280, 720  # YouTube's recommended thumbnail size; bigger boards are scaled to fit
 
 BG = (10, 12, 16)
 GRID = (22, 25, 32)
@@ -48,11 +49,17 @@ VERB = "dies"  # one place to change the title's verb (e.g. "self-destructs")
 
 
 def title(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
-          horizon_gens: int | None = None) -> str:
-    """The video title: a countdown to death.
+          horizon_gens: int | None = None, saves: int = 0) -> str:
+    """The video title: a countdown to death, plus " · saved N×" once comments
+    have saved it from a countdown (last, so a phone cutting it off loses nothing).
 
     ALIVE needs the forecast (`stuck_gen`: when it would get stuck if nobody
     comments; None with `horizon_gens` = not within that many generations)."""
+    base = _title(u, gen_seconds, stuck_gen, horizon_gens)
+    return f"{base} · saved {saves}×" if saves else base
+
+
+def _title(u: Universe, gen_seconds: int, stuck_gen: int | None, horizon_gens: int | None) -> str:
     if u.phase == DIED:
         return f"This video died: its universe got stuck in a loop"
     if u.phase == FLATLINING:
@@ -137,19 +144,23 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
     color = np.array(PHASE_COLOR[u.phase], np.uint8)
     hl = life.mask(highlight, (h, w)) if highlight else np.zeros((h, w), np.uint8)
 
-    inner = np.zeros((CELL, CELL), bool)
+    cell = max(4, min(CELL, THUMB_W // w))  # 10 px for 128x72; bigger boards get smaller cells
+    inner = np.zeros((cell, cell), bool)
     inner[1:-1, 1:-1] = True
     tile = np.tile(inner, (h, w))
-    alive = np.kron(u.grid, np.ones((CELL, CELL), np.uint8)).astype(bool) & tile
-    lit = np.kron(u.grid & hl, np.ones((CELL, CELL), np.uint8)).astype(bool) & tile
+    alive = np.kron(u.grid, np.ones((cell, cell), np.uint8)).astype(bool) & tile
+    lit = np.kron(u.grid & hl, np.ones((cell, cell), np.uint8)).astype(bool) & tile
 
-    img = np.empty((h * CELL, w * CELL, 3), np.uint8)
+    img = np.empty((h * cell, w * cell, 3), np.uint8)
     img[:] = GRID
     img[tile] = BG
     img[alive] = color
     img[lit] = HIGHLIGHT
 
-    im = Image.fromarray(img).convert("RGBA")
+    im = Image.fromarray(img)
+    if im.size != (THUMB_W, THUMB_H):
+        im = im.resize((THUMB_W, THUMB_H), Image.LANCZOS)
+    im = im.convert("RGBA")
     band = Image.new("RGBA", im.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(band)
     W, H = im.size

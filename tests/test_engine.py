@@ -262,6 +262,7 @@ def test_a_save_credits_the_comment_that_broke_the_loop():
         engine.tick(w, LAUNCH + t, yt)
     assert w.universe.phase == "ALIVE"
     assert w.recent[0] == "🫀 gen 2,575: SAVED, thanks to glider 4,20 ne (gen 1,875)"
+    assert w.saves == 1 and w.last_title.endswith(" · saved 1×")
     assert w.contest_by is None  # cleared once it is ALIVE again
 
 
@@ -323,3 +324,14 @@ def test_old_state_with_a_single_pinned_id_still_loads():
     d.pop("reply_counts")
     w2 = engine.World.from_state(json.loads(json.dumps(d)), hist, w.key)
     assert w2.pinned == w.pinned and w2.pinned_id == "Ugpin" and w2.reply_counts == {}
+
+
+def test_a_bigger_universe_runs_the_same_way():
+    shape = (99, 176)
+    w = engine.World(Universe(life.mask(life.centered("acorn", shape), shape), flatline_gens()), LAUNCH,
+                     key=b"k" * 16)
+    yt = FakeYT([comment("a", "u1", "glider 170,95 nw"), comment("b", "u2", "hello")])
+    ev = engine.tick(w, LAUNCH + 1200, yt)
+    inj = [e for e in ev if e["type"] == "injection"]
+    assert len(inj) == 2 and all(0 <= x < 176 and 0 <= y < 99 for e in inj for x, y in e["cells"])
+    assert w.universe.grid.shape == shape and w.universe.generation == 10

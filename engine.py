@@ -62,6 +62,7 @@ class World:
     pinned_core: str | None = None  # the comment without the suggestion; a change re-picks the suggestion
     pinned_suggest: str | None = None
     contest_by: dict | None = None  # the comment that broke the current loop: {"gen", "command"}
+    saves: int = 0  # times comments saved it from a countdown (shown in the title)
     last_thumb_headline: str | None = None
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
@@ -83,7 +84,8 @@ class World:
                         "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff,
                         "forecast": self.forecast, "recent": self.recent, "pinned": self.pinned,
                         "pinned_core": self.pinned_core, "pinned_suggest": self.pinned_suggest,
-                        "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline},
+                        "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline,
+                        "saves": self.saves},
             "last_changer": self.last_changer,
             "quota": self.quota,
             "reply_counts": dict(sorted(self.reply_counts.items())),
@@ -109,6 +111,7 @@ class World:
             reply_counts=dict(d.get("reply_counts", {})),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
             contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
+            saves=disp.get("saves", 0),
         )
 
 
@@ -216,6 +219,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             last_cmd = (ev["gen"], ev["command"])
         if ev["type"] == "phase" and ev["reason"] == "injection" and last_cmd:
             world.contest_by = {"gen": last_cmd[0], "command": last_cmd[1]}
+        if ev["type"] == "phase" and ev["reason"] == "survived_deadline":
+            world.saves += 1
         if ev["type"] == "phase" and ev["reason"] == "survived_deadline" and world.contest_by:
             line = (f"🫀 gen {ev['gen']:,}: SAVED, thanks to {world.contest_by['command']} "
                     f"(gen {world.contest_by['gen']:,})")
@@ -228,7 +233,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
 
     # 3. display (best effort)
     f = refresh_forecast(world)
-    title = render.title(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS)
+    title = render.title(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS, world.saves)
     title_due = world.last_title_at is None or now - world.last_title_at >= TITLE_MIN_INTERVAL_S
     if title != world.last_title and title_due:
         if _display(world, "set_title", now, lambda: yt.set_title(title, render.braille(u.grid)), events):

@@ -44,18 +44,22 @@ def env_flag(name: str, default: str) -> bool:
     return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
-def create_world(now: float, key: bytes) -> tuple[engine.World, dict]:
+def create_world(now: float, key: bytes, shape: tuple[int, int] | None = None,
+                 extra: dict | None = None) -> tuple[engine.World, dict]:
+    """A new universe at generation 0. `shape` is (H, W), default 128 x 72;
+    `extra` adds fields to the genesis line (e.g. which universe this is)."""
     seed = os.environ.get("SEED", "acorn")
     if seed not in life.PATTERNS:
         raise SystemExit(f"SEED must be one of {sorted(life.PATTERNS)}")
+    shape = tuple(shape or (life.H, life.W))
     gen_seconds = int(os.environ.get("GEN_SECONDS", "120"))
     hours = float(os.environ.get("FLATLINE_HOURS", "24"))
     launch = float(os.environ.get("LAUNCH_TIME") or int(now))
-    u = Universe(life.mask(life.centered(seed)), flatline_gens(hours, gen_seconds))
+    u = Universe(life.mask(life.centered(seed, shape), shape), flatline_gens(hours, gen_seconds))
     world = engine.World(universe=u, launch_time=launch, seed=seed, gen_seconds=gen_seconds, key=key)
-    genesis = {"type": "genesis", "launch_time": launch, "seed": seed, "shape": [life.H, life.W],
+    genesis = {"type": "genesis", "launch_time": launch, "seed": seed, "shape": list(shape),
                "gen_seconds": gen_seconds, "flatline_gens": u.flatline_gens, "flatline_hours": hours,
-               "seed_hash": u.hash.hex(), "rules": "B3/S23 torus"}
+               "seed_hash": u.hash.hex(), "rules": "B3/S23 torus", **(extra or {})}
     return world, genesis
 
 

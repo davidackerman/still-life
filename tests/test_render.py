@@ -92,3 +92,22 @@ def test_quiet_spot_finds_the_empty_corner():
     g[40:60, 90:120] = 0
     x, y = render.quiet_spot(g)
     assert 90 <= x < 120 and 40 <= y < 60
+
+
+def test_bigger_boards_still_make_a_1280x720_thumbnail(tmp_path):
+    from PIL import Image
+    import life
+    from universe import Universe, flatline_gens
+    shape = (99, 176)
+    u = Universe(life.mask(life.centered("acorn", shape), shape), flatline_gens())
+    u.advance_to(50)
+    p = tmp_path / "t.png"
+    render.thumbnail(u, str(p), highlight=[(3, 3)])
+    assert Image.open(p).size == (1280, 720)
+
+
+def test_saves_are_appended_and_the_title_stays_short():
+    u = Universe(life.mask(life.centered("acorn")), flatline_gens())
+    assert render.title(u, stuck_gen=1855, saves=0).endswith("if nobody comments")
+    t = render.title(u, stuck_gen=1855, saves=3)
+    assert t.endswith("if nobody comments · saved 3×") and len(t) <= 100
