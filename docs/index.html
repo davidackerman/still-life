@@ -4,13 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>still-life</title>
-<meta name="description" content="A live Game of Life universe on a YouTube video that dies when it repeats itself.">
+<meta name="description" content="A live Game of Life universe on a YouTube video that dies when it gets stuck in a loop.">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main class="wide">
 <h1>still-life</h1>
-<p class="lede">This video dies when its universe repeats itself.</p>
+<p class="lede">This video dies when its universe gets stuck in a loop.</p>
 
 <section class="live" aria-label="The universe, live">
   <div class="statusbar">
@@ -28,7 +28,7 @@
 
 <div class="narrow">
 <p>A YouTube video hosts this universe: Conway's Game of Life on 128×72 cells with wrapping edges, one generation every two minutes, around the clock. The video's thumbnail shows the grid and its title shows the status. What you see above is the same universe, computed in your browser from the bot's latest state.</p>
-<p>Every comment on the video injects cells. Left alone, a finite universe must eventually repeat a state. When that happens a 24-hour countdown starts. If no comment breaks the loop in time, the universe dies: an obituary video is uploaded and the original goes private.</p>
+<p>Every comment on the video injects cells. Left alone, a finite universe must eventually return to a state it was in before, and from then on it is stuck in a loop forever. When that happens a 24-hour countdown starts. If no comment breaks the loop in time, the universe dies: an obituary video is uploaded and the original goes private.</p>
 <p class="pitch">Every comment changes this universe. Some save it. Some kill it.</p>
 
 <h2>How to comment</h2>
@@ -147,7 +147,7 @@ function forecast() {
   if (S.phase === "DIED") {
     f.textContent = `This universe died at generation ${S.died.toLocaleString()}, on ${fmtTime(genTime(S.died))}.`;
   } else if (S.phase === "FLATLINING") {
-    f.textContent = `It is repeating itself. Unless a comment breaks the loop, it dies on ${fmtTime(genTime(S.deadline))}.`;
+    f.textContent = `It is stuck in a loop. Unless a comment breaks it, it dies on ${fmtTime(genTime(S.deadline))}.`;
   } else if (S.phase === "CONTESTED") {
     f.textContent = `A comment broke the loop, and it can't die right now. If it is still changing on ${fmtTime(genTime(S.deadline))}, it lives; if it falls back into the old loop, it dies then.`;
   } else {
@@ -156,9 +156,9 @@ function forecast() {
     LifeCore.findRepeat(S.grid, S.h, S.w, S.gen, FORECAST_GENS).then((r) => {
       if (S.hash !== hash) return;
       if (r === null) {
-        f.textContent = `If nobody comments, it won't repeat for at least ${Math.round(FORECAST_GENS * S.genSec / 86400)} days.`;
+        f.textContent = `If nobody comments, it won't get stuck in a loop for at least ${Math.round(FORECAST_GENS * S.genSec / 86400)} days.`;
       } else {
-        f.textContent = `If nobody comments, it repeats around ${fmtTime(genTime(r))} and dies 24 hours later, around ${fmtTime(genTime(r + S.flatGens))}. One comment changes all of that.`;
+        f.textContent = `If nobody comments, it gets stuck in a loop around ${fmtTime(genTime(r))} and dies 24 hours later, around ${fmtTime(genTime(r + S.flatGens))}. One comment changes all of that.`;
       }
     });
   }

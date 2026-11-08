@@ -12,16 +12,16 @@ def acorn():
 def test_titles_for_every_phase():
     u = acorn()
     u.advance_to(400)
-    assert render.title(u) == "This video dies when its universe repeats · Gen 400 · ALIVE"
+    assert render.title(u) == "This video dies when its universe gets stuck in a loop · Gen 400 · ALIVE"
     u.advance_to(1855)
-    assert render.title(u) == "This video dies when its universe repeats · Gen 1,855 · FLATLINING · 24h left"
+    assert render.title(u) == "This video dies when its universe gets stuck in a loop · Gen 1,855 · FLATLINING · 24h left"
     u.advance_to(2575 - 25)
     assert render.title(u).endswith("· FLATLINING · 50m left")
     u.inject([{"cells": [[0, 0], [1, 0], [0, 1], [1, 1]]}])
     assert " · CONTESTED · 50m left" in render.title(u)
     u2 = acorn()
     u2.advance_to(5000)
-    assert render.title(u2) == "This video dies when its universe repeats · DIED at gen 2,575"
+    assert render.title(u2) == "This video dies when its universe gets stuck in a loop · DIED at gen 2,575"
 
 
 def test_titles_fit_youtube_limits():

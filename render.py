@@ -10,7 +10,7 @@ import numpy as np
 import life
 from universe import ALIVE, CONTESTED, DIED, FLATLINING, GEN_SECONDS, Universe
 
-TITLE_BASE = "This video dies when its universe repeats"
+TITLE_BASE = "This video dies when its universe gets stuck in a loop"
 CELL = 10  # px per cell: 128x72 cells -> 1280x720
 
 BG = (10, 12, 16)

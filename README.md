@@ -1,12 +1,13 @@
 # still-life
 
-**This video dies when its universe repeats itself.**
+**This video dies when its universe gets stuck in a loop.**
 
 A YouTube video hosts a live Conway's Game of Life universe: 128×72 cells on a
 torus, one generation every two minutes. The thumbnail shows the grid and the
 title shows its status. Every comment injects cells. A finite universe left
-alone must eventually repeat. When it does, a 24-hour flatline countdown
-starts. If no comment breaks the cycle in time, the universe dies. An obituary
+alone must eventually return to a state it has been in before, and from then
+on it is stuck in a loop forever. When that happens, a 24-hour flatline
+countdown starts. If no comment breaks the cycle in time, the universe dies. An obituary
 video is uploaded and this one goes private.
 
 *Every comment changes this universe. Some save it. Some kill it.*
