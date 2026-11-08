@@ -16,7 +16,12 @@
   "seed": "acorn"
  },
  "display": {
-  "backoff": {},
+  "backoff": {
+   "set_thumbnail": {
+    "failures": 1,
+    "until": 1794163297.401318
+   }
+  },
   "contest_by": null,
   "forecast": {
    "horizon": 30225,
@@ -50,12 +55,12 @@
   "gen": 220
  },
  "log": {
-  "head": "d14756f897b7f6c1c3e49684d73dba9f1de6a15103cf125ded29760351fe9003",
-  "seq": 144
+  "head": "5520a8f5f4e739aae412888f64bd9eea40541a625a50f770c3f6f371e4256b71",
+  "seq": 146
  },
  "quota": {
   "day": "2026-11-08",
-  "used": 2102
+  "used": 2153
  },
  "universe": {
   "cycle": [],
