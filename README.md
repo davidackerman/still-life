@@ -12,6 +12,8 @@ video is uploaded and this one goes private.
 
 *Every comment changes this universe. Some save it. Some kill it.*
 
+**The video:** <https://www.youtube.com/watch?v=oFWeLMe4bhI>. Comment there to change the universe.
+
 **Watch it live:** <https://davidackerman.github.io/still-life/>. The page
 computes the same universe in your browser from the bot's latest state, and
 forecasts when it will repeat if nobody comments.
@@ -200,6 +202,11 @@ python simulate.py --sweep 0,0.1,0.25,1 --seeds 5       # compare comment rates
 python simulate.py --flatline-hours 6 --gen-seconds 30  # try other tunings
 python explainer.py                                     # render the host video (needs ffmpeg)
 ```
+
+## Archive
+
+`archive/test-2026-11-07/` holds the universe that ran on the unlisted test video
+before launch. It still verifies: `python replay.py --state-dir archive/test-2026-11-07`.
 
 ## Files
 
