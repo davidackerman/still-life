@@ -1,6 +1,8 @@
-:root { --bg: #fbfbf8; --fg: #1d1f24; --muted: #5d636e; --accent: #1f8a5b; --rule: #e3e3dc; --code: #f0f0ea; }
+:root { --bg: #fbfbf8; --fg: #1d1f24; --muted: #5d636e; --accent: #1f8a5b; --rule: #e3e3dc; --code: #f0f0ea;
+        --ALIVE: #1f8a5b; --FLATLINING: #c0392b; --CONTESTED: #a8700a; --DIED: #6b6e78; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #0d0f13; --fg: #e8e9ec; --muted: #9aa0ab; --accent: #78e6a0; --rule: #23262d; --code: #181b21; }
+  :root { --bg: #0d0f13; --fg: #e8e9ec; --muted: #9aa0ab; --accent: #78e6a0; --rule: #23262d; --code: #181b21;
+          --ALIVE: #78e6a0; --FLATLINING: #f05a5a; --CONTESTED: #fac850; --DIED: #9a9aa7; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -16,3 +18,16 @@ table { border-collapse: collapse; width: 100%; font-size: .95rem; }
 td { border-top: 1px solid var(--rule); padding: .45rem .5rem .45rem 0; vertical-align: top; }
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule); color: var(--muted); font-size: .9rem; }
 .grid { font-family: ui-monospace, Menlo, monospace; color: var(--accent); letter-spacing: .1em; line-height: 1.1; margin: 0 0 1.5rem; }
+
+/* live page */
+main.wide { max-width: 68rem; }
+.narrow { max-width: 42rem; margin: 0 auto; }
+.live { margin: 1.5rem 0 2.5rem; }
+.live canvas { display: block; width: 100%; height: auto; border-radius: 8px; background: #0a0c10; }
+.statusbar { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin-bottom: .5rem; }
+.phase { font-weight: 700; font-size: 1.6rem; letter-spacing: .02em; }
+.gen { color: var(--muted); font-variant-numeric: tabular-nums; }
+.meta { display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: .85rem; margin-top: .4rem; font-variant-numeric: tabular-nums; }
+.forecast { font-size: 1.05rem; margin-top: 1rem; }
+.button { display: inline-block; padding: .6rem 1rem; border-radius: 8px; background: var(--accent); color: var(--bg); text-decoration: none; font-weight: 600; }
+@media (max-width: 40rem) { .meta { flex-direction: column; gap: .1rem; } .phase { font-size: 1.3rem; } }

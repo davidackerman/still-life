@@ -11,6 +11,10 @@ video is uploaded and this one goes private.
 
 *Every comment changes this universe. Some save it. Some kill it.*
 
+**Watch it live:** <https://davidackerman.github.io/still-life/>. The page
+computes the same universe in your browser from the bot's latest state, and
+forecasts when it will repeat if nobody comments.
+
 > Status: under construction. Steps 1–3 of 4 are done: credentials and smoke test;
 > simulation and local simulator; the scheduled bot (titles, thumbnails, comments,
 > log and replay). Step 4, the death sequence and obituary, is next.
@@ -193,6 +197,7 @@ python simulate.py --rate 0.5 --days 30                 # one lifetime, with tim
 python simulate.py --rate 0.1 --thumbs out/sim          # also write every thumbnail
 python simulate.py --sweep 0,0.1,0.25,1 --seeds 5       # compare comment rates
 python simulate.py --flatline-hours 6 --gen-seconds 30  # try other tunings
+python explainer.py                                     # render the host video (needs ffmpeg)
 ```
 
 ## Files
@@ -208,7 +213,8 @@ python simulate.py --flatline-hours 6 --gen-seconds 30  # try other tunings
 | `store.py` | `state.json`, `history.bin`, and the hash-chained `log.jsonl` |
 | `replay.py` | verifies the log and rebuilds the life from the seed (no secrets needed) |
 | `.github/workflows/tick.yml` | runs `tick.py` every 5 minutes and commits `state/` |
-| `docs/` | GitHub Pages: home page and privacy policy |
+| `docs/` | GitHub Pages: the live view (`index.html`, `life.js`) and the privacy policy |
+| `explainer.py` | renders the ~70 s explainer video that hosts the universe (`out/explainer.mp4`) |
 | `render.py` | status title and the 1280×720 thumbnail |
 | `simulate.py` | local mode: fake YouTube, fake clock, synthetic commenters |
 | `auth.py` | one-time OAuth desktop flow (loopback + PKCE); prints a refresh token |
