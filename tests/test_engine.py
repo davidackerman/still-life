@@ -96,14 +96,14 @@ def test_title_at_most_every_15_minutes_and_only_when_changed():
     assert len(yt.titles) >= 40  # the quarter-hour clock changes at nearly every allowed slot
 
 
-def test_thumbnail_every_3_hours_and_on_phase_change():
+def test_thumbnail_every_4_hours_and_on_phase_change():
     w, yt = world(), FakeYT()
     for t in range(0, 4 * 86400, 300):
         engine.tick(w, LAUNCH + t, yt)
     # acorn: FLATLINING at gen 1855 (61.83 h), DIED at gen 2575 (85.83 h).
     # Every 3 h, on each phase change, and (at most hourly) when the countdown
     # headline changes: days until the last day, then hours. Nothing after death.
-    assert 28 <= yt.thumbs <= 34  # ~every 3 h + phase changes: the 429 limit is tight
+    assert 20 <= yt.thumbs <= 26  # ~every 4 h + phase changes: the 429 limit is tight
     assert w.last_thumb_headline == "DIED"
 
 

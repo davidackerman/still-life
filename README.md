@@ -186,7 +186,7 @@ probably count as activity, but GitHub's documentation doesn't say.
 
 **Thumbnail limit**: YouTube answers HTTP 429 ("uploaded too many thumbnails
 recently") after a handful of thumbnail uploads in a day. The bot refreshes the
-thumbnail every 3 hours and on phase changes only, and backs off when refused;
+thumbnail every 4 hours and on phase changes only, and backs off when refused;
 avoid forcing extra uploads.
 
 ### 6. Pinned status comment (optional)

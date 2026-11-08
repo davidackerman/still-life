@@ -30,10 +30,10 @@ PINNED_MIN_INTERVAL_S = 30 * 60
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.
-THUMB_HEADLINE_MIN_S = 3 * 3600
+THUMB_HEADLINE_MIN_S = 4 * 3600
 RECENT_MAX = 8
 FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
-THUMB_INTERVAL_S = 3 * 3600
+THUMB_INTERVAL_S = 4 * 3600  # YouTube 429s after ~9 thumbnail uploads/day per channel
 BACKOFF_BASE_S = 15 * 60
 BACKOFF_MAX_S = 24 * 3600
 
@@ -217,7 +217,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             world.last_title, world.last_title_at = title, now
             events.append({"type": "display", "what": "title", "title": title})
 
-    # Refresh every 3 h and immediately on a phase change; a dead universe never
+    # Refresh every 4 h and immediately on a phase change; a dead universe never
     # changes again, so after the DIED thumbnail there is nothing to refresh.
     periodic = world.last_thumb_at is None or now - world.last_thumb_at >= THUMB_INTERVAL_S
     big, _ = render.headline(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS)
