@@ -426,6 +426,10 @@ def soundtrack(frames: list[Frame]) -> np.ndarray:
     born_at = [np.zeros((0, 2), int)]
     died_at = [np.zeros((0, 2), int)]
     for a, b in zip(frames, frames[1:]):
+        if a.grid.shape != b.grid.shape:  # a cut to a different universe: no births or deaths
+            born_at.append(np.zeros((0, 2), int))
+            died_at.append(np.zeros((0, 2), int))
+            continue
         born_at.append(np.argwhere((b.grid == 1) & (a.grid == 0)))
         died_at.append(np.argwhere((b.grid == 0) & (a.grid == 1)))
 
@@ -438,10 +442,11 @@ def soundtrack(frames: list[Frame]) -> np.ndarray:
         k = int(np.clip(np.ceil(np.log2(count + 1) / 1.6), 1, max_k))  # 1 cell: 1 note ... ~250: 5 notes
         loud = amp_lo + (amp_hi - amp_lo) * min(1.0, np.log2(count + 1) / 8)
         picks = cells[rng.choice(count, size=k, replace=False)]  # real cells: pitch by row, pan by column
+        gh, gw = frames[t0].grid.shape
         for j, (y, x) in enumerate(sorted(picks.tolist(), key=lambda p: -p[0])):
-            freq = notes[int((life.H - 1 - y) / life.H * len(notes))]
+            freq = notes[int((gh - 1 - y) / gh * len(notes))]
             add(music, _note(freq, dur, loud / np.sqrt(k), decay), t0 * spf + offset + j * int(0.055 * SR),
-                pan=x / (life.W - 1) * 1.4 - 0.7)
+                pan=x / (gw - 1) * 1.4 - 0.7)
 
     LOW = [f / 2 for f in NOTES[:6]]  # A2..A3 pentatonic, for deaths
     for t0 in range(0, len(frames), TICK):
@@ -477,7 +482,7 @@ def soundtrack(frames: list[Frame]) -> np.ndarray:
         if not f.cue:
             continue
         if f.cue[0] == "inject":
-            pan = f.cue[1] / (life.W - 1) * 1.4 - 0.7
+            pan = f.cue[1] / (f.grid.shape[1] - 1) * 1.4 - 0.7
             for j, fr in enumerate((880.0, 1108.73, 1318.51)):  # a soft rising arpeggio
                 add(music, _note(fr, 2.5, 0.04, 0.8), i * spf + j * int(0.09 * SR), pan)
         elif f.cue[0] == "saved":

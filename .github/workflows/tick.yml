@@ -24,7 +24,12 @@ jobs:
     # the secrets exist). Also keeps forks from running it.
     if: vars.TICK_ENABLED == 'true' && github.repository == 'davidackerman/still-life'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30  # a death renders the obituary (a few minutes)
+    env:
+      # The death sequence never uploads or changes privacy while "true": it
+      # renders the obituary, attaches it to the run, and stops. The owner
+      # changes this by hand.
+      DRY_RUN: "true"
     steps:
       - uses: actions/checkout@v7
 
@@ -35,6 +40,23 @@ jobs:
 
       - name: Install
         run: pip install -r requirements.txt  # numpy pillow google-api-python-client google-auth
+
+      - name: Does this run render an obituary?
+        id: death
+        run: |
+          python - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          s = json.load(open("state/state.json"))
+          stage = (s.get("death") or {}).get("stage")
+          dry = os.environ["DRY_RUN"].strip().lower() == "true"
+          need = (s["universe"]["phase"] == "DIED" and stage not in ("halted", "processing", "launch")
+                  and not (dry and stage == "dry_run_done"))
+          print(f"render={'true' if need else 'false'}")
+          EOF
+
+      - name: Install ffmpeg
+        if: steps.death.outputs.render == 'true'
+        run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
 
       - name: Tick
         run: python tick.py
@@ -47,24 +69,30 @@ jobs:
           STATE_KEY: ${{ secrets.STATE_KEY }}
           FORCE_THUMBNAIL: ${{ inputs.force_thumbnail || 'false' }}
           PINNED_LINK: ${{ vars.PINNED_LINK || 'true' }}
-          # Never uploads or changes privacy while "true". The owner changes this by hand.
-          DRY_RUN: "true"
 
       - name: Commit state
         run: |
           git config user.name "still-life bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state/
+          git add -A state archive
           if git diff --cached --quiet; then
             echo "nothing to commit"
             exit 0
           fi
-          git commit -q -m "tick: $(python -c "import json; s=json.load(open('state/state.json'))['universe']; print(f\"gen {s['generation']} {s['phase']}\")")"
+          git commit -q -m "tick: $(python -c "import json; s=json.load(open('state/state.json')); u=s['universe']; print(f\"universe {s['config'].get('universe', 1)} gen {u['generation']} {u['phase']}\")")"
           for attempt in 1 2 3; do
             git pull -q --rebase && git push -q && exit 0
             sleep $((attempt * 5))
           done
           echo "push failed" && exit 1
+
+      - name: Attach the obituary
+        if: hashFiles('out/obituary.mp4') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: obituary
+          path: out/obituary.mp4
+          retention-days: 90
 
       - name: Alerts
         if: hashFiles('out/alerts.json') != ''

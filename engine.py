@@ -68,6 +68,14 @@ class World:
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
     reply_counts: dict = field(default_factory=dict)  # owned by youtube.YouTube (keyed thread -> [n, t])
+    # Succession (death.py): which universe this is, the video hosting it (None =
+    # the VIDEO_ID secret, universe #1), videos of dead universes never to be
+    # driven again, the death sequence's progress, and videos still to make private.
+    universe_no: int = 1
+    video_id: str | None = None
+    retired: list = field(default_factory=list)
+    death: dict | None = None
+    retire_pending: list = field(default_factory=list)
 
     @property
     def pinned_id(self) -> str | None:  # the main video's status comment
@@ -76,7 +84,8 @@ class World:
     def to_state(self) -> tuple[dict, bytes]:
         u, history = self.universe.to_state()
         return ({
-            "config": {"launch_time": self.launch_time, "seed": self.seed, "gen_seconds": self.gen_seconds},
+            "config": {"launch_time": self.launch_time, "seed": self.seed, "gen_seconds": self.gen_seconds,
+                       "universe": self.universe_no, "video_id": self.video_id, "retired": self.retired},
             "universe": u,
             "admission": self.admission.to_dict(),
             "display": {"last_title": self.last_title, "last_title_at": self.last_title_at,
@@ -89,6 +98,8 @@ class World:
             "last_changer": self.last_changer,
             "quota": self.quota,
             "reply_counts": dict(sorted(self.reply_counts.items())),
+            "death": self.death,
+            "retire_pending": self.retire_pending,
         }, history)
 
     @classmethod
@@ -109,6 +120,9 @@ class World:
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
             forecast=disp.get("forecast"), recent=disp.get("recent"), pinned=pinned,
             reply_counts=dict(d.get("reply_counts", {})),
+            universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
+            retired=list(d["config"].get("retired", [])), death=d.get("death"),
+            retire_pending=list(d.get("retire_pending", [])),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
             contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
             saves=disp.get("saves", 0),

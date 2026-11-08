@@ -58,17 +58,19 @@ def env_flag(name: str, default: str) -> bool:
     return os.environ.get(name, default).strip().lower() in ("1", "true", "yes", "on")
 
 
-def create_world(now: float, key: bytes, shape: tuple[int, int] | None = None,
-                 extra: dict | None = None) -> tuple[engine.World, dict]:
+def create_world(now: float, key: bytes, shape: tuple[int, int] | None = None, extra: dict | None = None,
+                 seed: str | None = None, gen_seconds: int | None = None, hours: float | None = None,
+                 launch: float | None = None) -> tuple[engine.World, dict]:
     """A new universe at generation 0. `shape` is (H, W), default 128 x 72;
-    `extra` adds fields to the genesis line (e.g. which universe this is)."""
-    seed = os.environ.get("SEED", "acorn")
+    `extra` adds fields to the genesis line (e.g. which universe this is).
+    Settings not given come from the environment (first universe only)."""
+    seed = seed or os.environ.get("SEED", "acorn")
     if seed not in life.PATTERNS:
         raise SystemExit(f"SEED must be one of {sorted(life.PATTERNS)}")
     shape = tuple(shape or (life.H, life.W))
-    gen_seconds = int(os.environ.get("GEN_SECONDS", "120"))
-    hours = float(os.environ.get("FLATLINE_HOURS", "24"))
-    launch = float(os.environ.get("LAUNCH_TIME") or int(now))
+    gen_seconds = gen_seconds or int(os.environ.get("GEN_SECONDS", "120"))
+    hours = hours or float(os.environ.get("FLATLINE_HOURS", "24"))
+    launch = launch if launch is not None else float(os.environ.get("LAUNCH_TIME") or int(now))
     u = Universe(life.mask(life.centered(seed, shape), shape), flatline_gens(hours, gen_seconds))
     world = engine.World(universe=u, launch_time=launch, seed=seed, gen_seconds=gen_seconds, key=key)
     genesis = {"type": "genesis", "launch_time": launch, "seed": seed, "shape": list(shape),
@@ -78,8 +80,10 @@ def create_world(now: float, key: bytes, shape: tuple[int, int] | None = None,
 
 
 def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | None = THUMB_PATH,
-        force_thumbnail: bool = False) -> list[dict]:
-    """Load (or create), tick once, save. `yt_factory(world)` builds the YouTube client."""
+        force_thumbnail: bool = False, dry_run: bool = True, render_obituary=None) -> list[dict]:
+    """Load (or create), tick once, save; then, if the universe was already dead
+    when the run began, move the death sequence on (death.py), and make any
+    retired videos private. `yt_factory(world)` builds the YouTube client."""
     store = Store(state_dir)
     if store.exists():
         world = store.load(key)
@@ -91,9 +95,33 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         from store import LOG, read_log
         lines = [render.event_line(e) for e in read_log(store.path(LOG))]
         world.recent = [ln for ln in reversed(lines) if ln][: engine.RECENT_MAX]
-    events = engine.tick(world, now, yt_factory(world), thumb_path, force_thumbnail,
-                         pinned_link=env_flag("PINNED_LINK", "true"))
+    was_dead = world.universe.phase == DIED
+    yt = yt_factory(world)
+    events = engine.tick(world, now, yt, thumb_path, force_thumbnail, pinned_link=env_flag("PINNED_LINK", "true"))
     store.save(world, events)
+    if was_dead:
+        import death
+        try:
+            world, dev = death.advance(world, store, yt, now, dry_run, list(getattr(yt, "videos", [])), key,
+                                       render=render_obituary)
+        except Exception as e:  # noqa: BLE001 - recorded, alerted once, retried next run
+            d = world.death or {}
+            dev = [{"type": "death", "stage": d.get("stage"), "error": repr(e)[:500]}]
+            if not d.get("alerted"):
+                d["alerted"] = True
+                dev[0]["alert"] = f"⚠️ Death sequence error at stage {d.get('stage')!r} (will retry)"
+                dev[0]["detail"] = f"{e!r}"[:1500]
+            world.death = d
+            store.save(world, dev)
+        events += dev
+        if world.death is None:  # a new universe launched: continue on its files
+            store = Store(state_dir)
+            world = store.load(key)
+    if world.retire_pending and not dry_run:
+        import death
+        rev = death.retire(world, yt, store)
+        store.save(world, rev)
+        events += rev
     return events
 
 
@@ -122,11 +150,14 @@ def main(argv=None) -> int:
     def make_yt(world):
         seen["world"] = world
         quota["q"] = youtube.Quota(world.quota, now)
-        return youtube.YouTube(service, video_id, quota["q"], env_flag("DESCRIPTION_GRID", "false"),
-                               extra_video_ids=extra_ids, reply_counts=world.reply_counts, key=key)
+        main = world.video_id or video_id  # universe #2 on lives on the obituary video
+        extras = [v for v in extra_ids if v not in world.retired]
+        return youtube.YouTube(service, main, quota["q"], env_flag("DESCRIPTION_GRID", "false"),
+                               extra_video_ids=extras, reply_counts=world.reply_counts, key=key)
 
-    events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"))
-    for a in write_alerts(events, seen["world"], video_id):
+    events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"),
+                 dry_run=dry_run)
+    for a in write_alerts(events, seen["world"], seen["world"].video_id or video_id):
         print(f"alert: {a['title']}")
     for e in events:
         if e["type"] in ("phase", "youtube_error", "display_skipped", "display"):
@@ -138,8 +169,9 @@ def main(argv=None) -> int:
               f"queued {tick['queued']} | quota {quota['q'].used}/{youtube.DAILY_BUDGET} | dry_run={dry_run}")
     else:
         print(f"nothing to do | quota {quota['q'].used}/{youtube.DAILY_BUDGET}")
-    if tick and tick["phase"] == DIED:
-        print("universe is DIED; the death sequence arrives in step 4 (nothing uploaded, nothing made private)")
+    for e in events:
+        if e["type"] == "death":
+            print({k: v for k, v in e.items() if k != "detail"})
     return 0
 
 

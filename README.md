@@ -246,6 +246,47 @@ Upload it in YouTube Studio, set its **Related video** to the main video (the
 only clickable link a Short can have), and add its ID to `EXTRA_VIDEO_IDS` so
 its comments play. Give it its own status comment as in step 6.
 
+### 8. When it dies
+
+The run after a death starts the death sequence (`death.py`), recording its
+progress in `state.json` so an interrupted run picks up where it stopped:
+
+1. **Verify**: replay the whole log (`replay.py`). Any mismatch halts the
+   sequence and opens an issue; nothing is uploaded or changed.
+2. **Render** the obituary (`obituary.py`, about 90 s): the universe's whole life,
+   the loop it died in, an end card crediting the last comment that changed it
+   (with the commenter's display name, looked up fresh and never stored), and
+   the next universe starting.
+3. **Upload** it publicly. A marker in its description makes sure a crashed run
+   never uploads twice.
+4. Wait for YouTube to **process** it.
+5. **Launch** the next universe on the obituary video: the dead one is archived
+   under `archive/universe-N/` (and still verifies), `state/` starts over with
+   a bigger board, and the bot posts the new video's status comment for you to pin.
+6. **Retire** the dead universe's videos: the main video and every Short in
+   `EXTRA_VIDEO_IDS` go private.
+
+While `DRY_RUN` is `"true"` (the workflow's default) it stops after step 2:
+the obituary is attached to the run as an artifact, an issue says what would
+have happened, and nothing on YouTube changes. To go live, change `DRY_RUN`
+in `.github/workflows/tick.yml` yourself.
+
+**Next board size** (`death.next_shape`, still to be confirmed): the smallest
+16:9 board bigger than the last on which the acorn, left alone, lasts longer.
+Bigger alone isn't enough on a torus: 128×72 lasts 2.6 days, 160×90 only 1.9,
+176×99 8.7.
+
+**Alerts**: the bot opens a GitHub issue (GitHub emails you) when the universe
+gets stuck, is saved or dies, and at each step above that needs you.
+
+**If it halts**: read the issue, fix the cause, then set `death.stage` in
+`state/state.json` back to `"verify"` (or `"render"` after deleting a failed
+upload) and push.
+
+**Rehearsal**: `python rehearse.py` (or the manual *rehearsal* workflow) kills a
+scratch universe and runs the real death sequence in dry-run mode, with no
+secrets and no YouTube, to check the obituary renders.
+
 ## Data policy
 
 YouTube's developer policies allow storing other users' API data for at most
@@ -283,6 +324,10 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `admission.py` | dedupe, one injection per author per hour, 20 per run with a queue |
 | `engine.py` | one run: comments in, simulation forward, title/thumbnail out |
 | `tick.py` | the scheduled entry point: load state, run once, save |
+| `death.py` | the death sequence: verify, obituary, upload, next universe, retire |
+| `obituary.py` | renders the obituary video from the log |
+| `alerts.py` | GitHub issues for the owner when something happens |
+| `rehearse.py` | a scratch death, end to end, in dry-run mode |
 | `store.py` | `state.json`, `history.bin`, and the hash-chained `log.jsonl` |
 | `replay.py` | verifies the log and rebuilds the life from the seed (no secrets needed) |
 | `.github/workflows/tick.yml` | runs `tick.py` every 5 minutes and commits `state/` |

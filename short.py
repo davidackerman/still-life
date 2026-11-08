@@ -244,7 +244,8 @@ class History:
 
     def fresh(self) -> Universe:
         self.applied = set()
-        return Universe(life.mask(life.centered(self.genesis["seed"])), self.genesis["flatline_gens"])
+        shape = tuple(self.genesis["shape"])
+        return Universe(life.mask(life.centered(self.genesis["seed"], shape), shape), self.genesis["flatline_gens"])
 
     def goto(self, u: Universe, target: int):
         """Step to `target`, applying every logged injection at its generation.

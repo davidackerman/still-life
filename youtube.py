@@ -119,7 +119,15 @@ def http_error_reason(err) -> tuple[int, str, str]:
 DAILY_BUDGET = 8000  # self-imposed; Google's default pool is 10,000/day
 PACIFIC = ZoneInfo("America/Los_Angeles")
 COST = {"commentThreads.list": 1, "comments.list": 1, "videos.list": 1, "videos.update": 50,
-        "thumbnails.set": 50, "comments.update": 50}
+        "thumbnails.set": 50, "comments.update": 50, "commentThreads.insert": 50, "channels.list": 1,
+        "playlistItems.list": 1}
+# videos.insert is not in this pool: it has its own bucket of 100 uploads a day (checked 2026-11-08).
+
+# videos.update "part=status" also deletes any status property left out (docs,
+# checked 2026-11-08), so a privacy change sends every writable one back.
+# selfDeclaredMadeForKids and containsSyntheticMedia only change when sent.
+WRITABLE_STATUS_FIELDS = ("embeddable", "license", "privacyStatus", "publicStatsViewable", "publishAt",
+                          "selfDeclaredMadeForKids", "containsSyntheticMedia")
 
 
 class QuotaExceeded(RuntimeError):
@@ -314,3 +322,93 @@ class YouTube:
         self.service.thumbnails().set(
             videoId=self.video_id, media_body=MediaFileUpload(path, mimetype="image/png")
         ).execute()
+
+    # ------------------------------------------------------------ death sequence
+    def upload_video(self, path: str, snippet: dict, privacy: str = "public") -> str:
+        """Resumable upload; returns the new video's ID. (Uploads from unverified API
+        projects are not restricted to private, per the videos.insert docs, 2026-11-08.)"""
+        from googleapiclient.http import MediaFileUpload
+
+        body = {"snippet": snippet,
+                "status": {"privacyStatus": privacy, "selfDeclaredMadeForKids": False,
+                           "containsSyntheticMedia": False, "embeddable": True, "license": "youtube",
+                           "publicStatsViewable": True}}
+        media = MediaFileUpload(path, mimetype="video/mp4", chunksize=16 * 1024 * 1024, resumable=True)
+        req = self.service.videos().insert(part="snippet,status", body=body, media_body=media,
+                                           notifySubscribers=True)
+        resp = None
+        while resp is None:
+            _, resp = req.next_chunk(num_retries=5)
+        return resp["id"]
+
+    def video_state(self, video_id: str) -> dict:
+        """Upload/processing/privacy status of one of our videos (owner-only fields)."""
+        self.quota.spend(COST["videos.list"], critical=True)
+        items = self.service.videos().list(part="status,processingDetails", id=video_id).execute().get("items", [])
+        if not items:
+            return {"exists": False}
+        st, pd = items[0].get("status", {}), items[0].get("processingDetails", {})
+        return {"exists": True, "upload": st.get("uploadStatus"), "privacy": st.get("privacyStatus"),
+                "processing": pd.get("processingStatus"), "failure": st.get("failureReason") or
+                st.get("rejectionReason") or pd.get("processingFailureReason")}
+
+    def set_private(self, video_id: str) -> None:
+        """Make a video private, sending back every writable status property."""
+        self.quota.spend(COST["videos.list"] + COST["videos.update"], critical=True)
+        items = self.service.videos().list(part="status", id=video_id).execute().get("items", [])
+        if not items:
+            raise ConfigError(f"video {video_id} not found")
+        status = {k: v for k, v in items[0]["status"].items() if k in WRITABLE_STATUS_FIELDS}
+        status.pop("publishAt", None)  # only for never-published private videos
+        status["privacyStatus"] = "private"
+        self.service.videos().update(part="status", body={"id": video_id, "status": status}).execute()
+
+    def snippet_of(self, video_id: str) -> dict:
+        """The writable snippet of one of our videos (a template for the next upload)."""
+        self.quota.spend(COST["videos.list"], critical=True)
+        items = self.service.videos().list(part="snippet", id=video_id).execute().get("items", [])
+        return writable_snippet(items[0]["snippet"]) if items else {}
+
+    def find_upload(self, marker: str, limit: int = 50) -> str | None:
+        """The ID of a recent upload of ours whose description contains `marker`
+        (so a run that crashed after uploading never uploads twice)."""
+        self.quota.spend(COST["channels.list"] + COST["playlistItems.list"], critical=True)
+        ch = self.service.channels().list(part="contentDetails", mine=True).execute()["items"][0]
+        uploads = ch["contentDetails"]["relatedPlaylists"]["uploads"]
+        items = self.service.playlistItems().list(part="snippet", playlistId=uploads,
+                                                  maxResults=limit).execute().get("items", [])
+        for it in items:
+            if marker in it["snippet"].get("description", ""):
+                return it["snippet"]["resourceId"]["videoId"]
+        return None
+
+    def post_comment(self, video_id: str, text: str) -> str:
+        self.quota.spend(COST["commentThreads.insert"], critical=True)
+        r = self.service.commentThreads().insert(part="snippet", body={"snippet": {
+            "videoId": video_id, "topLevelComment": {"snippet": {"textOriginal": text}}}}).execute()
+        return r["id"]
+
+    def display_name_of(self, keyed_comment: str) -> str | None:
+        """The display name of the commenter whose comment ID hashes (HMAC under
+        self.key) to `keyed_comment`, looked up fresh for the obituary's credit.
+        Searches every thread and reply on the configured videos; never stored."""
+        from admission import keyed
+
+        for v in range(len(self.videos)):
+            for item in self._threads(v, since=0.0):
+                comments = [item["snippet"]["topLevelComment"]]
+                inline = (item.get("replies") or {}).get("comments", [])
+                if item["snippet"].get("totalReplyCount", 0) > len(inline):
+                    token = None
+                    for _ in range(MAX_PAGES):
+                        self.quota.spend(COST["comments.list"], critical=True)
+                        resp = self.service.comments().list(part="snippet", parentId=item["id"], maxResults=100,
+                                                            textFormat="plainText", pageToken=token).execute()
+                        inline = inline + resp.get("items", [])
+                        token = resp.get("nextPageToken")
+                        if not token:
+                            break
+                for c in comments + inline:
+                    if keyed(self.key, "comment", c["id"]) == keyed_comment:
+                        return c["snippet"].get("authorDisplayName")
+        return None
