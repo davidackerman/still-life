@@ -49,10 +49,32 @@ def load_client_config(path: str | None) -> dict:
     }
 
 
+def _register_clipboard_browser() -> bool:
+    """Register a webbrowser 'clipboard' that copies the URL (macOS pbcopy)."""
+    import shutil
+    import subprocess
+    import webbrowser
+
+    if not shutil.which("pbcopy"):
+        return False
+
+    class Clipboard(webbrowser.BaseBrowser):
+        def open(self, url, new=0, autoraise=True):
+            subprocess.run(["pbcopy"], input=url.encode("utf-8"), check=True)
+            print("The sign-in link is on your clipboard. Paste it (Cmd-V) into the address bar")
+            print("of the browser profile signed in as the channel's Google account.")
+            print("Waiting for you to finish signing in...\n")
+            return True
+
+    webbrowser.register("clipboard", None, Clipboard("clipboard"))
+    return True
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--client-secrets", help="Desktop-app client JSON from Cloud Console")
-    ap.add_argument("--no-browser", action="store_true", help="print the URL instead of opening a browser")
+    ap.add_argument("--no-browser", action="store_true",
+                    help="copy the sign-in link to the clipboard instead of opening a browser")
     args = ap.parse_args()
 
     try:
@@ -62,13 +84,26 @@ def main() -> None:
 
     cfg = load_client_config(args.client_secrets)
     flow = InstalledAppFlow.from_client_config(cfg, scopes=SCOPES)  # PKCE S256 on by default
-    print("Opening the Google consent screen. If your channel is a Brand Account,")
-    print("pick the channel that owns the video, not your personal profile.\n")
+    # The sign-in link is ~400 characters. Copying it out of a terminal can pick
+    # up a stray character where the line wraps, which corrupts redirect_uri and
+    # makes Google answer "Access blocked ... Error 400: invalid_request".
+    # So with --no-browser, put it on the clipboard instead of printing it.
+    copied = args.no_browser and _register_clipboard_browser()
+    if copied:
+        browser, prompt = "clipboard", None
+    elif args.no_browser:
+        browser, prompt = None, "Open this URL (copy it exactly, as one line): {url}"
+    else:
+        browser, prompt = None, None
+    print("If your channel is a Brand Account, pick the channel that owns the video.\n")
     creds = flow.run_local_server(
+        host="127.0.0.1",  # loopback IP literal, as Google's desktop-app docs specify
         port=0,
         access_type="offline",  # ask for a refresh token
         prompt="consent",  # re-issue one even if this client was authorized before
-        open_browser=not args.no_browser,
+        open_browser=bool(copied) or not args.no_browser,
+        browser=browser,
+        authorization_prompt_message=prompt,
     )
 
     if not creds.refresh_token:
