@@ -18,12 +18,24 @@
     <span id="gen" class="gen"></span>
   </div>
   <canvas id="board" width="1280" height="720" aria-label="The current grid"></canvas>
+  <div class="scrub">
+    <button id="play" class="iconbtn" aria-label="Play the whole life">▶</button>
+    <div class="track">
+      <div id="marks" class="marks"></div>
+      <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Generation">
+    </div>
+    <button id="live" class="livebtn on" aria-label="Back to now">LIVE</button>
+  </div>
   <div class="meta">
     <span id="tick"></span>
     <span id="sync"></span>
   </div>
   <p id="forecast" class="forecast"></p>
   <p id="cta" hidden><a id="video" class="button" href="#">Comment on the video to change it</a></p>
+  <details class="history" open>
+    <summary>What has happened so far</summary>
+    <ol id="events" class="events"></ol>
+  </details>
 </section>
 
 <div class="narrow">
@@ -50,23 +62,26 @@
 </main>
 
 <script src="life.js"></script>
+<script src="history.js"></script>
 <script>
 "use strict";
-// Set to the video's URL at launch; the button stays hidden while empty.
 const VIDEO_URL = "https://www.youtube.com/watch?v=oFWeLMe4bhI";
-const STATE_URL = "https://raw.githubusercontent.com/davidackerman/still-life/main/state/state.json";
+// ?base=... lets a local copy of the page read a test state directory.
+const BASE = new URLSearchParams(location.search).get("base")
+  || "https://raw.githubusercontent.com/davidackerman/still-life/main/state/";
 const COLOR = { ALIVE: "#78e6a0", FLATLINING: "#f05a5a", CONTESTED: "#fac850", DIED: "#7a7a87" };
-const CELL = 10, POLL_MS = 60000, FORECAST_GENS = 30000;
+const CELL = 10, POLL_MS = 60000, FORECAST_GENS = 30000, RECENT = 15;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("board"), ctx = canvas.getContext("2d");
-let S = null;        // last state from the bot
-let view = null;     // {gen, grid} computed locally from S
+let S = null;          // the bot's latest state
+let ahead = null;      // {gen, grid}: S stepped forward locally (no comments yet)
+let TL = null, logSize = -1;  // the past, rebuilt from the log
+let mode = "live", histGen = 0, playing = false, playPos = 0, lastFrame = 0;
 let forecastFor = null;
 
-function fmtTime(epoch) {
-  return new Date(epoch * 1000).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-}
+const fmtTime = (epoch) => new Date(epoch * 1000).toLocaleString(undefined,
+  { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 function fmtLeft(secs) {
   if (secs <= 0) return "any moment";
   const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
@@ -75,11 +90,12 @@ function fmtLeft(secs) {
 const genTime = (g) => S.launch + g * S.genSec;
 
 async function load() {
+  const t = Date.now();
   try {
-    const r = await fetch(`${STATE_URL}?t=${Date.now()}`, { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    const d = await r.json();
-    const u = d.universe, [h, w] = u.shape;
+    const [rs, rl] = await Promise.all([fetch(`${BASE}state.json?t=${t}`, { cache: "no-store" }),
+                                        fetch(`${BASE}log.jsonl?t=${t}`, { cache: "no-store" })]);
+    if (!rs.ok) throw new Error(rs.status);
+    const d = await rs.json(), u = d.universe, [h, w] = u.shape;
     const fresh = !S || S.hash !== u.hash;
     S = {
       h, w, gen: u.generation, phase: u.phase, hash: u.hash,
@@ -88,54 +104,164 @@ async function load() {
       grid: LifeCore.decode(u.grid, h, w),
       highlight: new Set((d.display.highlight || []).map(([x, y]) => y * w + x)),
     };
-    if (fresh) { view = { gen: S.gen, grid: S.grid }; forecastFor = null; }
+    if (fresh) { ahead = { gen: S.gen, grid: S.grid }; forecastFor = null; }
+    if (rl.ok) {
+      const text = await rl.text();
+      if (text.length !== logSize) {
+        logSize = text.length;
+        TL = new History.Timeline(History.parse(text));
+        renderEvents();
+      }
+    }
     $("sync").textContent = `bot's last state: gen ${S.gen.toLocaleString()}`;
   } catch (e) {
     $("sync").textContent = "couldn't reach the bot's state; retrying";
   }
 }
 
-function targetGen() {
-  const now = Date.now() / 1000;
-  let g = Math.max(S.gen, Math.floor((now - S.launch) / S.genSec));
+function liveGen() {
+  let g = Math.max(S.gen, Math.floor((Date.now() / 1000 - S.launch) / S.genSec));
   if (S.phase === "DIED") g = S.died;
   else if (S.phase === "FLATLINING") g = Math.min(g, S.deadline);
   return g;
 }
 
-function draw() {
-  const { h, w } = S, g = view.grid;
+function gridAt(gen) {
+  if (gen < S.gen && TL) return TL.gridAt(gen);
+  if (!ahead || ahead.gen > gen) ahead = { gen: S.gen, grid: S.grid };
+  for (let n = 0; ahead.gen < gen && n < 5000; n++) ahead = { gen: ahead.gen + 1, grid: LifeCore.step(ahead.grid, S.h, S.w) };
+  return ahead.grid;
+}
+
+function statusAt(gen) {
+  if (gen >= S.gen || !TL) {
+    const died = S.phase === "FLATLINING" && gen >= S.deadline;
+    return { phase: died ? "DIED" : S.phase, deadline: S.deadline, died: died ? S.deadline : S.died };
+  }
+  return TL.phaseAt(gen);
+}
+
+function recentCells(gen) {
+  if (mode === "live") return gen - S.gen <= RECENT ? S.highlight : new Set();
+  const cells = new Set();
+  if (TL) for (let g = Math.max(0, gen - RECENT); g <= gen; g++) for (const c of TL.cellsAt(g)) cells.add(c);
+  return cells;
+}
+
+function draw(gen) {
+  const { h, w } = S, g = gridAt(gen), st = statusAt(gen), lit = recentCells(gen);
   ctx.fillStyle = "#16191f"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#0a0c10";
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
-  const phaseNow = S.phase === "FLATLINING" && view.gen >= S.deadline ? "DIED" : S.phase;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
     if (!g[i]) continue;
-    ctx.fillStyle = S.highlight.has(i) && view.gen === S.gen ? "#ffffff" : COLOR[phaseNow];
+    ctx.fillStyle = lit.has(i) ? "#ffffff" : COLOR[st.phase];
     ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
   }
   const ph = $("phase");
-  ph.textContent = phaseNow; ph.style.color = `var(--${phaseNow})`;
-  let right = phaseNow === "DIED" ? `died at gen ${(S.died ?? view.gen).toLocaleString()}` : `Gen ${view.gen.toLocaleString()}`;
-  if (phaseNow === "FLATLINING" || phaseNow === "CONTESTED")
-    right += ` · ${fmtLeft(genTime(S.deadline) - Date.now() / 1000)}`;
+  ph.textContent = st.phase; ph.style.color = `var(--${st.phase})`;
+  let right = st.phase === "DIED" ? `died at gen ${(st.died ?? gen).toLocaleString()}` : `Gen ${gen.toLocaleString()}`;
+  if (mode !== "live") right += ` · ${fmtTime(genTime(gen))}`;
+  if ((st.phase === "FLATLINING" || st.phase === "CONTESTED") && st.deadline != null) {
+    const from = mode === "live" ? Date.now() / 1000 : genTime(gen);
+    right += ` · ${fmtLeft(genTime(st.deadline) - from)}`;
+  }
   $("gen").textContent = right;
 }
 
-function tick() {
-  if (!S) return;
-  const target = targetGen();
-  // Catch up in bounded steps so a stale tab doesn't freeze.
-  for (let n = 0; view.gen < target && n < 2000; n++) {
-    view = { gen: view.gen + 1, grid: LifeCore.step(view.grid, S.h, S.w) };
+// ---------------------------------------------------------------- scrubber
+function setMode(m) {
+  mode = m;
+  $("live").classList.toggle("on", m === "live");
+  if (m === "live") setPlaying(false);
+}
+function setPlaying(p) {
+  playing = p;
+  $("play").textContent = p ? "❚❚" : "▶";
+  $("play").setAttribute("aria-label", p ? "Pause" : "Play the whole life");
+  lastFrame = performance.now();
+}
+function jump(gen) { setMode("history"); setPlaying(false); histGen = gen; render(); }
+
+$("slider").addEventListener("input", (e) => { setMode("history"); setPlaying(false); histGen = +e.target.value; render(); });
+$("live").addEventListener("click", () => { setMode("live"); render(); });
+$("play").addEventListener("click", () => {
+  if (playing) return setPlaying(false);
+  if (mode === "live" || histGen >= liveGen()) histGen = 0;
+  setMode("history"); playPos = histGen; setPlaying(true); requestAnimationFrame(playFrame);
+});
+
+function playFrame(now) {
+  if (!playing) return;
+  const end = liveGen();
+  const speed = Math.max(15, end / 45);  // whole life in about 45 s
+  playPos += speed * (now - lastFrame) / 1000;
+  lastFrame = now;
+  histGen = Math.min(end, Math.floor(playPos));
+  render();
+  if (histGen >= end) { setMode("live"); render(); return; }
+  requestAnimationFrame(playFrame);
+}
+
+function renderMarks() {
+  const end = Math.max(1, liveGen()), box = $("marks");
+  box.textContent = "";
+  if (!TL) return;
+  for (const e of TL.events) {
+    const b = document.createElement("button");
+    b.className = "mark " + (e.kind === "comment" ? "comment" : e.to);
+    b.style.left = `${(100 * e.gen) / end}%`;
+    b.title = `gen ${e.gen.toLocaleString()}: ${describe(e)}`;
+    b.setAttribute("aria-label", b.title);
+    b.addEventListener("click", () => jump(e.gen));
+    box.appendChild(b);
   }
-  draw();
-  if (S.phase === "DIED" || (S.phase === "FLATLINING" && view.gen >= S.deadline)) {
+}
+
+function describe(e) {
+  if (e.kind === "comment") return e.changed ? `a comment landed: ${e.command}` : `a comment changed nothing (${e.command})`;
+  return ({
+    cycle_detected: "stuck in a loop; the 24-hour countdown started",
+    new_cycle: "fell into a new loop; the countdown restarted",
+    reentered_cycle: "fell back into the same loop; the countdown kept running",
+    injection: "a comment broke the loop; it can't die until the deadline",
+    survived_deadline: "saved: still changing when the countdown ran out",
+    deadline: "died",
+  })[e.reason] || e.to;
+}
+
+function renderEvents() {
+  const ol = $("events");
+  ol.textContent = "";
+  const items = [{ gen: 0, text: "born: an acorn, seven living cells" },
+                 ...TL.events.map((e) => ({ gen: e.gen, text: describe(e) }))].reverse();
+  for (const it of items) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = "#board";
+    a.textContent = `${fmtTime(genTime(it.gen))} · gen ${it.gen.toLocaleString()}`;
+    a.addEventListener("click", (ev) => { ev.preventDefault(); jump(it.gen); });
+    li.append(a, ` — ${it.text}`);
+    ol.appendChild(li);
+  }
+  renderMarks();
+}
+
+// ---------------------------------------------------------------- loop
+function render() {
+  if (!S) return;
+  const end = liveGen(), gen = mode === "live" ? end : Math.min(histGen, end);
+  const sl = $("slider");
+  sl.max = end; sl.value = gen;
+  draw(gen);
+  if (mode !== "live") {
+    $("tick").textContent = "viewing the past · LIVE returns to now";
+  } else if (S.phase === "DIED" || (S.phase === "FLATLINING" && gen >= S.deadline)) {
     $("tick").textContent = "";
   } else {
-    const next = genTime(view.gen + 1) - Date.now() / 1000;
-    $("tick").textContent = `next generation in ${Math.max(0, Math.ceil(next))} s`;
+    const next = Math.ceil(genTime(gen + 1) - Date.now() / 1000);
+    $("tick").textContent = next >= 0 && next <= S.genSec ? `next generation in ${next} s` : "";
   }
   forecast();
 }
@@ -155,19 +281,18 @@ function forecast() {
     const hash = S.hash;
     LifeCore.findRepeat(S.grid, S.h, S.w, S.gen, FORECAST_GENS).then((r) => {
       if (S.hash !== hash) return;
-      if (r === null) {
-        f.textContent = `If nobody comments, it won't get stuck in a loop for at least ${Math.round(FORECAST_GENS * S.genSec / 86400)} days.`;
-      } else {
-        f.textContent = `If nobody comments, it gets stuck in a loop around ${fmtTime(genTime(r))} and dies 24 hours later, around ${fmtTime(genTime(r + S.flatGens))}. One comment changes all of that.`;
-      }
+      f.textContent = r === null
+        ? `If nobody comments, it won't get stuck in a loop for at least ${Math.round(FORECAST_GENS * S.genSec / 86400)} days.`
+        : `If nobody comments, it gets stuck in a loop around ${fmtTime(genTime(r))} and dies 24 hours later, around ${fmtTime(genTime(r + S.flatGens))}. One comment changes all of that.`;
     });
   }
 }
 
 if (VIDEO_URL) { $("video").href = VIDEO_URL; $("cta").hidden = false; }
-load().then(tick);
-setInterval(tick, 1000);
-setInterval(load, POLL_MS);
+const START = new URLSearchParams(location.search).get("gen");  // ?gen=1234 opens at that moment
+load().then(() => (START !== null ? jump(+START) : render()));
+setInterval(() => { if (!playing) render(); }, 1000);
+setInterval(() => load().then(renderMarks), POLL_MS);
 </script>
 </body>
 </html>

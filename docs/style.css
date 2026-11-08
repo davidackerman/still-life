@@ -31,3 +31,23 @@ main.wide { max-width: 68rem; }
 .forecast { font-size: 1.05rem; margin-top: 1rem; }
 .button { display: inline-block; padding: .6rem 1rem; border-radius: 8px; background: var(--accent); color: var(--bg); text-decoration: none; font-weight: 600; }
 @media (max-width: 40rem) { .meta { flex-direction: column; gap: .1rem; } .phase { font-size: 1.3rem; } }
+
+/* scrubber + history */
+.scrub { display: flex; align-items: center; gap: .6rem; margin-top: .7rem; }
+.track { position: relative; flex: 1; height: 2.2rem; }
+.track input[type=range] { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; margin: 0; accent-color: var(--accent); }
+.marks { position: absolute; left: 8px; right: 8px; top: 0; height: 1rem; }
+.mark { position: absolute; top: 0; width: 6px; height: 1rem; margin-left: -3px; padding: 0; border: 0; border-radius: 2px; cursor: pointer; background: var(--muted); }
+.mark.comment { background: var(--fg); height: .7rem; top: .3rem; }
+.mark.FLATLINING { background: var(--FLATLINING); }
+.mark.CONTESTED { background: var(--CONTESTED); }
+.mark.ALIVE { background: var(--ALIVE); }
+.mark.DIED { background: var(--DIED); }
+.iconbtn, .livebtn { border: 1px solid var(--rule); background: transparent; color: var(--fg); border-radius: 6px; padding: .3rem .6rem; font: inherit; font-size: .85rem; cursor: pointer; min-width: 2.4rem; }
+.livebtn { font-weight: 700; letter-spacing: .04em; color: var(--muted); }
+.livebtn.on { color: var(--FLATLINING); border-color: var(--FLATLINING); }
+.history { margin-top: 1.2rem; }
+.history summary { cursor: pointer; color: var(--muted); }
+.events { margin: .6rem 0 0; padding-left: 1.2rem; max-height: 14rem; overflow-y: auto; font-size: .92rem; }
+.events li { margin: .2rem 0; }
+.events a { color: var(--accent); text-decoration: none; font-variant-numeric: tabular-nums; }

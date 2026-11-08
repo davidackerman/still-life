@@ -15,8 +15,9 @@ video is uploaded and this one goes private.
 **The video:** <https://www.youtube.com/watch?v=oFWeLMe4bhI>. Comment there to change the universe.
 
 **Watch it live:** <https://davidackerman.github.io/still-life/>. The page
-computes the same universe in your browser from the bot's latest state, and
-forecasts when it will repeat if nobody comments.
+computes the same universe in your browser from the bot's latest state,
+forecasts when it will get stuck if nobody comments, and has a slider to rewind
+through its whole life (link to a moment with `?gen=1234`).
 
 > Status: under construction. Steps 1–3 of 4 are done: credentials and smoke test;
 > simulation and local simulator; the scheduled bot (titles, thumbnails, comments,
@@ -221,7 +222,7 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `store.py` | `state.json`, `history.bin`, and the hash-chained `log.jsonl` |
 | `replay.py` | verifies the log and rebuilds the life from the seed (no secrets needed) |
 | `.github/workflows/tick.yml` | runs `tick.py` every 5 minutes and commits `state/` |
-| `docs/` | GitHub Pages: the live view (`index.html`, `life.js`) and the privacy policy |
+| `docs/` | GitHub Pages: the live view (`index.html`, `life.js`), the rewind slider and history (`history.js`, which replays the public log in the browser), and the privacy policy |
 | `explainer.py` | renders the ~70 s explainer video that hosts the universe (`out/explainer.mp4`) |
 | `render.py` | status title and the 1280×720 thumbnail |
 | `simulate.py` | local mode: fake YouTube, fake clock, synthetic commenters |
