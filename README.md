@@ -11,7 +11,8 @@ video is uploaded and this one goes private.
 
 *Every comment changes this universe. Some save it. Some kill it.*
 
-> Status: under construction. Step 1 of 4 (credentials and smoke test) is done.
+> Status: under construction. Steps 1–2 of 4 are done: credentials and smoke test;
+> simulation, state machine, comment parser, local simulator.
 
 ## Rules for viewers
 
@@ -27,7 +28,10 @@ Comment on the video. The first command in your comment wins (case-insensitive):
 | `cells x,y x,y ...` | up to 25 individual cells |
 | anything else | a 5×5 random patch at 50% density, derived from a hash of your comment's ID and text |
 
-- `x` is 0–127, `y` is 0–71, and the origin is the top-left. Coordinates wrap.
+- `x` is 0–127, `y` is 0–71, and the origin is the top-left. `(x, y)` is the
+  top-left corner of the pattern, and patterns that cross an edge wrap around.
+- A command with a coordinate out of range is ignored. If your comment has no
+  valid command, it counts as a random patch.
 - Cells are added to whatever is already there; nothing is erased.
 - Each channel gets one injection per hour. Each run applies at most 20
   injections, and the rest wait for the next run.
@@ -37,6 +41,25 @@ Comment on the video. The first command in your comment wins (case-insensitive):
   API, so they do nothing while held.
 - Every event is recorded in a hash-chained log (`state/log.jsonl`), and
   `replay.py` rebuilds the whole life from the seed to verify it.
+
+### How the universe lives and dies
+
+One generation every 2 minutes, around the clock.
+
+- **ALIVE**: the universe is evolving.
+- **FLATLINING**: it has repeated a state. Left alone, a finite universe
+  eventually always does. A 24-hour countdown starts.
+- **CONTESTED**: a comment disturbed it during the countdown. The countdown
+  keeps running, but the universe cannot die while contested:
+  - If it falls back into the same loop, it is FLATLINING again with the same
+    deadline.
+  - If it settles into a *different* loop, it is FLATLINING with a fresh
+    24 hours.
+  - If it is still changing when the deadline passes, it is ALIVE again.
+- **DIED**: the countdown ran out while FLATLINING. An obituary video is
+  uploaded and this one goes private.
+
+A comment that adds no new live cells changes nothing.
 
 ## Setup (owner)
 
@@ -88,10 +111,29 @@ units.
 Custom thumbnails also need a verified channel
 (<https://www.youtube.com/verify>). Without one, `thumbnails.set` returns 403.
 
+## Development
+
+```sh
+pip install -r requirements-dev.txt
+pytest                                                  # about 2 s
+python simulate.py --rate 0.5 --days 30                 # one lifetime, with timeline
+python simulate.py --rate 0.1 --thumbs out/sim          # also write every thumbnail
+python simulate.py --sweep 0,0.1,0.25,1 --seeds 5       # compare comment rates
+python simulate.py --flatline-hours 6 --gen-seconds 30  # try other tunings
+```
+
 ## Files
 
 | File | Purpose |
 |---|---|
+| `life.py` | B3/S23 on a 128×72 torus, patterns, BLAKE2b state hashes |
+| `universe.py` | the state machine (ALIVE / FLATLINING / CONTESTED / DIED), on generation time; `replay()` |
+| `commands.py` | comment → cells parser, including the hashed random patch |
+| `admission.py` | dedupe, one injection per author per hour, 20 per run with a queue |
+| `engine.py` | one run: comments in, simulation forward, title/thumbnail out |
+| `render.py` | status title and the 1280×720 thumbnail |
+| `simulate.py` | local mode: fake YouTube, fake clock, synthetic commenters |
 | `auth.py` | one-time OAuth desktop flow (loopback + PKCE); prints a refresh token |
 | `smoke_test.py` | milestone 1: title and thumbnail round trip on `VIDEO_ID` |
 | `youtube.py` | YouTube API access (display and input only; never authoritative) |
+| `tests/` | pytest suite |

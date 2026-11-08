@@ -1,0 +1,4 @@
+# Local-only extras: tests and the one-time OAuth flow
+-r requirements.txt
+pytest
+google-auth-oauthlib

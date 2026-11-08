@@ -1,0 +1,91 @@
+"""Conway's Game of Life (B3/S23) on a toroidal grid.
+
+The grid is a NumPy uint8 array of shape (H, W) holding 0/1, indexed grid[y, x]
+with the origin at the top-left. Every function here is pure.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+
+import numpy as np
+
+W, H = 128, 72  # production grid: 128 wide x 72 tall
+
+# Patterns as (x, y) offsets from the top-left of their bounding box.
+PATTERNS: dict[str, tuple[tuple[int, int], ...]] = {
+    "block": ((0, 0), (1, 0), (0, 1), (1, 1)),
+    "blinker": ((0, 0), (1, 0), (2, 0)),
+    "rpent": ((1, 0), (2, 0), (0, 1), (1, 1), (1, 2)),
+    "acorn": ((1, 0), (3, 1), (0, 2), (1, 2), (4, 2), (5, 2), (6, 2)),
+    # Gliders, named by the direction they travel (y grows downward).
+    "glider_se": ((1, 0), (2, 1), (0, 2), (1, 2), (2, 2)),
+    "glider_sw": ((1, 0), (0, 1), (0, 2), (1, 2), (2, 2)),
+    "glider_ne": ((0, 0), (1, 0), (2, 0), (2, 1), (1, 2)),
+    "glider_nw": ((0, 0), (1, 0), (2, 0), (0, 1), (1, 2)),
+}
+
+
+def empty(shape: tuple[int, int] = (H, W)) -> np.ndarray:
+    return np.zeros(shape, dtype=np.uint8)
+
+
+def place(offsets, x: int, y: int, shape: tuple[int, int] = (H, W)) -> list[tuple[int, int]]:
+    """Absolute (x, y) cells for a pattern whose top-left is at (x, y), wrapped."""
+    h, w = shape
+    return [((x + dx) % w, (y + dy) % h) for dx, dy in offsets]
+
+
+def centered(name: str, shape: tuple[int, int] = (H, W)) -> list[tuple[int, int]]:
+    """A named pattern with its bounding box centered on the grid."""
+    offsets = PATTERNS[name]
+    pw = max(dx for dx, _ in offsets) + 1
+    ph = max(dy for _, dy in offsets) + 1
+    h, w = shape
+    return place(offsets, (w - pw) // 2, (h - ph) // 2, shape)
+
+
+def mask(cells, shape: tuple[int, int] = (H, W)) -> np.ndarray:
+    m = empty(shape)
+    for x, y in cells:
+        m[y % shape[0], x % shape[1]] = 1
+    return m
+
+
+def step(grid: np.ndarray) -> np.ndarray:
+    """One B3/S23 generation on a torus."""
+    v = grid + np.roll(grid, 1, 0) + np.roll(grid, -1, 0)
+    s = v + np.roll(v, 1, 1) + np.roll(v, -1, 1)  # 3x3 sum including the cell itself
+    return ((s == 3) | ((s == 4) & (grid == 1))).astype(np.uint8)
+
+
+def state_hash(grid: np.ndarray) -> bytes:
+    """BLAKE2b-256 of np.packbits(grid) (row-major, 1 bit per cell)."""
+    return hashlib.blake2b(np.packbits(grid).tobytes(), digest_size=32).digest()
+
+
+def encode(grid: np.ndarray) -> str:
+    """Grid -> base64 of packbits, for state.json."""
+    return base64.b64encode(np.packbits(grid).tobytes()).decode("ascii")
+
+
+def decode(data: str, shape: tuple[int, int] = (H, W)) -> np.ndarray:
+    bits = np.unpackbits(np.frombuffer(base64.b64decode(data), dtype=np.uint8))
+    return bits[: shape[0] * shape[1]].reshape(shape).astype(np.uint8)
+
+
+def find_cycle(grid: np.ndarray, max_gens: int = 1_000_000) -> tuple[int, int]:
+    """Evolve undisturbed until a state repeats.
+
+    Returns (mu, period): the first generation that is part of the cycle, and
+    the cycle length. The repeat is *detected* at generation mu + period.
+    """
+    seen: dict[bytes, int] = {state_hash(grid): 0}
+    for gen in range(1, max_gens + 1):
+        grid = step(grid)
+        h = state_hash(grid)
+        if h in seen:
+            return seen[h], gen - seen[h]
+        seen[h] = gen
+    raise RuntimeError(f"no cycle within {max_gens} generations")
