@@ -33,16 +33,15 @@ def time_left(gens: int, gen_seconds: int = GEN_SECONDS) -> str:
 
 
 def duration(secs: float) -> str:
-    """Countdown wording for titles: '2 days, 14 hours', '14 hours', '45 minutes'."""
-    def n(k, unit):
-        return f"{k} {unit}" + ("" if k == 1 else "s")
-    secs = max(0, int(secs))
-    days, hours = secs // 86400, secs % 86400 // 3600
-    if days:
-        return n(days, "day") + (f", {n(hours, 'hour')}" if hours else "")
-    if hours:
-        return n(hours, "hour")
-    return n(max(1, math.ceil(secs / 60)), "minute")
+    """Countdown clock for titles, rounded down to the quarter hour (the title
+    changes at most every 15 minutes): '3d 13h 45m', '14h 30m', '45m', 'under 15m'."""
+    q = max(0, int(secs)) // 900 * 900
+    d, h, m = q // 86400, q % 86400 // 3600, q % 3600 // 60
+    if d:
+        return f"{d}d {h:02d}h {m:02d}m"
+    if h:
+        return f"{h}h {m:02d}m"
+    return f"{m}m" if m else "under 15m"
 
 
 VERB = "dies"  # one place to change the title's verb (e.g. "self-destructs")
@@ -63,7 +62,7 @@ def title(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = N
     if stuck_gen is not None:
         when = duration((stuck_gen + u.flatline_gens - u.generation) * gen_seconds)
     elif horizon_gens is not None:
-        when = f"{(horizon_gens + u.flatline_gens) * gen_seconds // 86400}+ days"
+        when = f"{(horizon_gens + u.flatline_gens) * gen_seconds // 86400}+ days"  # beyond the forecast
     else:
         return f"{TITLE_BASE} · Game of Life"
     return f"This video {VERB} in {when} if nobody comments · Game of Life"

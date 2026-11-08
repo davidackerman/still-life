@@ -93,7 +93,7 @@ def test_title_at_most_every_15_minutes_and_only_when_changed():
     gaps = [b - a for a, b in zip(stamps, stamps[1:])]
     assert stamps and min(gaps) >= 15 * 60
     assert all(a != b for a, b in zip(yt.titles, yt.titles[1:]))  # never re-sent unchanged
-    assert 10 <= len(yt.titles) <= 13  # the countdown's hour changes about hourly
+    assert len(yt.titles) >= 40  # the quarter-hour clock changes at nearly every allowed slot
 
 
 def test_thumbnail_every_3_hours_and_on_phase_change():
