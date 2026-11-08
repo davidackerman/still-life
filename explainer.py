@@ -50,13 +50,24 @@ def read_frames(*lines: str) -> int:
 _fonts: dict = {}
 
 
+# On Linux (the GitHub runner that renders obituaries): DejaVu Sans, which has
+# the en dashes, middle dots and multiplication signs these videos use, and a bold.
+LINUX_FONTS = {"bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+               "demi": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+               "medium": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+               "regular": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"}
+
+
 def font(weight: str, size: float):
     key = (weight, int(size * SCALE))
     if key not in _fonts:
         try:
             _fonts[key] = ImageFont.truetype(FONT_FILE, key[1], index=FACE[weight])
         except OSError:
-            _fonts[key] = ImageFont.load_default(size=key[1])
+            try:  # DejaVu runs wider than Avenir: a little smaller keeps the layout
+                _fonts[key] = ImageFont.truetype(LINUX_FONTS[weight], int(key[1] * 0.9))
+            except OSError:
+                _fonts[key] = ImageFont.load_default(size=key[1])
     return _fonts[key]
 
 
