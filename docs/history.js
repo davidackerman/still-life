@@ -63,7 +63,8 @@ const History = (() => {
       this.events = parsed.events;
       this.lastGen = parsed.lastGen;
       this.snaps = new Map(); // gen -> grid after that gen's injections
-      this.cur = { gen: 0, grid: this.inject(0, seedGrid(g.seed, this.h, this.w)) };
+      this.seed0 = seedGrid(g.seed, this.h, this.w);  // before any comment at gen 0
+      this.cur = { gen: 0, grid: this.inject(0, this.seed0) };
       this.snaps.set(0, this.cur.grid);
     }
 

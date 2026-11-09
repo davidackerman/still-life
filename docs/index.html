@@ -54,7 +54,7 @@
 <tr><td><code>cells x,y x,y …</code></td><td>up to 25 single cells</td></tr>
 <tr><td>anything else</td><td>a 5×5 random patch derived from a hash of your comment</td></tr>
 </table>
-<p><code>x</code> is 0–127 and <code>y</code> is 0–71, from the top-left. Every comment counts, as many as you like. New comments are picked up within about five minutes; for two hours after a comment lands, its cells are circled on the board with its command beside them.</p>
+<p><code>x</code> is 0–127 and <code>y</code> is 0–71, from the top-left. Every comment counts, as many as you like. New comments are picked up within about five minutes; for two hours after a comment lands, everything it changed is drawn in white (and anything it killed outlined in red), boxed, with its command beside it.</p>
 
 <h2>Verifiable</h2>
 <p>Every run is recorded in a hash-chained public log, and anyone can replay the whole life from the seed to check it. The source, the full rules and the log are on <a href="https://github.com/davidackerman/still-life">GitHub</a>.</p>
@@ -75,8 +75,7 @@ const BASE = new URLSearchParams(location.search).get("base")
   || "https://raw.githubusercontent.com/davidackerman/still-life/main/state/";
 const COLOR = { ALIVE: "#78e6a0", FLATLINING: "#f05a5a", CONTESTED: "#fac850", DIED: "#7a7a87" };
 let CELL = 10;  // px per cell; smaller on bigger boards (set from the state's shape)
-const POLL_MS = 60000, FORECAST_GENS = 30000, RECENT = 15;
-const TAG_GENS = 60, TAG_MAX = 6;  // comments stay circled for 2 hours (60 generations); at most 6 at once
+const POLL_MS = 60000, FORECAST_GENS = 30000;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("board"), ctx = canvas.getContext("2d");
@@ -119,6 +118,7 @@ async function load() {
       if (text.length !== logSize) {
         logSize = text.length;
         TL = new History.Timeline(History.parse(text));
+        cfCache.clear();
         renderEvents();
       }
     }
@@ -148,22 +148,6 @@ function statusAt(gen) {
     return { phase: died ? "DIED" : S.phase, deadline: S.deadline, died: died ? S.deadline : S.died };
   }
   return TL.phaseAt(gen);
-}
-
-function recentCells(gen) {
-  if (mode === "live") return gen - S.gen <= RECENT ? S.highlight : new Set();
-  const cells = new Set();
-  if (TL) for (let g = Math.max(0, gen - RECENT); g <= gen; g++) for (const c of TL.cellsAt(g)) cells.add(c);
-  return cells;
-}
-
-// Comments that landed in the last TAG_GENS generations before `gen`, newest first.
-function commentsNear(gen) {
-  const out = [];
-  if (!TL) return out;
-  for (let g = gen; g >= Math.max(0, gen - TAG_GENS) && out.length < TAG_MAX; g--)
-    for (const e of TL.injections.get(g) || []) out.push({ gen: g, cells: e.cells, command: e.command, changed: e.changed, effect: e.effect });
-  return out.slice(0, TAG_MAX);
 }
 
 // How long it had left at `gen` if nobody commented, from a forecast (null = beyond it).
@@ -199,42 +183,122 @@ function mainPiece(cells) {
   return [...parts.values()].sort((a, b) => b.length - a.length)[0];
 }
 
-function drawTags(gen) {
-  const box = $("tags");
-  box.textContent = "";
-  for (const c of commentsNear(gen)) {
-    const piece = mainPiece(c.cells);
-    const px = piece.map(([x, y]) => [(x + 0.5) * CELL, (y + 0.5) * CELL]);
-    const cx = px.reduce((s, p) => s + p[0], 0) / px.length, cy = px.reduce((s, p) => s + p[1], 0) / px.length;
-    const r = Math.max(3 * CELL, Math.max(...px.map(([x, y]) => Math.hypot(x - cx, y - cy))) + 2 * CELL);
-    const fade = 1 - 0.75 * (gen - c.gen) / TAG_GENS;
-    ctx.save();
-    ctx.globalAlpha = fade;
-    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = Math.max(2, CELL * 0.35);
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI); ctx.stroke();
-    ctx.restore();
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.style.opacity = fade.toFixed(2);
-    const eff = effectOf(c, true);
-    tag.textContent = c.changed ? c.command : `${c.command} (changed nothing)`;
-    if (eff) {
-      const span = document.createElement("span");
-      span.className = `eff ${eff.cls}`;
-      span.textContent = ` · ${eff.text}`;
-      tag.appendChild(span);
+// ---------------------------------------------------------------- ripples
+// What recent comments actually did: the page replays the universe a second
+// time as if the comments that landed at a generation never happened, and
+// compares. Cells alive only because of them are drawn white, cells they killed
+// get a red outline, and a box follows the difference as it moves, spreads or
+// fizzles out. Comments that landed in the same generation share one ripple.
+const RIPPLE_GENS = 60, RIPPLE_MAX = 3;  // for 2 hours (60 generations); at most 3 at once
+const cfCache = new Map();  // landing gen -> {gen, grid}: the universe without those comments
+
+function counterfactual(g0, gen) {
+  let c = cfCache.get(g0);
+  if (!c || c.gen > gen) {
+    const before = g0 === 0 ? TL.seed0 : LifeCore.step(TL.gridAt(g0 - 1), S.h, S.w);
+    c = { gen: g0, grid: before };  // the comments at g0 never landed
+  }
+  while (c.gen < gen) c = { gen: c.gen + 1, grid: TL.inject(c.gen + 1, LifeCore.step(c.grid, S.h, S.w)) };
+  cfCache.set(g0, c);
+  return c.grid;
+}
+
+// Groups of comments that landed in the last RIPPLE_GENS generations, newest first.
+function groupsNear(gen) {
+  const out = [];
+  if (!TL) return out;
+  for (let g = Math.min(gen, TL.lastGen); g >= Math.max(0, gen - RIPPLE_GENS) && out.length < RIPPLE_MAX; g--) {
+    const list = TL.injections.get(g);
+    if (list && list.length) out.push({ gen: g, list });
+  }
+  return out;
+}
+
+function ripplesAt(gen, actual) {
+  const { w, h } = S, out = [];
+  for (const grp of groupsNear(gen)) {
+    const cf = counterfactual(grp.gen, gen), born = [], killed = [];
+    for (let i = 0; i < actual.length; i++) {
+      if (actual[i] && !cf[i]) born.push(i);
+      else if (!actual[i] && cf[i]) killed.push(i);
     }
-    const below = cy < canvas.height * 0.6;  // label on the roomier side of the ring
-    tag.style.left = `${(100 * Math.min(Math.max(cx, canvas.width * 0.12), canvas.width * 0.88)) / canvas.width}%`;
-    tag.style.top = `${(100 * (below ? cy + r : cy - r)) / canvas.height}%`;
-    tag.classList.add(below ? "below" : "above");
-    tag.title = `a comment at gen ${c.gen.toLocaleString()}`;
+    // the landing spot, and the difference's extent around it (wrapping edges)
+    const piece = mainPiece(grp.list[0].cells);
+    const cx = piece.reduce((s, p) => s + p[0], 0) / piece.length, cy = piece.reduce((s, p) => s + p[1], 0) / piece.length;
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const i of born.concat(killed)) {
+      const dx = ((((i % w) - cx + w / 2) % w) + w) % w - w / 2, dy = (((Math.floor(i / w) - cy + h / 2) % h) + h) % h - h / 2;
+      x0 = Math.min(x0, dx); x1 = Math.max(x1, dx); y0 = Math.min(y0, dy); y1 = Math.max(y1, dy);
+    }
+    const n = born.length + killed.length;
+    // One comment gets a box that follows its effect. Several that landed together
+    // (often far apart) just show their cells: one box around them all says nothing.
+    const single = grp.list.length === 1;
+    const spread = single && n && (x1 - x0 > w * 0.45 || y1 - y0 > h * 0.45);
+    out.push({ grp, born, killed, cx, cy, n, spread, box: single && n ? { x0: cx + x0, x1: cx + x1, y0: cy + y0, y1: cy + y1 } : null,
+               fade: 1 - 0.7 * (gen - grp.gen) / RIPPLE_GENS });
+  }
+  return out;
+}
+
+function rippleLabel(r) {
+  const list = r.grp.list;
+  const first = list.find((e) => e.effect), last = [...list].reverse().find((e) => e.effect);
+  const eff = first ? effectOf({ gen: r.grp.gen, effect: { ...first.effect, after: last.effect.after } }) : null;
+  const what = list.length === 1 ? list[0].command : `${list.length} comments`;
+  const status = !r.n ? " · no trace left" : r.spread ? " · rippling across the board" : "";
+  return { what, eff, status };
+}
+
+function drawRipples(rips) {
+  const box = $("tags"), scale = (box.clientWidth || canvas.width) / canvas.width;
+  box.textContent = "";
+  const placed = [];
+  for (const r of rips) {
+    ctx.save();
+    ctx.globalAlpha = r.fade;
+    ctx.strokeStyle = "rgba(240, 90, 90, 0.9)"; ctx.lineWidth = Math.max(1, CELL * 0.15);
+    for (const i of r.killed) ctx.strokeRect((i % S.w) * CELL + 1.5, Math.floor(i / S.w) * CELL + 1.5, CELL - 3, CELL - 3);
+    let ax = (r.cx + 0.5) * CELL, ay = (r.cy + 0.5) * CELL, below = true;
+    if (r.box && !r.spread) {
+      const pad = 1.2 * CELL;
+      const bx = r.box.x0 * CELL - pad, by = r.box.y0 * CELL - pad;
+      const bw = (r.box.x1 - r.box.x0 + 1) * CELL + 2 * pad, bh = (r.box.y1 - r.box.y0 + 1) * CELL + 2 * pad;
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)"; ctx.lineWidth = Math.max(1.5, CELL * 0.22);
+      ctx.setLineDash([CELL * 0.8, CELL * 0.5]);
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(bx, by, bw, bh, CELL) : ctx.rect(bx, by, bw, bh); ctx.stroke();
+      below = by + bh < canvas.height * 0.75;
+      ax = bx + bw / 2; ay = below ? by + bh : by;
+    }
+    ctx.restore();
+    // the label, kept clear of the others
+    const { what, eff, status } = rippleLabel(r);
+    const tag = document.createElement("span");
+    tag.className = "tag" + (below ? " below" : " above");
+    tag.style.opacity = Math.max(0.35, r.fade).toFixed(2);
+    tag.textContent = what;
+    if (eff) { const e = document.createElement("span"); e.className = `eff ${eff.cls}`; e.textContent = ` · ${eff.text}`; tag.appendChild(e); }
+    if (status) { const e = document.createElement("span"); e.className = "eff gone"; e.textContent = status; tag.appendChild(e); }
+    tag.title = `landed at gen ${r.grp.gen.toLocaleString()}`;
+    tag.style.left = `${Math.min(Math.max(ax, canvas.width * 0.14), canvas.width * 0.86) * scale}px`;
+    tag.style.top = `${ay * scale}px`;
     box.appendChild(tag);
+    if (tag.getBoundingClientRect) {
+      for (let tries = 0; tries < 6; tries++) {
+        const a = tag.getBoundingClientRect();
+        const hit = placed.find((b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
+        if (!hit) break;
+        tag.style.top = `${parseFloat(tag.style.top) + (below ? 1 : -1) * (hit.bottom - hit.top + 4)}px`;
+      }
+      placed.push(tag.getBoundingClientRect());
+    }
   }
 }
 
 function draw(gen) {
-  const { h, w } = S, g = gridAt(gen), st = statusAt(gen), lit = recentCells(gen);
+  const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
+  const rips = ripplesAt(gen, g), lit = new Set();
+  for (const r of rips) for (const i of r.born) lit.add(i);
   ctx.fillStyle = "#16191f"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#0a0c10";
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
@@ -244,7 +308,7 @@ function draw(gen) {
     ctx.fillStyle = lit.has(i) ? "#ffffff" : COLOR[st.phase];
     ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
   }
-  drawTags(gen);
+  drawRipples(rips);
   const ph = $("phase");
   ph.textContent = st.phase; ph.style.color = `var(--${st.phase})`;
   let right = st.phase === "DIED" ? `died at gen ${(st.died ?? gen).toLocaleString()}` : `Gen ${gen.toLocaleString()}`;

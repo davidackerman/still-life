@@ -68,3 +68,5 @@ main.wide { max-width: 68rem; }
 .tag .eff { font-weight: 700; }
 .tag .eff.worse { color: #c0392b; }
 .tag .eff.better { color: #1f8a5b; }
+.tag .eff.gone { color: #6b6e78; font-weight: 600; }
+.tag.below { transform: translate(-50%, .35rem); }
