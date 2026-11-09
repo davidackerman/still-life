@@ -226,6 +226,27 @@ upload) and push.
 scratch universe and runs the real death sequence in dry-run mode, with no
 secrets and no YouTube, to check the obituary renders.
 
+## Live stream (optional)
+
+`stream.py` streams the same universe to YouTube Live around the clock: the
+board ticking on the wall clock, each new move rippling in when the tick commits
+it, the countdown and the latest moves. It reads only the public repo (no API,
+no OAuth token); its one secret is the stream key.
+
+1. **YouTube:** Studio → Create → Go live (the first time, YouTube takes up to
+   24 hours to allow streaming). In the Stream tab copy the **stream key**. In
+   the stream's settings turn **auto-start on** and **auto-stop off**, so a
+   restart reconnects to the same broadcast.
+2. **A machine that stays on:** e.g. Oracle Cloud's free Arm VM
+   (`VM.Standard.A1.Flex`, 2 OCPUs, 12 GB, Ubuntu 24.04, "Always Free-eligible").
+3. **On it:** `curl -fsSL https://raw.githubusercontent.com/davidackerman/still-life/main/deploy/setup-stream.sh | bash`
+   It asks for the key (hidden), stores it root-only in `/etc/still-life/stream.env`
+   and starts the `still-life-stream` service. Logs: `journalctl -u still-life-stream -f`.
+
+The service pulls every minute and restarts itself when the streamer's code
+changes. About half a fast core at 1080p30; `STREAM_FPS=15` in the env file
+roughly halves that. Try it locally first: `python stream.py --preview out/stream.png`.
+
 ## Data policy
 
 YouTube's developer policies allow storing other users' API data for at most
@@ -273,6 +294,7 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `docs/` | GitHub Pages: the live view (`index.html`, `life.js`), the rewind slider and history (`history.js`, which replays the public log in the browser), and the privacy policy |
 | `explainer.py` | renders the ~2 min explainer video that hosts the universe (`out/explainer.mp4`) |
 | `short.py` | renders a vertical Short from the real log (`out/short.mp4`) |
+| `stream.py` | the 24/7 YouTube Live stream of the universe (`deploy/setup-stream.sh` sets up a server) |
 | `render.py` | status title and the 1280×720 thumbnail |
 | `simulate.py` | local mode: fake YouTube, fake clock, synthetic commenters |
 | `auth.py` | one-time OAuth desktop flow (loopback + PKCE); prints a refresh token |
