@@ -3,12 +3,173 @@
   "last_accepted": {
    "27ea2a1ae47763d7dd866e4a0fe78d0e": 1794180901.0,
    "698c85b7c4b5c5900939b993de7b953a": 1794140861.0,
-   "9f7efce4aa9e91a0bd0d46aaf20da24d": 1794134494.0,
+   "9f7efce4aa9e91a0bd0d46aaf20da24d": 1794135048.0,
    "b1a287b81a7efa8001cf46e405028f87": 1794181195.0,
    "c44b8394577156897b69019f7c7f711f": 1794179693.0,
-   "d191dd00d23b53fad6a1d98eda08da32": 1794182404.0
+   "d191dd00d23b53fad6a1d98eda08da32": 1794182710.0
   },
-  "queue": [],
+  "queue": [
+   {
+    "author": "d191dd00d23b53fad6a1d98eda08da32",
+    "cells": [
+     [
+      90,
+      51
+     ],
+     [
+      90,
+      52
+     ],
+     [
+      90,
+      53
+     ],
+     [
+      91,
+      54
+     ],
+     [
+      92,
+      53
+     ],
+     [
+      93,
+      53
+     ],
+     [
+      93,
+      54
+     ],
+     [
+      93,
+      55
+     ]
+    ],
+    "command": "random 5x5 at 89,51",
+    "comment": "0470b749be04a539703a5a7e8f31df12",
+    "published_at": 1794182599.0
+   },
+   {
+    "author": "d191dd00d23b53fad6a1d98eda08da32",
+    "cells": [
+     [
+      102,
+      44
+     ],
+     [
+      102,
+      47
+     ],
+     [
+      103,
+      45
+     ],
+     [
+      104,
+      43
+     ],
+     [
+      104,
+      44
+     ],
+     [
+      105,
+      46
+     ],
+     [
+      106,
+      43
+     ],
+     [
+      106,
+      45
+     ],
+     [
+      106,
+      46
+     ],
+     [
+      106,
+      47
+     ]
+    ],
+    "command": "random 5x5 at 102,43",
+    "comment": "addb23ec9263eddadbff7d80285a1fd9",
+    "published_at": 1794182669.0
+   },
+   {
+    "author": "d191dd00d23b53fad6a1d98eda08da32",
+    "cells": [
+     [
+      23,
+      68
+     ],
+     [
+      23,
+      69
+     ],
+     [
+      23,
+      71
+     ],
+     [
+      24,
+      68
+     ],
+     [
+      24,
+      69
+     ],
+     [
+      24,
+      70
+     ],
+     [
+      24,
+      71
+     ],
+     [
+      25,
+      0
+     ],
+     [
+      25,
+      69
+     ],
+     [
+      25,
+      70
+     ],
+     [
+      26,
+      68
+     ],
+     [
+      26,
+      69
+     ],
+     [
+      26,
+      70
+     ],
+     [
+      27,
+      68
+     ],
+     [
+      27,
+      70
+     ],
+     [
+      27,
+      71
+     ]
+    ],
+    "command": "random 5x5 at 23,68",
+    "comment": "53bf5dd209c9fa050d0af3b28f8fb706",
+    "published_at": 1794182710.0
+   }
+  ],
   "seen": {
    "017f356a25f45331018b560f2a285568": 1794179693.0,
    "0470b749be04a539703a5a7e8f31df12": 1794182599.0,
@@ -60,17 +221,349 @@
   "contest_by": null,
   "effects_backfilled": true,
   "forecast": {
-   "horizon": 30566,
+   "horizon": 30572,
    "key": [
-    566,
+    572,
     "ALIVE"
    ],
-   "stuck_gen": 3268
+   "stuck_gen": 2181
   },
   "highlight": [
    [
+    5,
+    55
+   ],
+   [
+    5,
+    57
+   ],
+   [
+    5,
+    59
+   ],
+   [
+    6,
+    55
+   ],
+   [
+    6,
+    58
+   ],
+   [
+    6,
+    59
+   ],
+   [
+    7,
+    57
+   ],
+   [
+    7,
+    58
+   ],
+   [
+    8,
+    55
+   ],
+   [
+    8,
+    56
+   ],
+   [
+    8,
+    58
+   ],
+   [
+    9,
+    55
+   ],
+   [
+    9,
+    56
+   ],
+   [
+    9,
+    59
+   ],
+   [
+    12,
+    3
+   ],
+   [
+    12,
+    6
+   ],
+   [
+    13,
+    2
+   ],
+   [
+    13,
+    3
+   ],
+   [
+    13,
+    4
+   ],
+   [
+    13,
+    6
+   ],
+   [
+    14,
+    2
+   ],
+   [
+    14,
+    3
+   ],
+   [
+    15,
+    2
+   ],
+   [
+    15,
+    4
+   ],
+   [
+    15,
+    5
+   ],
+   [
+    15,
+    6
+   ],
+   [
+    16,
+    5
+   ],
+   [
+    16,
+    47
+   ],
+   [
+    16,
+    49
+   ],
+   [
+    16,
+    50
+   ],
+   [
+    16,
+    51
+   ],
+   [
+    17,
+    47
+   ],
+   [
+    17,
+    49
+   ],
+   [
+    17,
+    50
+   ],
+   [
+    17,
+    51
+   ],
+   [
+    18,
+    47
+   ],
+   [
+    18,
+    48
+   ],
+   [
+    18,
+    50
+   ],
+   [
+    18,
+    51
+   ],
+   [
+    19,
+    47
+   ],
+   [
+    19,
+    50
+   ],
+   [
+    19,
+    51
+   ],
+   [
+    20,
+    47
+   ],
+   [
+    20,
+    48
+   ],
+   [
+    20,
+    49
+   ],
+   [
+    20,
+    50
+   ],
+   [
+    27,
+    0
+   ],
+   [
+    27,
+    26
+   ],
+   [
+    27,
+    28
+   ],
+   [
+    27,
+    30
+   ],
+   [
+    27,
+    69
+   ],
+   [
+    27,
+    70
+   ],
+   [
+    28,
+    1
+   ],
+   [
+    28,
+    29
+   ],
+   [
+    28,
+    70
+   ],
+   [
+    28,
+    71
+   ],
+   [
+    29,
+    1
+   ],
+   [
+    29,
+    26
+   ],
+   [
+    29,
+    27
+   ],
+   [
+    29,
+    28
+   ],
+   [
+    30,
+    0
+   ],
+   [
+    30,
+    26
+   ],
+   [
+    30,
+    28
+   ],
+   [
+    30,
+    70
+   ],
+   [
+    31,
+    27
+   ],
+   [
+    31,
+    29
+   ],
+   [
+    31,
+    69
+   ],
+   [
+    31,
+    70
+   ],
+   [
+    41,
+    69
+   ],
+   [
+    41,
+    71
+   ],
+   [
+    42,
+    68
+   ],
+   [
+    42,
+    70
+   ],
+   [
+    42,
+    71
+   ],
+   [
+    43,
+    68
+   ],
+   [
+    44,
+    68
+   ],
+   [
+    44,
+    69
+   ],
+   [
+    44,
+    71
+   ],
+   [
+    45,
+    69
+   ],
+   [
+    45,
+    70
+   ],
+   [
+    53,
+    34
+   ],
+   [
     53,
     51
+   ],
+   [
+    54,
+    33
+   ],
+   [
+    54,
+    34
+   ],
+   [
+    54,
+    35
    ],
    [
     54,
@@ -90,7 +583,43 @@
    ],
    [
     55,
+    32
+   ],
+   [
+    55,
+    45
+   ],
+   [
+    55,
+    46
+   ],
+   [
+    55,
+    47
+   ],
+   [
+    55,
     49
+   ],
+   [
+    56,
+    33
+   ],
+   [
+    56,
+    35
+   ],
+   [
+    56,
+    45
+   ],
+   [
+    56,
+    46
+   ],
+   [
+    56,
+    48
    ],
    [
     56,
@@ -99,6 +628,30 @@
    [
     56,
     51
+   ],
+   [
+    57,
+    32
+   ],
+   [
+    57,
+    33
+   ],
+   [
+    57,
+    34
+   ],
+   [
+    57,
+    35
+   ],
+   [
+    57,
+    45
+   ],
+   [
+    57,
+    48
    ],
    [
     57,
@@ -111,6 +664,126 @@
    [
     57,
     53
+   ],
+   [
+    58,
+    45
+   ],
+   [
+    58,
+    47
+   ],
+   [
+    58,
+    48
+   ],
+   [
+    59,
+    9
+   ],
+   [
+    59,
+    10
+   ],
+   [
+    59,
+    11
+   ],
+   [
+    59,
+    47
+   ],
+   [
+    60,
+    7
+   ],
+   [
+    60,
+    9
+   ],
+   [
+    60,
+    10
+   ],
+   [
+    60,
+    11
+   ],
+   [
+    61,
+    8
+   ],
+   [
+    61,
+    9
+   ],
+   [
+    61,
+    10
+   ],
+   [
+    61,
+    11
+   ],
+   [
+    61,
+    56
+   ],
+   [
+    62,
+    8
+   ],
+   [
+    62,
+    9
+   ],
+   [
+    62,
+    10
+   ],
+   [
+    62,
+    12
+   ],
+   [
+    62,
+    52
+   ],
+   [
+    62,
+    53
+   ],
+   [
+    62,
+    54
+   ],
+   [
+    62,
+    55
+   ],
+   [
+    62,
+    56
+   ],
+   [
+    63,
+    8
+   ],
+   [
+    63,
+    10
+   ],
+   [
+    63,
+    53
+   ],
+   [
+    63,
+    55
+   ],
+   [
+    63,
+    56
    ],
    [
     63,
@@ -131,6 +804,10 @@
    [
     64,
     49
+   ],
+   [
+    64,
+    52
    ],
    [
     64,
@@ -155,6 +832,18 @@
    [
     65,
     49
+   ],
+   [
+    65,
+    52
+   ],
+   [
+    65,
+    54
+   ],
+   [
+    65,
+    56
    ],
    [
     65,
@@ -215,28 +904,496 @@
    [
     69,
     70
+   ],
+   [
+    73,
+    1
+   ],
+   [
+    74,
+    0
+   ],
+   [
+    74,
+    1
+   ],
+   [
+    74,
+    71
+   ],
+   [
+    75,
+    0
+   ],
+   [
+    75,
+    1
+   ],
+   [
+    75,
+    53
+   ],
+   [
+    75,
+    55
+   ],
+   [
+    75,
+    71
+   ],
+   [
+    76,
+    0
+   ],
+   [
+    76,
+    1
+   ],
+   [
+    76,
+    55
+   ],
+   [
+    76,
+    56
+   ],
+   [
+    76,
+    57
+   ],
+   [
+    76,
+    70
+   ],
+   [
+    77,
+    54
+   ],
+   [
+    77,
+    55
+   ],
+   [
+    77,
+    56
+   ],
+   [
+    77,
+    69
+   ],
+   [
+    77,
+    70
+   ],
+   [
+    77,
+    71
+   ],
+   [
+    78,
+    53
+   ],
+   [
+    78,
+    54
+   ],
+   [
+    78,
+    56
+   ],
+   [
+    78,
+    57
+   ],
+   [
+    79,
+    5
+   ],
+   [
+    79,
+    6
+   ],
+   [
+    79,
+    7
+   ],
+   [
+    79,
+    8
+   ],
+   [
+    79,
+    53
+   ],
+   [
+    79,
+    54
+   ],
+   [
+    79,
+    56
+   ],
+   [
+    81,
+    4
+   ],
+   [
+    81,
+    5
+   ],
+   [
+    81,
+    7
+   ],
+   [
+    81,
+    17
+   ],
+   [
+    81,
+    20
+   ],
+   [
+    81,
+    21
+   ],
+   [
+    82,
+    6
+   ],
+   [
+    82,
+    7
+   ],
+   [
+    82,
+    8
+   ],
+   [
+    82,
+    19
+   ],
+   [
+    82,
+    20
+   ],
+   [
+    83,
+    5
+   ],
+   [
+    83,
+    6
+   ],
+   [
+    83,
+    8
+   ],
+   [
+    83,
+    18
+   ],
+   [
+    83,
+    20
+   ],
+   [
+    83,
+    21
+   ],
+   [
+    84,
+    19
+   ],
+   [
+    84,
+    20
+   ],
+   [
+    84,
+    21
+   ],
+   [
+    85,
+    17
+   ],
+   [
+    85,
+    19
+   ],
+   [
+    85,
+    20
+   ],
+   [
+    92,
+    16
+   ],
+   [
+    92,
+    17
+   ],
+   [
+    92,
+    18
+   ],
+   [
+    92,
+    19
+   ],
+   [
+    93,
+    16
+   ],
+   [
+    93,
+    18
+   ],
+   [
+    93,
+    19
+   ],
+   [
+    94,
+    16
+   ],
+   [
+    94,
+    20
+   ],
+   [
+    95,
+    16
+   ],
+   [
+    95,
+    18
+   ],
+   [
+    95,
+    19
+   ],
+   [
+    95,
+    20
+   ],
+   [
+    96,
+    16
+   ],
+   [
+    96,
+    17
+   ],
+   [
+    96,
+    20
+   ],
+   [
+    105,
+    58
+   ],
+   [
+    106,
+    25
+   ],
+   [
+    106,
+    57
+   ],
+   [
+    106,
+    59
+   ],
+   [
+    107,
+    8
+   ],
+   [
+    107,
+    9
+   ],
+   [
+    107,
+    10
+   ],
+   [
+    107,
+    24
+   ],
+   [
+    107,
+    57
+   ],
+   [
+    107,
+    58
+   ],
+   [
+    107,
+    59
+   ],
+   [
+    108,
+    6
+   ],
+   [
+    108,
+    10
+   ],
+   [
+    108,
+    23
+   ],
+   [
+    108,
+    25
+   ],
+   [
+    108,
+    56
+   ],
+   [
+    108,
+    58
+   ],
+   [
+    108,
+    59
+   ],
+   [
+    109,
+    6
+   ],
+   [
+    109,
+    7
+   ],
+   [
+    109,
+    8
+   ],
+   [
+    109,
+    24
+   ],
+   [
+    109,
+    26
+   ],
+   [
+    109,
+    57
+   ],
+   [
+    109,
+    59
+   ],
+   [
+    110,
+    7
+   ],
+   [
+    110,
+    9
+   ],
+   [
+    110,
+    22
+   ],
+   [
+    110,
+    23
+   ],
+   [
+    110,
+    25
+   ],
+   [
+    111,
+    6
+   ],
+   [
+    111,
+    8
+   ],
+   [
+    111,
+    9
+   ],
+   [
+    121,
+    52
+   ],
+   [
+    122,
+    51
+   ],
+   [
+    122,
+    52
+   ],
+   [
+    123,
+    49
+   ],
+   [
+    123,
+    50
+   ],
+   [
+    123,
+    53
+   ],
+   [
+    124,
+    52
+   ],
+   [
+    124,
+    53
+   ],
+   [
+    125,
+    50
+   ],
+   [
+    125,
+    51
+   ],
+   [
+    125,
+    52
+   ],
+   [
+    125,
+    53
    ]
   ],
   "last_thumb_at": 1794160513.93202,
   "last_thumb_headline": "DIES IN 9 DAYS",
   "last_thumb_phase": "ALIVE",
-  "last_title": "This Game of Life video dies in 1d 08h 15m if nobody comments",
-  "last_title_at": 1794182212.5401871,
+  "last_title": "This Game of Life video dies in 3d 05h 30m if nobody comments",
+  "last_title_at": 1794183513.858923,
+  "migrations": [
+   "readmit-dropped-2026-11-09"
+  ],
   "pinned": {
    "0": {
-    "at": 1794182212.5401871,
+    "at": 1794183513.858923,
     "id": "Ugwxgzcp8IrvpHaO1k14AaABAg",
-    "text": "🟢 ALIVE · this video dies in ~1 day if nobody comments\nThis video is alive: the thumbnail is its universe, the title counts down to its death, and every comment (replies too) adds cells.\n\nLatest moves:\n• gen 557: random 5x5 at 53,49\n• gen 553: random 5x5 at 63,65\n• gen 544: glider 67,69 ne\n• gen 220: glider 16,61 sw\n• gen 166: glider 64,71 nw\n\nTry one: acorn 77,6 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
+    "text": "🟢 ALIVE · this video dies in ~3 days if nobody comments\nThis video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 572: 20 comments · 4 days → 3 days\n• gen 566: random 5x5 at 64,45 · 1 day → 4 days\n• gen 557: random 5x5 at 53,49 · 2 days → 1 day\n• gen 553: random 5x5 at 63,65 · 1 day → 2 days\n• gen 544: glider 67,69 ne · 8 days → 1 day\n• gen 220: glider 16,61 sw · 1 day → 9 days\n• gen 166: glider 64,71 nw · 3 days → 1 day\n\nTry one: acorn 69,28 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
    },
    "1": {
-    "at": 1794181191.2723656,
+    "at": 1794183513.858923,
     "id": "UgywA9O3bou4webmcSJ4AaABAg",
-    "text": "🟢 ALIVE · this video dies in ~2 days if nobody comments\nThis Short is alive: every comment here (replies too) adds cells to the same universe as the linked video, whose thumbnail shows it live. If the universe dies, both videos die.\n\nLatest moves:\n• gen 553: random 5x5 at 63,65\n• gen 544: glider 67,69 ne\n• gen 220: glider 16,61 sw\n• gen 166: glider 64,71 nw\n\nTry one: acorn 77,6 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
+    "text": "🟢 ALIVE · this video dies in ~3 days if nobody comments\nThis Short is alive: every comment here adds cells to the same universe as the linked video, whose thumbnail shows it live (as many as you like; replies count too). If the universe dies, both videos die.\n\nLatest moves (time it had left: before → after):\n• gen 572: 20 comments · 4 days → 3 days\n• gen 566: random 5x5 at 64,45 · 1 day → 4 days\n• gen 557: random 5x5 at 53,49 · 2 days → 1 day\n• gen 553: random 5x5 at 63,65 · 1 day → 2 days\n• gen 544: glider 67,69 ne · 8 days → 1 day\n• gen 220: glider 16,61 sw · 1 day → 9 days\n• gen 166: glider 64,71 nw · 3 days → 1 day\n\nTry one: acorn 69,28 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
    }
   },
-  "pinned_core": "🟢 ALIVE · this video dies in ~4 days if nobody comments\nThis video is alive: the thumbnail is its universe, the title counts down to its death, and every comment (replies too) adds cells.\n\nLatest moves (time it had left: before → after):\n• gen 566: random 5x5 at 64,45 · 1 day → 4 days\n• gen 557: random 5x5 at 53,49 · 2 days → 1 day\n• gen 553: random 5x5 at 63,65 · 1 day → 2 days\n• gen 544: glider 67,69 ne · 8 days → 1 day\n• gen 220: glider 16,61 sw · 1 day → 9 days\n• gen 166: glider 64,71 nw · 3 days → 1 day\n\nRewind every move: davidackerman.github.io/still-life",
-  "pinned_suggest": "acorn 73,6",
+  "pinned_core": "🟢 ALIVE · this video dies in ~3 days if nobody comments\nThis video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 572: 20 comments · 4 days → 3 days\n• gen 566: random 5x5 at 64,45 · 1 day → 4 days\n• gen 557: random 5x5 at 53,49 · 2 days → 1 day\n• gen 553: random 5x5 at 63,65 · 1 day → 2 days\n• gen 544: glider 67,69 ne · 8 days → 1 day\n• gen 220: glider 16,61 sw · 1 day → 9 days\n• gen 166: glider 64,71 nw · 3 days → 1 day\n\nRewind every move: davidackerman.github.io/still-life",
+  "pinned_suggest": "acorn 69,28",
   "recent": [
+   "gen 572: 20 comments · 4 days → 3 days",
    "gen 566: random 5x5 at 64,45 · 1 day → 4 days",
    "gen 557: random 5x5 at 53,49 · 2 days → 1 day",
    "gen 553: random 5x5 at 63,65 · 1 day → 2 days",
@@ -249,17 +1406,17 @@
  "format": 1,
  "last_changer": {
   "author": "d191dd00d23b53fad6a1d98eda08da32",
-  "command": "random 5x5 at 64,45",
-  "comment": "3f65eb7fa936e6b53f924c8327789ace",
-  "gen": 566
+  "command": "random 5x5 at 41,68",
+  "comment": "5c90a4061b26bdaa278b333c52d18f6e",
+  "gen": 572
  },
  "log": {
-  "head": "9adef1c8fa15a87503d608b1334b6b2190763e9e3820ba06676917cc4b9c16a0",
-  "seq": 222
+  "head": "5dccb24bcc5acd6082629ed0d307bf11f63e11a4875ebd9af92343a16ea0b154",
+  "seq": 267
  },
  "quota": {
   "day": "2026-11-08",
-  "used": 3572
+  "used": 3725
  },
  "reply_counts": {},
  "retire_pending": [],
@@ -268,10 +1425,10 @@
   "deadline_gen": null,
   "died_gen": null,
   "flatline_gens": 720,
-  "generation": 572,
-  "grid": "AAAAAAAAIkYAAAAAAAAAAMABAAAAMDIzAAAAAAAAAADAAoAAMDgXgAAAAAAAAAAAAAMAACgkCAAAAAAAAAAAAAAAAAASWAAAAAAAAAAAAAAAQAAAC1DAAAAAAAAAAAAAAaAAAAJQwAAAAAAAAAAAAAGgAAABkAAAAAAAAAAAAAAACAAAAbAAAAAAAAAAAAAAAIgAAAAIAAAAAAAAAAAAAAAIAAABkAAAAAAAAAAAAAAAMAAAAGAAAAAAAAAAAAAAABgAEAAAAAAAAAAAAAAAAAAAACjAAAAGAAAAAAAAAAAAAAAYwAAABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAEAIAAAAAAAAAAAACgAAAABAFAABxwAAAAAAAAoAAAAAQAgAAAAAQAAAAAAEAAAAAAAAAAAQAEBwAAAAAAAAAAAcAAAAEABAAAAAAAAAAAAAAAAwABAAAAAAGAAAAAAAAAGAKAAAQAAAACgAAAAAAAABgBAAAKAAAAAQAAAAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKsAAAAAAAAAAAAAAAAAAAGKgAAAAAAAAAAAAAAAAAABuoAAAGAAAAAAAAAAAAAAAYkAAABgAAAAAAAAAAMAAAGwAAAAAAAAAAAAAAADAAAAkAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAAPAAAAAAAAAAAAAAAAIAAAEQAAAAAAAAAAAAAAAFADhg4AAAAAAAAAAAAAAABIIImOAAAAAAAAAAAAAAAAMEmRAAAAAAAAAAAAAAAAAABwCmAAAAAAAAAAAAAAAACAAAiAAAAAAAAAAAAAAAAAhgAMgAAAAAAAAAAAAAAAAIkADQAAAAAAAAAAAAAAAAAGAAIAAAAAAAAAAABgAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAfAAAAAAAAAAAAAAAAAYGAEEAAAAAAAAAAAAAAADKDQAAAAAAAAAAAAAAAAAAxA2AEIAAAAAAAAAAAAAAAAAIgBEAAAAAAAAAAAAAAAAABQAIAAAAAAAAAAAAAAAAAGAACAAAAAAAAAAAAAAAAABBgAUAAAAAAAAAAAAAAAAAQYACAAAAAAAAAAAAAAAACRTAADAAAAAAAAAAAAAAABSAIAAwAAAAAAAAAAAAAAA0BDdAAAAAAAAAAA",
-  "hash": "afb061dc67bf2ee2b643e41a0d3046f5cc6c15efed14a8b2ce4e446b4716c1fa",
-  "history_base": 566,
+  "generation": 576,
+  "grid": "AAAAAAMOYAEADAAAAAAAAMABgAAQDCADABwAAAAAAADAAgAAPAAUAAAQAAAAAAAAADmAAC4kEgAAAAAAAAAAAADYAAAbGBIAAADgAAAAAAABAwAAG/DEAAADQAAAAAAAAjCAABKAwAAABmAAAAQAAAIBAAAIgAAIAAOgAAAHAAACCAAAAEAAFAAAIAAABIAAASAAAAGAACgAAAAAAACAAAB2AAAAAAAwAAAAAAAnAAAALAAAAAAAAwAAAAAAHgAAAGwAEAAAAASAAAAAAAgAAAAwACjAAAAFAAAAAAAAAAAAAAAYwAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAGgAAAAAAAAAAAAAAAEAAAFUEAIAAAAAAAAAAAACgAADVBAFAABxwAAAAAAAAoAAAzgQAgAAAAAQAAAAAAEACgFQAwAAAAQAEBwAAAAAAAoAgAMAAAAEABAAAAAAAAAOAAADAAwABAAAAAAGAAAAAAAAAAAKAAAQAAAACgAAAAAAAAAABAAAKAAAAAQAAAAAAAAAAAAAABgAoAAAAAAAAAAAAAAAAAAAAJAAAAAAAAAAAAAAAAAAAACQAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHIAAAAAAAAAAAAAAAAAAACTAAAAAAAAAAAAAAAAAAAAggAAAAAAAAAAAAAAAAAAAOYAAAAAAAAAAAAAAAAAAAAoAAAAAAAAAAAAAAAAAACwAAAAAAAAAAAAAAAAAAABsAAAAAAAAAAAAAAAAAAACYgAAAAAAAAAAAAAAAAAAAhoAAAGAAAAAAAAAAAAAAAAAAAABgAAAAAAAAAAMAAAAHAAAAAAAAAAAAAAADAAABoABAAAAAAAAAAAAAAAAAAQAAYAAAAAAAAAAAAAAwAADAADAAAAAAAAAAAAAA2AAAAABRAAAAAAAAAAAAAMwAAAAAcgAAAAAAAAAAAACsAAIAEaYAAAAAAAAAAAABhAAFAGGGAAAAAAAAADgAAQQABIAmBgAAAAAAAAA+AAEIAAMGFgYAAAAAAAAAYwAA8AAADQQAAAAAAAAAAHAAAEAACA0DAAAAAAAAAAAAAMAAAAhiAkBADAAAAAAAAACgAAAIkAEQgAUAAAAAAAAAQAAAAGAASAAAgAAAEAAAAEAAAAAAAEAAAwAAAHAAAAAAAAAAAAASAAAAAADgAAAAAAAAAAAAAAAAAAAAcAAAAAAAAAAAAAsAAAAAABAAAAAAAAAAYNgEAAAAAAAAAAAAAAAADKAQAAAAAAAAAAAAAAAAAAxABAAAAAAAAAAAAAAAAAAAABIAAAAAAAAAAAAAAAAAAAACAIAAAAAAAAAAAAAAAAAAEgFgAAAAAAAAAAAAAAAAYAoAkAAAAAAAAAAAAAAAAGASAHAOAAAAAAAAAAAAAAAAHgADCgAAAAAAAAAAAAGCAGwGAwkAAAAAAAAAAAABgw4QBQAGAAAAAAAA",
+  "hash": "a268c1b7fb2c4c4bd93048437ee6727031f26f60c0210c9fdd550a01220a3814",
+  "history_base": 572,
   "phase": "ALIVE",
   "shape": [
    72,
