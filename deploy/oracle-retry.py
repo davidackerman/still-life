@@ -35,9 +35,12 @@ def say(msg: str) -> None:
 
 
 def oci(*args: str) -> tuple[int, dict | None, str]:
-    r = subprocess.run(["oci", *args], capture_output=True, text=True)
+    # PYTHONWARNINGS: the CLI's own SyntaxWarnings on newer Pythons are noise
+    r = subprocess.run(["oci", *args], capture_output=True, text=True, env={**os.environ, "PYTHONWARNINGS": "ignore"})
     data = None
-    if r.stdout.strip():
+    if r.returncode == 0 and not r.stdout.strip():
+        data = {"data": []}  # the CLI prints nothing at all for an empty list
+    elif r.stdout.strip():
         try:
             data = json.loads(r.stdout)
         except json.JSONDecodeError:
