@@ -204,7 +204,7 @@ from then on rewrites it:
 
 ```
 🟢 ALIVE · this video dies in ~9 days if nobody comments
-This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment (replies too) adds cells.
+This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells (one per person per hour; replies count too).
 
 Latest moves:
 • gen 220: glider 16,61 sw
