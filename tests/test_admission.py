@@ -11,8 +11,9 @@ def C(cid, author, minute, text="block 1,1"):
     return Comment(cid, author, f"2026-11-08T{hh:02d}:{mm:02d}:00Z", text)
 
 
-def run(s, comments, minute_now=120, dead=False):
-    return admit(s, comments, T0 + minute_now * 60, KEY, dead=dead)
+def run(s, comments, minute_now=120, dead=False, cooldown_s=3600):
+    """The optional per-author cooldown (off in production) is on here, to test it."""
+    return admit(s, comments, T0 + minute_now * 60, KEY, dead=dead, cooldown_s=cooldown_s)
 
 
 def queued(s):
@@ -113,3 +114,21 @@ def test_roundtrip_dict():
     take_batch(s)
     s2 = Admission.from_dict(json.loads(json.dumps(s.to_dict())))
     assert s2.seen == s.seen and s2.last_accepted == s.last_accepted and s2.queue == s.queue
+
+
+def test_by_default_every_comment_counts():
+    s = Admission()
+    c = admit(s, [C(f"c{i}", "u1", i) for i in range(24)], T0 + 120 * 60, KEY)
+    assert c["accepted"] == 24 and c["rejected"] == {}
+
+
+def test_a_flood_takes_turns_with_everyone_else():
+    s = Admission()
+    flood = [C(f"f{i:02d}", "spammer", 0) for i in range(30)]
+    others = [C("x", "u2", 1), C("y", "u3", 2)]
+    admit(s, flood + others, T0 + 120 * 60, KEY)
+    first = take_batch(s)
+    got = [q["comment"] for q in first]
+    assert len(first) == 20 and k("x") in got and k("y") in got  # not stuck behind 30 spam comments
+    assert [q["comment"] for q in first if q["comment"] not in (k("x"), k("y"))] == [k(f"f{i:02d}") for i in range(18)]
+    assert len(take_batch(s)) == 12 and not s.queue

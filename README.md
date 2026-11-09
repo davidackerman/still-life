@@ -38,8 +38,8 @@ Comment on the video. The first command in your comment wins (case-insensitive):
 - A command with a coordinate out of range is ignored. If your comment has no
   valid command, it counts as a random patch.
 - Cells are added to whatever is already there; nothing is erased.
-- Each channel gets one injection per hour. Each run applies at most 20
-  injections, and the rest wait for the next run.
+- Every comment counts, as many as you like. Each run applies at most 20,
+  taking turns between people, and the rest land on the next run (minutes later).
 - Replies count exactly like comments, including replies under the pinned
   status comment.
 - Comments on the still-life Short count too: it feeds the same universe.
@@ -204,7 +204,7 @@ from then on rewrites it:
 
 ```
 🟢 ALIVE · this video dies in ~9 days if nobody comments
-This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells (one per person per hour; replies count too).
+This video is alive: the thumbnail is its universe, the title counts down to its death, and every comment adds cells (as many as you like; replies count too).
 
 Latest moves:
 • gen 220: glider 16,61 sw

@@ -359,7 +359,7 @@ def build() -> list[Frame]:
     # 10. end card over the saved universe: the call to action, held at full reading time
     end = [("Every comment changes this universe.", "bold", 80, 280), ("Some save it. Some kill it.", "bold", 80, 390),
            ("Comment below.", "demi", 56, 560),
-           ("x is 0–127 and y is 0–71, from the top-left · one per channel per hour", "medium", 38, 650),
+           ("x is 0–127 and y is 0–71, from the top-left · as many as you like", "medium", 38, 650),
            ("Watch it live, generation by generation:", "medium", 40, 760), (LIVE_URL, "demi", 50, 820)]
     n = min(read_frames(*[t for t, *_ in end]), 12 * FPS)  # reference details; viewers can pause
     for i in range(n):

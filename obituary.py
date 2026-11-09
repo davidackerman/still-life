@@ -204,7 +204,7 @@ def build(state_dir: str, next_shape: tuple[int, int], credit: str | None = None
     rules = [("This video dies when its universe gets stuck in a loop.", "bold", 62),
              ("Every comment adds cells:", "demi", 50),
              ("glider x,y · block x,y · blinker x,y · rpent x,y · acorn x,y · or anything", "medium", 40),
-             (f"x is 0–{W2 - 1} and y is 0–{H2 - 1}, from the top-left · one per person per hour", "medium", 40)]
+             (f"x is 0–{W2 - 1} and y is 0–{H2 - 1}, from the top-left · as many as you like", "medium", 40)]
     k = rf(*[t for t, _, _ in rules])
     for i in range(k):
         nxt.advance_to(nxt.generation + 1)

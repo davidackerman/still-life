@@ -290,9 +290,9 @@ def suggestion(u: Universe) -> str:
 
 
 INTRO_MAIN = ("This video is alive: the thumbnail is its universe, the title counts down to its death, "
-              "and every comment adds cells (one per person per hour; replies count too).")
+              "and every comment adds cells (as many as you like; replies count too).")
 INTRO_EXTRA = ("This Short is alive: every comment here adds cells to the same universe as the linked video, "
-               "whose thumbnail shows it live (one per person per hour; replies count too). "
+               "whose thumbnail shows it live (as many as you like; replies count too). "
                "If the universe dies, both videos die.")
 
 

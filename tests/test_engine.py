@@ -364,3 +364,10 @@ def test_effects_can_be_rebuilt_from_an_old_log():
     genesis = {"type": "genesis", "seed": "acorn", "shape": [72, 128], "flatline_gens": 720}
     log = [genesis] + [e for e in ev if e["type"] != "effect"]
     assert engine.effects_from_log(log) == live
+
+
+def test_a_burst_of_comments_shares_one_line():
+    w, yt = world(), PinYT([owner_status()] + [Comment(f"c{i}", "kid", "2027-01-15T08:00:00Z", t)
+                                              for i, t in enumerate("ABCDEFG")])
+    engine.tick(w, LAUNCH + 600, yt)
+    assert w.recent[0].startswith("gen 0: 7 comments") and len(w.recent) == 1

@@ -35,6 +35,7 @@ PINNED_EXTRA_MIN_INTERVAL_S = 60 * 60  # status comments on extra videos (quota)
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.
 THUMB_HEADLINE_MIN_S = 4 * 3600
 RECENT_MAX = 8
+BURST_LINES = 3  # more comments than this in one run share a single "Latest moves" line
 FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
 THUMB_INTERVAL_S = 4 * 3600  # YouTube 429s after ~9 thumbnail uploads/day per channel
 BACKOFF_BASE_S = 15 * 60
@@ -289,6 +290,9 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         world.recent = []
     last_cmd = None
     sim = events[sim_from:]
+    injs = [e for e in sim if e["type"] == "injection"]
+    effs = [e for e in sim if e["type"] == "effect"]
+    burst = len(injs) > BURST_LINES  # many comments in one run: one summary line, not a wall of them
     for i, ev in enumerate(sim):
         if ev["type"] == "injection" and ev["changed"]:
             last_cmd = (ev["gen"], ev["command"])
@@ -299,9 +303,16 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         if ev["type"] == "phase" and ev["reason"] == "survived_deadline" and world.contest_by:
             line = (f"🫀 gen {ev['gen']:,}: SAVED, thanks to {world.contest_by['command']} "
                     f"(gen {world.contest_by['gen']:,})")
+        elif burst and ev["type"] == "injection":
+            line = None
+            if ev is injs[0]:
+                line = f"gen {ev['gen']:,}: {len(injs)} comments"
+                if effs:
+                    line += render.effect_suffix({**effs[0], "after": effs[-1]["after"]}, u.flatline_gens,
+                                                 world.gen_seconds)
         else:
             line = render.event_line(ev)
-        if line and ev["type"] == "injection" and i + 1 < len(sim) and sim[i + 1]["type"] == "effect":
+        if line and not burst and ev["type"] == "injection" and i + 1 < len(sim) and sim[i + 1]["type"] == "effect":
             line += render.effect_suffix(sim[i + 1], u.flatline_gens, world.gen_seconds)
         if ev["type"] == "phase" and ev["to"] in (ALIVE, DIED):
             world.contest_by = None

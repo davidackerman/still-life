@@ -4,11 +4,14 @@ Rules:
 - Only comments published within the last FETCH_WINDOW_S (48 h) are considered.
 - Each comment is processed at most once (dedupe).
 - Comments are processed in (publishedAt, comment ID) order.
-- One accepted injection per author per hour, measured by publishedAt. A later
-  comment from the same author inside that hour is dropped and counted.
+- Every comment counts (since 2026-11-09; the owner's choice). A per-author
+  cooldown still exists, off by default: with AUTHOR_COOLDOWN_S > 0, a comment
+  inside that window after the same author's last accepted one (by publishedAt)
+  is dropped and counted.
 - After the universe has died, comments are dropped and counted.
-- Accepted injections enter a FIFO queue; each run applies at most
-  MAX_PER_RUN of them and the rest wait for the next run.
+- Accepted injections wait in a queue; each run applies at most MAX_PER_RUN of
+  them, taking turns between authors (oldest first within each author), so one
+  person's flood never holds up everyone else.
 
 Data policy: YouTube's developer policies limit how long other users' data may
 be stored, and this state is committed to a public repo. So nothing here keeps
@@ -27,7 +30,7 @@ from dataclasses import dataclass, field
 import commands
 import life
 
-AUTHOR_COOLDOWN_S = 3600
+AUTHOR_COOLDOWN_S = 0  # 0 = every comment counts; was 3600 (one per author per hour) until 2026-11-09
 MAX_PER_RUN = 20
 FETCH_WINDOW_S = 48 * 3600  # comments older than this are ignored
 RETENTION_S = 72 * 3600  # keyed hashes are forgotten after this (> FETCH_WINDOW_S)
@@ -79,12 +82,13 @@ class Admission:
 
 
 def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
-          dead: bool = False, shape=(life.H, life.W)) -> dict:
+          dead: bool = False, shape=(life.H, life.W), cooldown_s: float | None = None) -> dict:
     """Process fetched comments into the queue. Mutates `state`.
 
     Returns counts: {"new": n, "accepted": n, "rejected": {reason: n}}.
     """
     state.prune(now)
+    cooldown = AUTHOR_COOLDOWN_S if cooldown_s is None else cooldown_s
     counts = {"new": 0, "accepted": 0, "rejected": {}}
     window_start = now - FETCH_WINDOW_S
     fresh = {}
@@ -100,7 +104,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
         last = state.last_accepted.get(author)
         if dead:
             reason = "universe_dead"
-        elif last is not None and abs(c.epoch - last) < AUTHOR_COOLDOWN_S:  # also late arrivals
+        elif cooldown and last is not None and abs(c.epoch - last) < cooldown:  # also late arrivals
             reason = "author_rate_limit"
         if reason:
             counts["rejected"][reason] = counts["rejected"].get(reason, 0) + 1
@@ -114,6 +118,20 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
 
 
 def take_batch(state: Admission, limit: int = MAX_PER_RUN) -> list[dict]:
-    """Pop the injections to apply this run (FIFO, at most `limit`)."""
-    batch, state.queue = state.queue[:limit], state.queue[limit:]
+    """Pop the injections to apply this run: at most `limit`, taking turns
+    between authors (round-robin in order of each author's oldest waiting
+    comment; oldest first within an author). Returned in queue order."""
+    by_author: dict[str, list[int]] = {}
+    for i, q in enumerate(state.queue):
+        by_author.setdefault(q["author"], []).append(i)
+    picked: set[int] = set()
+    lanes = list(by_author.values())
+    rnd = 0
+    while len(picked) < limit and any(rnd < len(lane) for lane in lanes):
+        for lane in lanes:
+            if rnd < len(lane) and len(picked) < limit:
+                picked.add(lane[rnd])
+        rnd += 1
+    batch = [q for i, q in enumerate(state.queue) if i in picked]
+    state.queue = [q for i, q in enumerate(state.queue) if i not in picked]
     return batch
