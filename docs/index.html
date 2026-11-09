@@ -67,12 +67,14 @@
 <h2>Verifiable</h2>
 <p>Every run is recorded in a hash-chained public log, and anyone can replay the whole life from the seed to check it. The source, the full rules and the log are on <a href="https://github.com/davidackerman/still-life">GitHub</a>.</p>
 
+<p id="statsnote" class="statsnote" hidden>Visits and button presses are counted anonymously with GoatCounter: no cookies, no personal data.</p>
 <footer>
 <a href="privacy.html">Privacy policy</a> · <a href="https://github.com/davidackerman/still-life">Source</a> · <a href="https://github.com/davidackerman/still-life/issues">Contact</a>
 </footer>
 </div>
 </main>
 
+<script src="stats.js"></script>
 <script src="life.js"></script>
 <script src="history.js"></script>
 <script>
@@ -340,11 +342,12 @@ function setPlaying(p) {
   $("play").setAttribute("aria-label", p ? "Pause" : "Play the whole life");
   lastFrame = performance.now();
 }
-function jump(gen) { setMode("history"); setPlaying(false); histGen = gen; render(); }
+function jump(gen) { Stats.track("jump"); setMode("history"); setPlaying(false); histGen = gen; render(); }
 
-$("slider").addEventListener("input", (e) => { setMode("history"); setPlaying(false); histGen = +e.target.value; render(); });
+$("slider").addEventListener("input", (e) => { Stats.track("scrub"); setMode("history"); setPlaying(false); histGen = +e.target.value; render(); });
 $("live").addEventListener("click", () => { setMode("live"); render(); });
 $("play").addEventListener("click", () => {
+  Stats.track("play");
   if (playing) return setPlaying(false);
   if (mode === "live" || histGen >= liveGen()) histGen = 0;
   setMode("history"); playPos = histGen; setPlaying(true); requestAnimationFrame(playFrame);
@@ -514,6 +517,9 @@ function forecast() {
 }
 
 if (VIDEO_URL) { $("video").href = VIDEO_URL; $("cta").hidden = false; }
+if (Stats.start()) $("statsnote").hidden = false;  // anonymous counting, only when configured
+for (const [sel, name] of [['a[href*="youtube.com"]', "to-youtube"], ['a[href*="github.com"]', "to-github"]])
+  for (const a of document.querySelectorAll(sel)) a.addEventListener("click", () => Stats.track(name));
 const START = new URLSearchParams(location.search).get("gen");  // ?gen=1234 opens at that moment
 load().then(() => (START !== null ? jump(+START) : render()));
 setInterval(() => { if (!playing) render(); }, 1000);
