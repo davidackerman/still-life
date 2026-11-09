@@ -241,6 +241,22 @@ Upload it in YouTube Studio, set its **Related video** to the main video (the
 only clickable link a Short can have), and add its ID to `EXTRA_VIDEO_IDS` so
 its comments play. Give it its own status comment as in step 6.
 
+**Daily Short** (`daily.py`): on the first run after 23:00 UTC (6 PM in New
+York) the bot renders a recap of the last 24 hours (`python short.py
+--since-hours 24` does the same locally): day N, the day's moves with the
+biggest zoomed in and what each did to its lifespan, and how its expected death
+moved. Set the repository variable `DAILY_SHORT`:
+
+- `off` (default): nothing.
+- `dry`: render it and attach it to the run; nothing is uploaded.
+- `live`: upload it publicly, register it so its comments play, post its status
+  comment, and open an issue with its link. Setting its Related video, pinning
+  its status comment and picking its thumbnail frame are optional and Studio-only
+  (the API can't).
+
+Older Shorts keep counting: their comments are read every 30 minutes and their
+status comments refreshed every 12 hours.
+
 ### 8. When it dies
 
 The run after a death starts the death sequence (`death.py`), recording its
