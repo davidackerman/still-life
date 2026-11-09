@@ -101,6 +101,9 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world.effects_backfilled = True
         world.recent = None  # rebuilt below, with the effects
         store.save(world, effects)
+    if "recent-in-hours-2026-11-09" not in world.migrations:  # once: rewrite old lines as "3d 5h"
+        world.migrations.append("recent-in-hours-2026-11-09")
+        world.recent = None
     if world.recent is None:  # first run with the pinned comment: backfill from the log
         lines = render.lines_from_log(read_log(store.path(LOG)), world.universe.flatline_gens, world.gen_seconds)
         world.recent = list(reversed(lines))[: engine.RECENT_MAX]

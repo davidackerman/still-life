@@ -249,19 +249,40 @@ def effect_suffix(effect: dict, flatline: int, gen_seconds: int) -> str:
     return f" · {b} → {a}" if a != b else f" · still {a}"
 
 
-def lines_from_log(entries: list[dict], flatline: int, gen_seconds: int) -> list[str]:
-    """Pinned-comment lines for a whole log, oldest first (effects matched by gen and command)."""
+def lines_from_log(entries: list[dict], flatline: int, gen_seconds: int, burst: int = 3) -> list[str]:
+    """Pinned-comment lines for a whole log, oldest first (effects matched by gen
+    and command). A run with more than `burst` comments gets one summary line."""
     effects = {}
     for e in entries:
         if e["type"] == "effect":
             effects.setdefault((e["gen"], e["command"]), e)
-    out = []
+    out, run = [], []
+
+    def flush():
+        injs = [e for e in run if e["type"] == "injection"]
+        effs = [effects[(e["gen"], e["command"])] for e in injs if (e["gen"], e["command"]) in effects]
+        grouped = len(injs) > burst
+        for e in run:
+            if grouped and e["type"] == "injection":
+                if e is injs[0]:
+                    line = f"gen {e['gen']:,}: {len(injs)} comments"
+                    if effs:
+                        line += effect_suffix({**effs[0], "after": effs[-1]["after"]}, flatline, gen_seconds)
+                    out.append(line)
+                continue
+            line = event_line(e)
+            if line and e["type"] == "injection" and e["changed"] and (e["gen"], e["command"]) in effects:
+                line += effect_suffix(effects[(e["gen"], e["command"])], flatline, gen_seconds)
+            if line:
+                out.append(line)
+        run.clear()
+
     for e in entries:
-        line = event_line(e)
-        if line and e["type"] == "injection" and e["changed"] and (e["gen"], e["command"]) in effects:
-            line += effect_suffix(effects[(e["gen"], e["command"])], flatline, gen_seconds)
-        if line:
-            out.append(line)
+        if e["type"] == "tick":
+            flush()
+        elif e["type"] in ("injection", "phase"):
+            run.append(e)
+    flush()
     return out
 
 
