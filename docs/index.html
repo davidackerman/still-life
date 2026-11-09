@@ -290,13 +290,38 @@ function playFrame(now) {
   requestAnimationFrame(playFrame);
 }
 
+const SLICES = 120;  // comments are drawn as a density strip: one bar per slice of the life
 function renderMarks() {
   const end = Math.max(1, liveGen()), box = $("marks");
   box.textContent = "";
   if (!TL) return;
+  const slices = new Map();  // slice -> {first, last, n, delta}
   for (const e of TL.events) {
+    if (e.kind !== "comment") continue;
+    const k = Math.min(SLICES - 1, Math.floor((SLICES * e.gen) / end));
+    const s = slices.get(k) || { first: e.gen, last: e.gen, n: 0, delta: 0 };
+    s.last = e.gen; s.n++;
+    const f = e.effect;  // what it did to the lifespan (null: beyond the forecast)
+    if (f) s.delta += (f.after ?? f.before + f.horizon) - (f.before ?? f.after + f.horizon);
+    slices.set(k, s);
+  }
+  const most = Math.max(1, ...[...slices.values()].map((s) => s.n));
+  for (const [k, s] of slices) {
     const b = document.createElement("button");
-    b.className = "mark " + (e.kind === "comment" ? "comment" : e.to);
+    b.className = "mark comment" + (s.delta > 0 ? " better" : s.delta < 0 ? " worse" : "");
+    b.style.left = `${(100 * (k + 0.5)) / SLICES}%`;
+    b.style.height = `${0.3 + 0.7 * Math.log2(1 + s.n) / Math.log2(1 + most)}rem`;
+    const span = s.first === s.last ? `gen ${s.first.toLocaleString()}` : `gen ${s.first.toLocaleString()}–${s.last.toLocaleString()}`;
+    const did = s.delta > 0 ? ", lengthening its life" : s.delta < 0 ? ", shortening its life" : "";
+    b.title = `${s.n} comment${s.n === 1 ? "" : "s"} · ${span}${did}`;
+    b.setAttribute("aria-label", b.title);
+    b.addEventListener("click", () => jump(s.first));
+    box.appendChild(b);
+  }
+  for (const e of TL.events) {  // phase changes keep their own markers, on top
+    if (e.kind === "comment") continue;
+    const b = document.createElement("button");
+    b.className = "mark " + e.to;
     b.style.left = `${(100 * e.gen) / end}%`;
     b.title = `gen ${e.gen.toLocaleString()}: ${describe(e)}`;
     b.setAttribute("aria-label", b.title);
