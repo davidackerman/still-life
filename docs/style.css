@@ -54,8 +54,11 @@ main.wide { max-width: 68rem; }
 .livebtn.on { color: var(--FLATLINING); border-color: var(--FLATLINING); }
 .history { margin-top: 1.2rem; }
 .history summary { cursor: pointer; color: var(--muted); }
-.events { margin: .6rem 0 0; padding-left: 1.2rem; max-height: 14rem; overflow-y: auto; font-size: .92rem; }
-.events li { margin: .2rem 0; }
+.events { list-style: none; margin: .6rem 0 0; padding: 0 .2rem; max-height: 16rem; overflow-y: auto; font-size: .92rem; }
+.events li { margin: .25rem 0; padding-left: 1rem; text-indent: -1rem; }
+.events details { display: inline; }
+.events details summary { display: inline; cursor: pointer; color: var(--fg); text-decoration: underline dotted; }
+.events details ul { list-style: none; margin: .2rem 0 .4rem 1rem; padding: 0; text-indent: 0; color: var(--muted); }
 .events a { color: var(--accent); text-decoration: none; font-variant-numeric: tabular-nums; }
 .toplinks { margin: -.6rem 0 1rem; font-size: .92rem; color: var(--muted); }
 .toplinks a { color: var(--accent); text-decoration: none; font-weight: 600; }

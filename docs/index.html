@@ -321,18 +321,44 @@ function describe(e) {
   })[e.reason] || e.to;
 }
 
+// Several comments landing in the same generation share one line, expandable.
+function burstText(list) {
+  const eff = effectOf({ gen: list[0].gen, effect: list[0].effect &&
+    { ...list[0].effect, after: (list.filter((e) => e.effect).pop() || list[0]).effect.after } }, false);
+  return `${list.length} comments landed` + (eff ? ` · time it had left: ${eff.text}` : "");
+}
+
 function renderEvents() {
   const ol = $("events");
   ol.textContent = "";
-  const items = [{ gen: 0, text: "born: an acorn, seven living cells" },
-                 ...TL.events.map((e) => ({ gen: e.gen, text: describe(e) }))].reverse();
-  for (const it of items) {
+  const items = [{ gen: 0, text: "born: an acorn, seven living cells" }];
+  for (let i = 0; i < TL.events.length; i++) {
+    const e = TL.events[i];
+    if (e.kind === "comment") {
+      const same = [];
+      while (i < TL.events.length && TL.events[i].kind === "comment" && TL.events[i].gen === e.gen) same.push(TL.events[i++]);
+      i--;
+      items.push(same.length > 3 ? { gen: e.gen, text: burstText(same), parts: same.map(describe) }
+                                 : same.map((x) => ({ gen: x.gen, text: describe(x) })));
+    } else {
+      items.push({ gen: e.gen, text: describe(e) });
+    }
+  }
+  for (const it of items.flat().reverse()) {
     const li = document.createElement("li");
     const a = document.createElement("a");
     a.href = "#board";
     a.textContent = `${fmtTime(genTime(it.gen))} · gen ${it.gen.toLocaleString()}`;
     a.addEventListener("click", (ev) => { ev.preventDefault(); jump(it.gen); });
-    li.append(a, ` — ${it.text}`);
+    if (it.parts) {
+      const d = document.createElement("details"), s = document.createElement("summary"), ul = document.createElement("ul");
+      s.textContent = it.text;
+      for (const p of it.parts) { const x = document.createElement("li"); x.textContent = p; ul.appendChild(x); }
+      d.append(s, ul);
+      li.append(a, " — ", d);
+    } else {
+      li.append(a, ` — ${it.text}`);
+    }
     ol.appendChild(li);
   }
   renderMarks();
