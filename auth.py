@@ -128,7 +128,7 @@ def main() -> None:
     print(
         "\nReminder: if the OAuth consent screen's publishing status is 'Testing',\n"
         "Google expires this refresh token after 7 days. Set it to 'In production'\n"
-        "before any multi-day run (see README)."
+        "before any multi-day run (see SETUP.md)."
     )
 
 

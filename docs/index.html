@@ -44,6 +44,7 @@
   </div>
   <p id="forecast" class="forecast"></p>
   <p id="cta" hidden><a id="video" class="button" href="#">Comment on the video to change it</a></p>
+  <p id="tally" class="tally"></p>
   <details class="history" open>
     <summary>What has happened so far</summary>
     <ol id="events" class="events"></ol>
@@ -440,7 +441,37 @@ function burstText(list) {
   return `${list.length} comments landed` + (eff ? ` · time it had left: ${eff.text}` : "");
 }
 
+// "41 comments so far: 26 random patches · 8 gliders · ... · 18 gave it time, 21 took time"
+const KIND = { random: ["random patch", "random patches"], glider: ["glider", "gliders"], acorn: ["acorn", "acorns"],
+  rpent: ["R-pentomino", "R-pentominoes"], block: ["block", "blocks"], blinker: ["blinker", "blinkers"],
+  cells: ["set of cells", "sets of cells"] };
+function renderTally() {
+  const comments = TL.events.filter((e) => e.kind === "comment");
+  const el = $("tally");
+  if (!comments.length) { el.textContent = "No comments yet. Be the first!"; return; }
+  const kinds = new Map();
+  let gave = 0, took = 0;
+  for (const e of comments) {
+    const k = e.command.split(" ")[0];
+    kinds.set(k, (kinds.get(k) || 0) + 1);
+    const f = e.effect;
+    if (!f) continue;
+    const before = f.before ?? Infinity, after = f.after ?? Infinity;
+    if (after > before) gave++; else if (after < before) took++;
+  }
+  const parts = [...kinds].sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${n} ${(KIND[k] || [k, k + "s"])[n === 1 ? 0 : 1]}`);
+  el.textContent = "";
+  const b = document.createElement("b");
+  b.textContent = `${comments.length} comment${comments.length === 1 ? "" : "s"} so far: `;
+  const better = document.createElement("span"), worse = document.createElement("span");
+  better.className = "better"; better.textContent = `${gave} gave it time`;
+  worse.className = "worse"; worse.textContent = `${took} took time`;
+  el.append(b, parts.join(" · "), " · ", better, ", ", worse);
+}
+
 function renderEvents() {
+  renderTally();
   const ol = $("events");
   ol.textContent = "";
   const items = [{ gen: 0, text: "born: an acorn, seven living cells" }];
