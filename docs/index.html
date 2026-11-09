@@ -35,11 +35,8 @@
     <span><i class="sw dark"><b class="cell killed"></b></i>killed by one</span>
     <span><i class="sw dark dashed"></i>its ripple</span>
     <span class="sep"><b class="eff-demo">3d → <span class="worse">2d</span></b>&nbsp;time left, before → after</span>
-    <span class="sep"><i class="sw bars"><b></b><b></b><b></b></i>comments</span>
-    <span><i class="sw tick FLATLINING"></i>stuck</span>
-    <span><i class="sw tick CONTESTED"></i>broken</span>
-    <span><i class="sw tick ALIVE"></i>saved</span>
-    <span><i class="sw tick DIED"></i>died</span>
+    <span class="sep"><i class="sw bars"><b></b><b></b><b></b></i>comments: <span class="better">gave it time</span> / <span class="worse">took time</span></span>
+    <span id="legend-phases" class="sep"></span>
   </div>
   <div class="meta">
     <span id="tick"></span>
@@ -366,6 +363,10 @@ function playFrame(now) {
 }
 
 const SLICES = 120;  // comments are drawn as a density strip: one bar per slice of the life
+const PHASE_FLAG = {  // timeline flags for phase changes, and their legend text
+  cycle_detected: ["🔁", "stuck in a loop"], new_cycle: ["🔁", "stuck in a loop"], reentered_cycle: ["🔁", "stuck in a loop"],
+  injection: ["💥", "a comment broke the loop"], survived_deadline: ["🫀", "saved"], DIED: ["⚫", "died"],
+};
 function renderMarks() {
   const end = Math.max(1, liveGen()), box = $("marks");
   box.textContent = "";
@@ -393,16 +394,24 @@ function renderMarks() {
     b.addEventListener("click", () => jump(s.first));
     box.appendChild(b);
   }
-  for (const e of TL.events) {  // phase changes keep their own markers, on top
+  const seen = new Map();  // emoji -> legend text, once each
+  for (const e of TL.events) {  // phase changes: emoji flags above the track
     if (e.kind === "comment") continue;
+    const flag = PHASE_FLAG[e.reason] || PHASE_FLAG[e.to];
+    if (!flag) continue;
+    seen.set(flag[0], flag[1]);
     const b = document.createElement("button");
-    b.className = "mark " + e.to;
+    b.className = "flag";
+    b.textContent = flag[0];
     b.style.left = `${(100 * e.gen) / end}%`;
     b.title = `gen ${e.gen.toLocaleString()}: ${describe(e)}`;
     b.setAttribute("aria-label", b.title);
     b.addEventListener("click", () => jump(e.gen));
     box.appendChild(b);
   }
+  const lp = $("legend-phases");
+  lp.textContent = [...seen].map(([f, t]) => `${f} ${t}`).join("   ");  // only flags that exist
+  lp.hidden = !seen.size;
 }
 
 function describe(e) {
