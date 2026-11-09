@@ -239,6 +239,8 @@ no OAuth token); its one secret is the stream key.
    restart reconnects to the same broadcast.
 2. **A machine that stays on:** e.g. Oracle Cloud's free Arm VM
    (`VM.Standard.A1.Flex`, 2 OCPUs, 12 GB, Ubuntu 24.04, "Always Free-eligible").
+   Free Arm machines are often "out of capacity": `deploy/oracle-retry.py` keeps
+   asking until one is free (needs `brew install oci-cli` and an API key in `~/.oci/config`).
 3. **On it:** `curl -fsSL https://raw.githubusercontent.com/davidackerman/still-life/main/deploy/setup-stream.sh | bash`
    It asks for the key (hidden), stores it root-only in `/etc/still-life/stream.env`
    and starts the `still-life-stream` service. Logs: `journalctl -u still-life-stream -f`.
