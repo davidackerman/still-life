@@ -224,7 +224,7 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
 
 # ---------------------------------------------------------------- pinned comment
 PINNED_MARKERS = ("Latest changes to the universe", "This video is alive", "This Short is alive",
-                  "This Short is a replay")  # the owner's status comment
+                  "This Short is a replay", "The video is the explainer")  # the owner's status comment
 LIVE_ADDRESS = "davidackerman.github.io/still-life"
 PHASE_WORDS = {
     "cycle_detected": "got stuck in a loop: the 24-hour countdown started",
@@ -359,8 +359,11 @@ def suggestion(u: Universe) -> str:
     return f"{pattern} {x},{y}"
 
 
-INTRO_MAIN = ("This video is alive: the thumbnail is its universe, the title counts down to its death, "
-              "and every comment adds cells (as many as you like; replies count too).")
+# Leads with the distinction viewers miss: the video is a fixed recording, the
+# universe is the thumbnail (and the live page).
+INTRO_MAIN = ("The video is the explainer. The universe itself lives in this video's thumbnail and on the "
+              "live page (link at the bottom), and the title counts down to its death. Every comment adds "
+              "cells (as many as you like; replies count too).")
 INTRO_EXTRA = ("This Short is a replay, but it is alive: every comment here adds cells to the live universe "
                "within minutes (as many as you like; replies count too). Watch your move land on the linked "
                "video's thumbnail or the live page below. If the universe dies, both videos die.")

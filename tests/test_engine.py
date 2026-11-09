@@ -198,7 +198,7 @@ def test_owner_status_comment_is_found_and_not_played():
     assert [e["command"] for e in ev if e["type"] == "injection"] == ["glider 10,10 se"]  # the status comment adds nothing
     cid, text = yt.updates[-1]
     assert cid == "Ugpin" and text.startswith("🟢 ALIVE · this video dies in ~")
-    assert "This video is alive:" in text and "• gen 0: glider 10,10 se" in text
+    assert "The video is the explainer." in text and "• gen 0: glider 10,10 se" in text
     assert "Try one: " in text and "davidackerman.github.io/still-life" in text
 
 
@@ -290,7 +290,7 @@ def test_each_video_keeps_its_own_status_comment():
     assert {v: p["id"] for v, p in w.pinned.items()} == {"0": "Ugpin", "1": "Ugshort"}
     assert len([e for e in ev if e["type"] == "injection"]) == 1  # the Short's comment played
     texts = dict(yt.updates)
-    assert "This video is alive" in texts["Ugpin"] and "This Short is a replay" in texts["Ugshort"]
+    assert "The video is the explainer" in texts["Ugpin"] and "This Short is a replay" in texts["Ugshort"]
     assert texts["Ugpin"].splitlines()[0] == texts["Ugshort"].splitlines()[0]  # same status line
     # the Short's comment is refreshed at most hourly, the main one every 30 min
     yt.comments.append(comment("b", "u2", "rpent 90,20"))
