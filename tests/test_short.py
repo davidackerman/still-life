@@ -67,3 +67,22 @@ def test_a_tampered_log_is_refused(state_dir, monkeypatch):
     open(path, "w").write("\n".join(lines) + "\n")
     with pytest.raises(SystemExit):
         short.build(state_dir)
+
+
+def test_the_daily_recap_is_short_and_opens_close_up(state_dir, monkeypatch):
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    frames = short.build(state_dir, since_gen=0)
+    assert 12 * short.FPS < len(frames) < 25 * short.FPS  # short enough to be watched to the end
+    assert frames[0].zoom > 2  # big enough cells to see moving on a phone...
+    assert frames[int(2.6 * short.FPS)].zoom < 1.1  # ...then the whole board
+    assert 1 <= sum(1 for f in frames if f.cue and f.cue[0] == "inject") <= 2  # the day's biggest moves
+    assert any(f.grey > 0 for f in frames)  # its future: stuck, then dead
+    assert len(short.compose(frames[0])) == short.PW * short.PH * 3
+
+
+def test_busiest_finds_the_active_patch():
+    import numpy as np
+    w = np.zeros((72, 128), int)
+    w[60:64, 100:104] = 5
+    x, y = short.busiest(w, 4.0)  # a 32 x 18 cell window
+    assert abs(x / short.CELL - 102) <= 16 and abs(y / short.CELL - 62) <= 9

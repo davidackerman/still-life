@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a vertical Short (1080x1920, about 40 s) from the live universe.
+"""Render a vertical Short (1080x1920, about 40 s; the daily recap about 20 s) from the live universe.
 
     python short.py                                   # out/short.mp4 from state/
     python short.py --preview out/short_frames        # also save a PNG every second
@@ -87,6 +87,16 @@ def main_piece(cells) -> list[tuple[int, int]]:
 def centre(cells) -> tuple[float, float]:
     pts = np.array([cell_px(x, y) for x, y in cells])
     return tuple(pts.mean(axis=0))
+
+
+def busiest(weight, zoom: float) -> tuple[float, float]:
+    """Centre (board-image px) of the on-screen window at `zoom` holding the most `weight`."""
+    h, w = weight.shape
+    wh, ww = max(1, round(h / zoom)), max(1, round(w / zoom))
+    c = np.pad(weight.astype(np.int64).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+    counts = c[wh:, ww:] - c[:-wh, ww:] - c[wh:, :-ww] + c[:-wh, :-ww]
+    y, x = np.unravel_index(int(np.argmax(counts)), counts.shape)
+    return (x + ww / 2) * CELL, (y + wh / 2) * CELL
 
 
 def view(f) -> tuple[float, float, float, float]:
@@ -302,14 +312,25 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     stuck_seed = h.fresh().forecast_stuck(FORECAST_GENS)
     moves = sum(len(b) for b in h.batches.values())
 
-    # 1. hook over the live board (its real future, one generation per frame)
-    u = copy.deepcopy(now)
+    # 1. hook over the live board (its real future, one generation per frame). Nearly
+    # half of viewers swiped the first Short away at once: the whole board's cells are
+    # too small to see moving on a phone. So it opens close up on the patch that
+    # changes most, then pulls back to the whole board.
     n = int(2.7 * FPS)  # on screen from the very first frame: it is the thumbnail
+    Z, hold = 4.0, int(1.2 * FPS)
+    u, prev, churn = copy.deepcopy(now), now.grid.copy(), np.zeros(now.grid.shape, np.int64)
+    for _ in range(n):
+        u.advance_to(u.generation + 1)
+        churn += u.grid != prev
+        prev = u.grid.copy()
+    busy = busiest(churn, Z)
+    u = copy.deepcopy(now)
     for i in range(n):
         u.advance_to(u.generation + 1)
         a = 1.0 if i < n - FADE else fade(i, n)
+        zoom = Z if i < hold else 1 + (Z - 1) * (1 - ease((i - hold) / (n - 1 - hold)))
         add(u, block([("THIS SHORT", "bold", 112), ("DIES", "bold", 196)], TOP_Y, a)
-            + block([("if nobody comments", "demi", 80)], BOTTOM_Y, a))
+            + block([("if nobody comments", "demi", 80)], BOTTOM_Y, a), zoom=zoom, focus=busy)
 
     if since_gen is not None:  # the daily recap: day N, the day's moves, how its death moved
         _recap(h, now, since_gen, add, stuck_now)
@@ -374,9 +395,10 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
                     h.goto(u, u.generation + 1)
                 add(u, block([(text, "bold", 76)], TOP_Y, fade(i, n)))
 
-    # 6. the future if nobody comments: stuck, countdown, death
+    # 6. the future if nobody comments: stuck, countdown, death (the daily recap says
+    # this in one beat of its own)
     fut = copy.deepcopy(now)
-    if stuck_now is not None:
+    if stuck_now is not None and since_gen is None:
         text = "Left alone, it gets stuck in a loop."
         n = rf(text)
         start = fut.generation
@@ -401,8 +423,11 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     pick = render.suggestion(u)
     spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
     top = [("Comment anything to add cells.", "bold", 84)]
-    bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the main video on this channel", "demi", 50)]
-    n = max(rf(*[s for s, _, _ in top + bottom]), 5 * FPS)
+    bottom = [(f"or aim one: {pick}", "demi", 62)]
+    if since_gen is None:  # the daily recap stays short: it loops sooner
+        bottom.append(("Live countdown: the main video on this channel", "demi", 50))
+    n = rf(*[s for s, _, _ in top + bottom])
+    n = n if since_gen is not None else max(n, 5 * FPS)
     for i in range(n):
         if i % 6 == 0:
             u.advance_to(u.generation + 1)
@@ -426,7 +451,7 @@ def _impact(h: History, gen: int) -> float:
 def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, effect_text):
     """Replay up to `until`, zooming in on each generation in `shown`."""
     lit = None
-    seg = max(24, int(4.5 * FPS) // (len(shown) + 1))
+    seg = max(18, int(2.4 * FPS) // (len(shown) + 1))
     for target in shown + [until]:
         start = u.generation
         for i in range(seg):
@@ -442,7 +467,7 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
         lit = life.mask(cells, u.grid.shape)
         caption = f"{len(batch)} comments landed" if len(batch) > 1 else f"a comment: {batch[0]['command']}"
         caption += effect_text(target, batch)
-        hold, z = int(2.4 * FPS), 2.6
+        hold, z = int(2.0 * FPS), 3.2
         for i in range(hold):
             if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
                 h.goto(u, u.generation + 1)
@@ -455,7 +480,7 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
 
 
 def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
-    """The daily Short's middle: day N, the day's moves, how its death moved."""
+    """The daily Short after its hook: the day's moves under "Day N", then the stakes."""
     import render as rd
     G, F = h.gen_seconds, now.flatline_gens
     launch = h.genesis["launch_time"]
@@ -463,19 +488,13 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
     gens = sorted(g for g in h.batches if since_gen < g <= h.now_gen)
     count = sum(len(h.batches[g]) for g in gens)
 
-    # the board as it was a day ago, and what it expected then
+    # the board as it was a day ago
     u = h.fresh()
     h.goto(u, since_gen)
-    stuck_then = u.forecast_stuck(FORECAST_GENS) if u.phase == "ALIVE" else None
 
-    lines = [(f"Day {day}.", "bold", 150)]
-    sub = [(f"{count} comment{'s' * (count != 1)} in the last 24 hours" if count else
-            "Nobody commented in the last 24 hours", "demi", 64)]
-    n = rf(lines[0][0], sub[0][0])
-    for i in range(n):
-        if i % 3 == 0:
-            h.goto(u, u.generation + 1)
-        add(u, block(lines, TOP_Y, fade(i, n)) + block(sub, BOTTOM_Y, fade(i, n)))
+    # "Day N" heads the day's moves instead of a beat of its own: a short recap loops sooner
+    head = [(f"Day {day}.", "bold", 120),
+            (f"{count} comment{'s' * (count != 1)} in 24 hours" if count else "Nobody commented today", "demi", 60)]
 
     def effect_text(gen, batch):  # "\ntime left: 1d 18h to 9d 8h" (Avenir has no arrow)
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
@@ -485,12 +504,26 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
         b = rd.life_left(effs[0]["before"], gen, F, G, hz)
         a = rd.life_left(effs[-1]["after"], gen, F, G, hz)
         return f"\ntime left: {b} to {a}" if a != b else f"\ntime left: still {a}"
-    shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:3])
-    _moves(h, u, shown, [("The last 24 hours.", "bold", 84)], add, h.now_gen, effect_text)
+    shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:2])
+    _moves(h, u, shown, head, add, h.now_gen, effect_text)
 
-    # how its death moved
+    # the stakes: where its death stands now
     def death_day(stuck):
         return rd._at(launch, stuck + F, G, "%a %b %d")
+    if now.phase == "ALIVE" and stuck_now is not None:  # its real future: into the loop, then grey
+        top = [(f"Left alone, it dies {death_day(stuck_now)}.", "bold", 80)]
+        bottom = [("Then this Short goes private. For good.", "demi", 62)]
+        fut = copy.deepcopy(now)
+        start, n = fut.generation, rf(*[t for t, _, _ in top + bottom])
+        for i in range(n):
+            p = min(1.0, (i + 1) / (n * 0.55))
+            if fut.generation < stuck_now:
+                fut.advance_to(start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
+            elif i % 2 == 0:
+                fut.advance_to(fut.generation + 1)
+            add(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
+                grey=max(0.0, (i - n * 0.6) / (n * 0.3)))
+        return
     if now.phase == "FLATLINING":
         top = [("It's stuck in a loop.", "bold", 84)]
         bottom = [(f"It dies {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it.",
@@ -499,15 +532,9 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
         top = [("A comment broke the loop.", "bold", 84)]
         bottom = [(f"It lives if it's still changing {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')}.",
                    "demi", 60)]
-    elif stuck_now is None:
+    else:  # alive, and no loop within the forecast
         top = [("It won't get stuck for weeks.", "bold", 80)]
         bottom = [("Unless a comment changes that.", "demi", 60)]
-    elif stuck_then is not None and death_day(stuck_then) != death_day(stuck_now):
-        top = [(f"A day ago it was due to die {death_day(stuck_then)}.", "bold", 72)]
-        bottom = [(f"Now: {death_day(stuck_now)}.", "bold", 96)]
-    else:
-        top = [(f"It's due to die {death_day(stuck_now)}.", "bold", 76)]
-        bottom = [("Unless someone comments.", "demi", 62)]
     n = rf(*[t for t, _, _ in top + bottom])
     for i in range(n):
         if i % 4 == 0:
