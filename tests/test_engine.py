@@ -290,7 +290,7 @@ def test_each_video_keeps_its_own_status_comment():
     assert {v: p["id"] for v, p in w.pinned.items()} == {"0": "Ugpin", "1": "Ugshort"}
     assert len([e for e in ev if e["type"] == "injection"]) == 1  # the Short's comment played
     texts = dict(yt.updates)
-    assert "This video is alive" in texts["Ugpin"] and "This Short is alive" in texts["Ugshort"]
+    assert "This video is alive" in texts["Ugpin"] and "This Short is a replay" in texts["Ugshort"]
     assert texts["Ugpin"].splitlines()[0] == texts["Ugshort"].splitlines()[0]  # same status line
     # the Short's comment is refreshed at most hourly, the main one every 30 min
     yt.comments.append(comment("b", "u2", "rpent 90,20"))

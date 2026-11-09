@@ -223,7 +223,8 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
 
 
 # ---------------------------------------------------------------- pinned comment
-PINNED_MARKERS = ("Latest changes to the universe", "This video is alive", "This Short is alive")  # the owner's status comment
+PINNED_MARKERS = ("Latest changes to the universe", "This video is alive", "This Short is alive",
+                  "This Short is a replay")  # the owner's status comment
 LIVE_ADDRESS = "davidackerman.github.io/still-life"
 PHASE_WORDS = {
     "cycle_detected": "got stuck in a loop: the 24-hour countdown started",
@@ -360,9 +361,9 @@ def suggestion(u: Universe) -> str:
 
 INTRO_MAIN = ("This video is alive: the thumbnail is its universe, the title counts down to its death, "
               "and every comment adds cells (as many as you like; replies count too).")
-INTRO_EXTRA = ("This Short is alive: every comment here adds cells to the same universe as the linked video, "
-               "whose thumbnail shows it live (as many as you like; replies count too). "
-               "If the universe dies, both videos die.")
+INTRO_EXTRA = ("This Short is a replay, but it is alive: every comment here adds cells to the live universe "
+               "within minutes (as many as you like; replies count too). Watch your move land on the linked "
+               "video's thumbnail or the live page below. If the universe dies, both videos die.")
 
 
 def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,
