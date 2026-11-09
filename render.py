@@ -222,11 +222,23 @@ def event_line(ev: dict) -> str | None:
     return None
 
 
+def short_span(secs: float) -> str:
+    """'3d 5h', '14h', '2h 05m', '45m'."""
+    secs = max(0, int(secs))
+    d, rem = divmod(secs, 86400)
+    h, m = rem // 3600, rem % 3600 // 60
+    if d:
+        return f"{d}d {h}h"
+    if h >= 3:
+        return f"{h}h"
+    return f"{h}h {m:02d}m" if h else f"{m}m"
+
+
 def life_left(stuck: int | None, gen: int, flatline: int, gen_seconds: int, horizon: int) -> str:
-    """How long a universe at `gen` has left if nobody comments: '8 days', '5 hours'."""
+    """How long a universe at `gen` has left if nobody comments: '8d 21h', '14h'."""
     if stuck is None:
-        return f"{(horizon + flatline) * gen_seconds // 86400}+ days"
-    return coarse_left((stuck + flatline - gen) * gen_seconds).lstrip("~")
+        return f"{(horizon + flatline) * gen_seconds // 86400}d+"
+    return short_span((stuck + flatline - gen) * gen_seconds)
 
 
 def effect_suffix(effect: dict, flatline: int, gen_seconds: int) -> str:

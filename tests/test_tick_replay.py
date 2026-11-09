@@ -172,4 +172,4 @@ def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
     json.dump(st, open(p, "w"))
     tick.run(d, LAUNCH + 3600, lambda w: FakeYT(), KEY, thumb_path=None)
     recent = json.load(open(p))["display"]["recent"]
-    assert len(recent) == 1 and recent[0].startswith("gen 2: block 5,5 · ")  # lands where the previous run stopped
+    assert len(recent) == 1 and recent[0].startswith("gen 4: block 5,5 · ")  # posted at 570 s: gen 4

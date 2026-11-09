@@ -299,14 +299,29 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         if dropped:
             counts["rejected"]["universe_dead"] = counts["rejected"].get("universe_dead", 0) + len(dropped)
     else:
+        target = target_generation(now, world.launch_time, world.gen_seconds)
         batch = admission.take_batch(world.admission)
-        if batch:
-            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at} for q in batch]
+        # Each comment lands at the generation it was posted in (never before
+        # where the last run stopped, never after now), in posting order.
+        start = u.generation
+        landing = sorted(((min(target, max(start, target_generation(q["published_at"], world.launch_time,
+                                                                     world.gen_seconds))), n, q)
+                          for n, q in enumerate(batch)), key=lambda t: (t[0], t[1]))
+        i = 0
+        while i < len(landing):
+            gen = landing[i][0]
+            group = [q for g, _, q in landing[i:] if g == gen]
+            i += len(group)
+            events += u.advance_to(gen)
+            if u.phase == DIED:  # it died before these were posted
+                counts["rejected"]["universe_dead"] = counts["rejected"].get("universe_dead", 0) + len(group)
+                continue
+            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at} for q in group]
             f = world.forecast
             known = f["stuck_gen"] if f and f["key"] == [u.history_base, u.phase] else False
             effects = comment_effects(u, items, known)
             inj_events = u.inject(items)
-            for q, ev in zip(batch, [e for e in inj_events if e["type"] == "injection"]):
+            for q, ev in zip(group, [e for e in inj_events if e["type"] == "injection"]):
                 if ev["changed"]:
                     world.last_changer = {"comment": q["comment"], "author": q["author"],
                                           "gen": ev["gen"], "command": q["command"]}
@@ -321,8 +336,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             if done and u.phase == ALIVE:  # the last effect's forecast is the new forecast
                 world.forecast = {"key": [u.history_base, u.phase], "stuck_gen": done[-1]["after"],
                                   "horizon": u.generation + FORECAST_GENS}
-            world.highlight.update(tuple(c) for q in batch for c in q["cells"])
-        events += u.advance_to(target_generation(now, world.launch_time, world.gen_seconds))
+            world.highlight.update(tuple(c) for q in group for c in q["cells"])
+        events += u.advance_to(target)
 
     if world.recent is None:
         world.recent = []

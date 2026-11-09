@@ -257,7 +257,8 @@ def test_a_save_credits_the_comment_that_broke_the_loop():
     for t in range(0, 63 * 3600, 1800):  # acorn gets stuck at 61.8 h
         engine.tick(w, LAUNCH + t, yt)
     assert w.universe.phase == "FLATLINING"
-    yt.comments.append(Comment("save", "UCsaver", "2027-01-17T23:00:00Z", "glider 4,20 ne"))  # breaks the loop for good
+    # posted at 62.5 h = gen 1,875, where this glider breaks the loop for good
+    yt.comments.append(Comment("save", "UCsaver", "2027-01-17T22:30:00Z", "glider 4,20 ne"))
     for t in range(63 * 3600, 90 * 3600, 1800):
         engine.tick(w, LAUNCH + t, yt)
     assert w.universe.phase == "ALIVE"
@@ -399,3 +400,13 @@ def test_force_pinned_skips_the_wait():
     assert len(yt.updates) == 1  # throttled
     engine.tick(w, LAUNCH + 600, yt, force_pinned=True)
     assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]
+
+
+def test_comments_land_at_the_generation_they_were_posted_in():
+    w = world()
+    engine.tick(w, LAUNCH, FakeYT())
+    at = lambda s: Comment(f"c{s}", f"u{s}", f"2027-01-15T08:{s // 60:02d}:{s % 60:02d}Z", "block 5,5")  # noqa: E731
+    yt = FakeYT([at(130), at(250), at(250 + 3), at(610)])  # gens 1, 2, 2, 5
+    ev = engine.tick(w, LAUNCH + 900, yt)  # one run catches up 0 -> 7
+    assert [e["gen"] for e in ev if e["type"] == "injection"] == [1, 2, 2, 5]
+    assert w.universe.generation == 7

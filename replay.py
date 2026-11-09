@@ -60,11 +60,15 @@ def replay_log(entries: list[dict]) -> Universe:
         logged = [_sim(x) for x in segment if x["type"] in SIM_EVENTS]
         injections = [x for x in logged if x["type"] == "injection"]
         produced: list[dict] = []
-        if injections:
-            if {x["gen"] for x in injections} != {u.generation}:
-                raise ReplayError(f"{where}: injections not at the run's starting generation")
+        # A run's comments land at the generation each was posted in (older runs:
+        # all at the run's start), in order, never before the start or after the end.
+        gens = [x["gen"] for x in injections]
+        if gens and (gens != sorted(gens) or gens[0] < u.generation or gens[-1] > e["gen_end"]):
+            raise ReplayError(f"{where}: injections out of order or outside the run")
+        for gen in sorted(set(gens)):
+            produced += u.advance_to(gen)
             produced += u.inject([{k: v for k, v in x.items() if k not in RESULT_FIELDS}
-                                  for x in injections])
+                                  for x in injections if x["gen"] == gen])
         produced += u.advance_to(e["gen_end"])
         if produced != logged:
             for i, (a, b) in enumerate(zip(produced, logged)):

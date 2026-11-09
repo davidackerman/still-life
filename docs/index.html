@@ -167,22 +167,22 @@ function commentsNear(gen) {
 }
 
 // How long it had left at `gen` if nobody commented, from a forecast (null = beyond it).
-function lifeLeft(stuck, gen, horizon, short) {
-  if (stuck == null) return `${Math.floor((horizon + S.flatGens) * S.genSec / 86400)}+${short ? "d" : " days"}`;
-  const secs = (stuck + S.flatGens - gen) * S.genSec;
-  if (secs >= 2 * 86400) return `${Math.floor(secs / 86400)}${short ? "d" : " days"}`;
-  if (secs >= 86400) return short ? "1d" : "1 day";
-  if (secs >= 2 * 3600) return `${Math.floor(secs / 3600)}${short ? "h" : " hours"}`;
-  return short ? "<2h" : "under 2 hours";
+function lifeLeft(stuck, gen, horizon) {  // "3d 5h", "14h", "2h 05m", "45m" (as in the pinned comment)
+  if (stuck == null) return `${Math.floor((horizon + S.flatGens) * S.genSec / 86400)}d+`;
+  const secs = Math.max(0, (stuck + S.flatGens - gen) * S.genSec);
+  const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h >= 3) return `${h}h`;
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
 }
 // What a comment did to its lifespan: {text, cls} or null.
 function effectOf(c, short) {
   const f = c.effect;
   if (!f) return null;
-  const b = lifeLeft(f.before, c.gen, f.horizon, short), a = lifeLeft(f.after, c.gen, f.horizon, short);
+  const b = lifeLeft(f.before, c.gen, f.horizon), a = lifeLeft(f.after, c.gen, f.horizon);
   const longer = f.after == null ? f.before != null : f.before != null && f.after > f.before;
   const shorter = f.before == null ? f.after != null : f.after != null && f.after < f.before;
-  if (a === b) return { text: short ? `still ${a}` : `still ${a} to live`, cls: "" };
+  if (a === b) return { text: `still ${a}`, cls: "" };
   return { text: `${b} → ${a}`, cls: longer ? "better" : shorter ? "worse" : "" };
 }
 
