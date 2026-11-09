@@ -45,7 +45,7 @@ def alerts_for(events: list[dict], launch_time: float, gen_seconds: int, video_u
         elif e["type"] == "phase" and e["to"] == "DIED":
             out.append({"title": f"⚫ The universe died at gen {e['gen']:,}",
                         "body": "Nobody broke the loop in time. The death sequence starts on the next run." + links})
-        elif e["type"] == "death" and e.get("alert"):
+        elif e["type"] != "phase" and e.get("alert"):  # death sequence, daily Short, ...
             out.append({"title": e["alert"], "body": e.get("detail", "") + links})
     return out
 

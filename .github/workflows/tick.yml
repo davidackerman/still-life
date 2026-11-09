@@ -34,6 +34,7 @@ jobs:
       # renders the obituary, attaches it to the run, and stops. The owner
       # changes this by hand.
       DRY_RUN: "true"
+      DAILY_SHORT: ${{ vars.DAILY_SHORT || 'off' }}  # off | dry | live: a recap Short each evening (daily.py)
     steps:
       - uses: actions/checkout@v7
 
@@ -45,17 +46,21 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt  # numpy pillow google-api-python-client google-auth
 
-      - name: Does this run render an obituary?
+      - name: Does this run render a video (obituary or daily Short)?
         id: death
         run: |
           python - <<'EOF' >> "$GITHUB_OUTPUT"
-          import json, os
+          import datetime as dt, json, os
           s = json.load(open("state/state.json"))
           stage = (s.get("death") or {}).get("stage")
           dry = os.environ["DRY_RUN"].strip().lower() == "true"
-          need = (s["universe"]["phase"] == "DIED" and stage not in ("halted", "processing", "launch")
-                  and not (dry and stage == "dry_run_done"))
-          print(f"render={'true' if need else 'false'}")
+          obituary = (s["universe"]["phase"] == "DIED" and stage not in ("halted", "processing", "launch")
+                      and not (dry and stage == "dry_run_done"))
+          now = dt.datetime.now(dt.timezone.utc)
+          daily = (os.environ["DAILY_SHORT"].strip().lower() in ("dry", "live") and now.hour >= 23
+                   and s["universe"]["phase"] != "DIED"
+                   and (s.get("daily") or {}).get("date") != now.date().isoformat())
+          print(f"render={'true' if obituary or daily else 'false'}")
           EOF
 
       - name: Install ffmpeg
@@ -98,6 +103,14 @@ jobs:
           name: obituary
           path: out/obituary.mp4
           retention-days: 90
+
+      - name: Attach the daily Short
+        if: hashFiles('out/daily.mp4') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: daily-short
+          path: out/daily.mp4
+          retention-days: 30
 
       - name: Alerts
         if: hashFiles('out/alerts.json') != ''

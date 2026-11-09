@@ -16,5 +16,13 @@ def fast_obituary(monkeypatch, tmp_path):
             f.write(f"obituary of {state_dir} -> {shape} credit={credit}".encode())
         return out
     monkeypatch.setattr(obituary, "render", fake)
+    import short
+
+    def fake_short(state_dir, out, since_gen=None, preview=None):
+        os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+        with open(out, "wb") as f:
+            f.write(f"short of {state_dir} since {since_gen}".encode())
+        return out
+    monkeypatch.setattr(short, "render_video", fake_short)
     monkeypatch.setattr(death, "OUT", str(tmp_path / "out" / "obituary.mp4"))
     monkeypatch.setattr(death, "ARCHIVE_ROOT", str(tmp_path / "archive"))

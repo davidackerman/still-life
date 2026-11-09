@@ -31,7 +31,8 @@ from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 TITLE_MIN_INTERVAL_S = 15 * 60
 PINNED_MIN_INTERVAL_S = 30 * 60  # the main video's status comment
-PINNED_EXTRA_MIN_INTERVAL_S = 60 * 60  # status comments on extra videos (quota)
+PINNED_EXTRA_MIN_INTERVAL_S = 60 * 60  # status comments on the two newest extra videos (quota)
+PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.
@@ -80,6 +81,9 @@ class World:
     universe_no: int = 1
     video_id: str | None = None
     retired: list = field(default_factory=list)
+    extra_videos: list = field(default_factory=list)  # Shorts the bot posted (daily.py); comments play
+    extra_read: dict = field(default_factory=dict)  # video id -> when its comments were last read
+    daily: dict = field(default_factory=dict)  # the daily Short: {"date", "day", "video"}
     death: dict | None = None
     retire_pending: list = field(default_factory=list)
 
@@ -91,7 +95,8 @@ class World:
         u, history = self.universe.to_state()
         return ({
             "config": {"launch_time": self.launch_time, "seed": self.seed, "gen_seconds": self.gen_seconds,
-                       "universe": self.universe_no, "video_id": self.video_id, "retired": self.retired},
+                       "universe": self.universe_no, "video_id": self.video_id, "retired": self.retired,
+                       "extra_videos": self.extra_videos},
             "universe": u,
             "admission": self.admission.to_dict(),
             "display": {"last_title": self.last_title, "last_title_at": self.last_title_at,
@@ -107,6 +112,8 @@ class World:
             "reply_counts": dict(sorted(self.reply_counts.items())),
             "death": self.death,
             "retire_pending": self.retire_pending,
+            "extra_read": dict(sorted(self.extra_read.items())),
+            "daily": self.daily,
         }, history)
 
     @classmethod
@@ -129,6 +136,8 @@ class World:
             reply_counts=dict(d.get("reply_counts", {})),
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
+            extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
+            daily=dict(d.get("daily") or {}),
             retire_pending=list(d.get("retire_pending", [])),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
             contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
@@ -403,10 +412,12 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     if core != world.pinned_core:  # something real changed: re-pick the suggested move too
         world.pinned_core = core
         world.pinned_suggest = render.suggestion(u) if u.phase != DIED else None
+    newest = set(sorted((k for k in world.pinned if k != "0"), key=int)[-2:])
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
         main = v == "0"
         text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main)
-        gap = PINNED_MIN_INTERVAL_S if main else PINNED_EXTRA_MIN_INTERVAL_S
+        gap = (PINNED_MIN_INTERVAL_S if main else PINNED_EXTRA_MIN_INTERVAL_S if v in newest
+               else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
         due = force_pinned or slot.get("at") is None or now - slot["at"] >= gap
         if hasattr(yt, "update_comment") and text != slot.get("text") and due:
             op = "update_pinned" if main else f"update_pinned_{v}"

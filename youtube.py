@@ -211,10 +211,14 @@ class YouTube:
     """
 
     def __init__(self, service, video_id: str, quota: Quota, description_grid: bool = False,
-                 extra_video_ids=(), reply_counts: dict | None = None, key: bytes = b""):
+                 extra_video_ids=(), reply_counts: dict | None = None, key: bytes = b"", skip_video_ids=()):
         self.service, self.video_id, self.quota = service, video_id, quota
         self.description_grid = description_grid
-        self.videos = [video_id, *[v for v in extra_video_ids if v and v != video_id]]
+        self.videos = [video_id]
+        for v in extra_video_ids:
+            if v and v not in self.videos:
+                self.videos.append(v)
+        self.skip = set(skip_video_ids)  # not read this run (older Shorts are read every 30 min)
         self.reply_counts = {} if reply_counts is None else reply_counts
         self.key = key
 
@@ -266,6 +270,8 @@ class YouTube:
         now = time.time() if now is None else now
         found: dict[str, tuple[dict, int]] = {}
         for v in range(len(self.videos)):
+            if self.videos[v] in self.skip:
+                continue
             for item in self._threads(v, since):
                 found.setdefault(item["id"], (item, v))
         missing = [t for t in watch if t and t not in found]

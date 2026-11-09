@@ -171,14 +171,20 @@ def ring(cells, alpha: float, caption: str | None = None, dashed: bool = False):
                 d.arc((cx - r, cy - r, cx + r, cy + r), k, k + 11, fill=(255, 255, 255, a), width=5)
         else:
             d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, a), width=6)
-        if caption:
-            f = ex.font("demi", 50)
-            w = d.textlength(caption, font=f)
+        if caption:  # one or two lines, in a white pill below the board
+            lines = caption.split("\n")
+            size = 50 if len(lines) == 1 else 44
+            f = ex.font("demi", size)
+            w = max(d.textlength(ln, font=f) for ln in lines)
+            step = int(size * 1.3)
             top = BOTTOM_Y - 40
+            bottom = top + 24 + step * len(lines)
             d.line((cx, cy + r, CX, top), fill=(255, 255, 255, a), width=4)
-            d.rounded_rectangle((CX - w / 2 - 22, top, CX + w / 2 + 22, BOTTOM_Y + 40), radius=16,
+            d.rounded_rectangle((CX - w / 2 - 22, top, CX + w / 2 + 22, bottom), radius=16,
                                 fill=(255, 255, 255, int(240 * alpha)))
-            ex.text(d, (CX, BOTTOM_Y), caption, "demi", 50, alpha, fill=(10, 12, 16), anchor="mm", outline=False)
+            for k, ln in enumerate(lines):
+                ex.text(d, (CX, top + 12 + step * k + step // 2), ln, "demi", size, alpha, fill=(10, 12, 16),
+                        anchor="mm", outline=False)
     return draw
 
 
@@ -233,9 +239,12 @@ class History:
         self.genesis = g = log[0]
         assert g["type"] == "genesis", "log must start with genesis"
         self.batches: dict[int, list[dict]] = {}
+        self.effects: dict[tuple, dict] = {}  # (gen, command) -> what it did to the lifespan
         for e in log:
             if e["type"] == "injection":
                 self.batches.setdefault(e["gen"], []).append(e)
+            elif e["type"] == "effect":
+                self.effects.setdefault((e["gen"], e["command"]), e)
         ticks = [e for e in log if e["type"] == "tick"]
         self.now_gen = ticks[-1]["gen_end"] if ticks else 0
         self.now_hash = ticks[-1]["state_hash"] if ticks else None
@@ -270,7 +279,10 @@ def days(gens: int, gen_seconds: int) -> int:
 
 
 # ---------------------------------------------------------------- the story
-def build(state_dir: str) -> list:
+def build(state_dir: str, since_gen: int | None = None) -> list:
+    """The whole life so far, or with `since_gen`, a recap of what happened
+    since then (the daily Short): its moves, the biggest ones up close, and
+    how its expected death moved."""
     h = History(state_dir)
     frames = []
     whole = (BW / 2, BH / 2)
@@ -299,65 +311,68 @@ def build(state_dir: str) -> list:
         add(u, block([("THIS SHORT", "bold", 112), ("DIES", "bold", 196)], TOP_Y, a)
             + block([("if nobody comments", "demi", 80)], BOTTOM_Y, a))
 
-    # 2. the acorn, up close
-    u = h.fresh()
-    acorn = centre(life.centered(h.genesis["seed"]))
-    n = int(2.5 * FPS)
-    for i in range(n):
-        if i > n // 2 and i % 6 == 0:
-            h.goto(u, u.generation + 1)
-        add(u, block([("It started as 7 cells.", "bold", 88)], TOP_Y, fade(i, n)), zoom=8.0, focus=acorn)
-
-    # 3. pull back as it grows, stopping short of the first comment we show
-    shown = sorted(h.batches)[-4:]  # name the latest few; earlier ones still land and light up
-    stop = (shown[0] - 15) if shown else h.now_gen
-    lines = [("Conway's Game of Life.", "bold", 84), ("1 generation every 2 minutes.", "demi", 62)]
-    n = rf(*[s for s, _, _ in lines])
-    for i in range(n):
-        h.goto(u, max(u.generation, min(u.generation + 1 + i // 30, stop)))
-        add(u, block(lines, TOP_Y, fade(i, n)), zoom=1 + 7.0 * (1 - ease(i / 60)), focus=acorn)
-
-    # 4. the real history; the view zooms in on each comment where it landed
-    head = [("Every comment adds cells.", "bold", 84)]
-    lit = None
-    seg = max(24, int(4.5 * FPS) // (len(shown) + 1))
-    for target in shown + [h.now_gen]:
-        start = u.generation
-        for i in range(seg):
-            cells = h.goto(u, max(u.generation, start + round((target - start) * ((i + 1) / seg) ** 1.4)))
-            if cells:
-                lit = life.mask(cells)
-            add(u, block(head, TOP_Y, 1.0), highlight=lit)
-        if target not in shown:
-            continue
-        batch = h.batches[target]
-        cells = [tuple(c) for e in batch for c in e["cells"]]
-        piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
-        lit = life.mask(cells)
-        caption = f"a comment: {batch[-1]['command']}" + (f" (+{len(batch) - 1} more)" if len(batch) > 1 else "")
-        hold, z = int(2.4 * FPS), 2.6
-        for i in range(hold):
-            if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
-                h.goto(u, u.generation + 1)
-            zoom = 1 + (z - 1) * min(ease(i / 14), ease((hold - i) / 14))
-            alpha = min(1.0, (i + 1) / 6, (hold - i) / 6)
-            cue = ("inject", float(np.mean([c[0] for c in cells]))) if i == 0 else None
-            add(u, block(head, TOP_Y, 1.0), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
-                extras=[ring(piece, alpha, caption)])
-
-    # 5. what the comments did
-    if stuck_seed is not None and moves:
-        before = days(stuck_seed + F, h.gen_seconds)
-        after = (f"{days(stuck_now + F, h.gen_seconds)}" if stuck_now is not None
-                 else f"{days(FORECAST_GENS + F, h.gen_seconds)}+")
-        what = "stretched" if stuck_now is None or stuck_now > stuck_seed else "changed"
-        noun = "comment" if moves == 1 else "comments"
-        text = f"{moves} {noun} so far {what} its life from {before} to {after} days."
-        n = rf(text)
+    if since_gen is not None:  # the daily recap: day N, the day's moves, how its death moved
+        _recap(h, now, since_gen, add, stuck_now)
+    else:
+        # 2. the acorn, up close
+        u = h.fresh()
+        acorn = centre(life.centered(h.genesis["seed"]))
+        n = int(2.5 * FPS)
         for i in range(n):
-            if i % 4 == 0:
+            if i > n // 2 and i % 6 == 0:
                 h.goto(u, u.generation + 1)
-            add(u, block([(text, "bold", 76)], TOP_Y, fade(i, n)))
+            add(u, block([("It started as 7 cells.", "bold", 88)], TOP_Y, fade(i, n)), zoom=8.0, focus=acorn)
+
+        # 3. pull back as it grows, stopping short of the first comment we show
+        shown = sorted(h.batches)[-4:]  # name the latest few; earlier ones still land and light up
+        stop = (shown[0] - 15) if shown else h.now_gen
+        lines = [("Conway's Game of Life.", "bold", 84), ("1 generation every 2 minutes.", "demi", 62)]
+        n = rf(*[s for s, _, _ in lines])
+        for i in range(n):
+            h.goto(u, max(u.generation, min(u.generation + 1 + i // 30, stop)))
+            add(u, block(lines, TOP_Y, fade(i, n)), zoom=1 + 7.0 * (1 - ease(i / 60)), focus=acorn)
+
+        # 4. the real history; the view zooms in on each comment where it landed
+        head = [("Every comment adds cells.", "bold", 84)]
+        lit = None
+        seg = max(24, int(4.5 * FPS) // (len(shown) + 1))
+        for target in shown + [h.now_gen]:
+            start = u.generation
+            for i in range(seg):
+                cells = h.goto(u, max(u.generation, start + round((target - start) * ((i + 1) / seg) ** 1.4)))
+                if cells:
+                    lit = life.mask(cells)
+                add(u, block(head, TOP_Y, 1.0), highlight=lit)
+            if target not in shown:
+                continue
+            batch = h.batches[target]
+            cells = [tuple(c) for e in batch for c in e["cells"]]
+            piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
+            lit = life.mask(cells)
+            caption = f"a comment: {batch[-1]['command']}" + (f" (+{len(batch) - 1} more)" if len(batch) > 1 else "")
+            hold, z = int(2.4 * FPS), 2.6
+            for i in range(hold):
+                if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
+                    h.goto(u, u.generation + 1)
+                zoom = 1 + (z - 1) * min(ease(i / 14), ease((hold - i) / 14))
+                alpha = min(1.0, (i + 1) / 6, (hold - i) / 6)
+                cue = ("inject", float(np.mean([c[0] for c in cells]))) if i == 0 else None
+                add(u, block(head, TOP_Y, 1.0), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
+                    extras=[ring(piece, alpha, caption)])
+
+        # 5. what the comments did
+        if stuck_seed is not None and moves:
+            before = days(stuck_seed + F, h.gen_seconds)
+            after = (f"{days(stuck_now + F, h.gen_seconds)}" if stuck_now is not None
+                     else f"{days(FORECAST_GENS + F, h.gen_seconds)}+")
+            what = "stretched" if stuck_now is None or stuck_now > stuck_seed else "changed"
+            noun = "comment" if moves == 1 else "comments"
+            text = f"{moves} {noun} so far {what} its life from {before} to {after} days."
+            n = rf(text)
+            for i in range(n):
+                if i % 4 == 0:
+                    h.goto(u, u.generation + 1)
+                add(u, block([(text, "bold", 76)], TOP_Y, fade(i, n)))
 
     # 6. the future if nobody comments: stuck, countdown, death
     fut = copy.deepcopy(now)
@@ -397,34 +412,147 @@ def build(state_dir: str) -> list:
     return frames
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--state-dir", default="state")
-    ap.add_argument("--out", default=os.path.join("out", "short.mp4"))
-    ap.add_argument("--preview", help="also save one frame per second as PNG into this folder")
-    args = ap.parse_args()
+def _impact(h: History, gen: int) -> float:
+    """How much the comments at `gen` moved its death (generations; big if unknown)."""
+    best = 0.0
+    for e in h.batches[gen]:
+        f = h.effects.get((gen, e["command"]))
+        if f:
+            b, a = f["before"], f["after"]
+            best = max(best, abs((a if a is not None else b + 30000) - (b if b is not None else a + 30000)))
+    return best
+
+
+def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, effect_text):
+    """Replay up to `until`, zooming in on each generation in `shown`."""
+    lit = None
+    seg = max(24, int(4.5 * FPS) // (len(shown) + 1))
+    for target in shown + [until]:
+        start = u.generation
+        for i in range(seg):
+            cells = h.goto(u, max(u.generation, start + round((target - start) * ((i + 1) / seg) ** 1.4)))
+            if cells:
+                lit = life.mask(cells, u.grid.shape)
+            add(u, block(head, TOP_Y, 1.0), highlight=lit)
+        if target not in shown:
+            continue
+        batch = h.batches[target]
+        cells = [tuple(c) for e in batch for c in e["cells"]]
+        piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
+        lit = life.mask(cells, u.grid.shape)
+        caption = f"{len(batch)} comments landed" if len(batch) > 1 else f"a comment: {batch[0]['command']}"
+        caption += effect_text(target, batch)
+        hold, z = int(2.4 * FPS), 2.6
+        for i in range(hold):
+            if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
+                h.goto(u, u.generation + 1)
+            zoom = 1 + (z - 1) * min(ease(i / 14), ease((hold - i) / 14))
+            alpha = min(1.0, (i + 1) / 6, (hold - i) / 6)
+            cue = ("inject", float(np.mean([c[0] for c in cells]))) if i == 0 else None
+            add(u, block(head, TOP_Y, 1.0), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
+                extras=[ring(piece, alpha, caption)])
+    return u
+
+
+def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
+    """The daily Short's middle: day N, the day's moves, how its death moved."""
+    import render as rd
+    G, F = h.gen_seconds, now.flatline_gens
+    launch = h.genesis["launch_time"]
+    day = int(h.now_gen * G // 86400) + 1
+    gens = sorted(g for g in h.batches if since_gen < g <= h.now_gen)
+    count = sum(len(h.batches[g]) for g in gens)
+
+    # the board as it was a day ago, and what it expected then
+    u = h.fresh()
+    h.goto(u, since_gen)
+    stuck_then = u.forecast_stuck(FORECAST_GENS) if u.phase == "ALIVE" else None
+
+    lines = [(f"Day {day}.", "bold", 150)]
+    sub = [(f"{count} comment{'s' * (count != 1)} in the last 24 hours" if count else
+            "Nobody commented in the last 24 hours", "demi", 64)]
+    n = rf(lines[0][0], sub[0][0])
+    for i in range(n):
+        if i % 3 == 0:
+            h.goto(u, u.generation + 1)
+        add(u, block(lines, TOP_Y, fade(i, n)) + block(sub, BOTTOM_Y, fade(i, n)))
+
+    def effect_text(gen, batch):  # "\ntime left: 1d 18h to 9d 8h" (Avenir has no arrow)
+        effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
+        if not effs:
+            return ""
+        hz = effs[0].get("horizon", FORECAST_GENS)
+        b = rd.life_left(effs[0]["before"], gen, F, G, hz)
+        a = rd.life_left(effs[-1]["after"], gen, F, G, hz)
+        return f"\ntime left: {b} to {a}" if a != b else f"\ntime left: still {a}"
+    shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:3])
+    _moves(h, u, shown, [("The last 24 hours.", "bold", 84)], add, h.now_gen, effect_text)
+
+    # how its death moved
+    def death_day(stuck):
+        return rd._at(launch, stuck + F, G, "%a %b %d")
+    if now.phase == "FLATLINING":
+        top = [("It's stuck in a loop.", "bold", 84)]
+        bottom = [(f"It dies {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it.",
+                   "demi", 60)]
+    elif now.phase == "CONTESTED":
+        top = [("A comment broke the loop.", "bold", 84)]
+        bottom = [(f"It lives if it's still changing {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')}.",
+                   "demi", 60)]
+    elif stuck_now is None:
+        top = [("It won't get stuck for weeks.", "bold", 80)]
+        bottom = [("Unless a comment changes that.", "demi", 60)]
+    elif stuck_then is not None and death_day(stuck_then) != death_day(stuck_now):
+        top = [(f"A day ago it was due to die {death_day(stuck_then)}.", "bold", 72)]
+        bottom = [(f"Now: {death_day(stuck_now)}.", "bold", 96)]
+    else:
+        top = [(f"It's due to die {death_day(stuck_now)}.", "bold", 76)]
+        bottom = [("Unless someone comments.", "demi", 62)]
+    n = rf(*[t for t, _, _ in top + bottom])
+    for i in range(n):
+        if i % 4 == 0:
+            h.goto(u, u.generation + 1)
+        add(u, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)))
+
+
+def render_video(state_dir: str, out: str, since_gen: int | None = None, preview: str | None = None) -> str:
+    """Render the Short (or, with `since_gen`, the recap since then) to an MP4."""
     ex.SCALE = 1  # explainer's text helpers draw in pixels here
-    frames = build(args.state_dir)
-    print(f"{len(frames)} frames, {len(frames) / FPS:.1f} s, {PW}x{PH}")
-    os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    if args.preview:
-        os.makedirs(args.preview, exist_ok=True)
-    wav = os.path.splitext(args.out)[0] + ".wav"
+    frames = build(state_dir, since_gen)
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
+    if preview:
+        os.makedirs(preview, exist_ok=True)
+    wav = os.path.splitext(out)[0] + ".wav"
     ex.write_wav(wav, ex.soundtrack(frames))
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{PW}x{PH}",
          "-r", str(FPS), "-i", "-", "-i", wav, "-shortest",
          "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
-         "-movflags", "+faststart", args.out],
+         "-movflags", "+faststart", out],
         stdin=subprocess.PIPE)
     for i, f in enumerate(frames):
         data = compose(f)
         ff.stdin.write(data)
-        if args.preview and i % FPS == FPS // 2:
-            Image.frombytes("RGB", (PW, PH), data).save(os.path.join(args.preview, f"{i // FPS:03d}s.png"))
+        if preview and i % FPS == FPS // 2:
+            Image.frombytes("RGB", (PW, PH), data).save(os.path.join(preview, f"{i // FPS:03d}s.png"))
     ff.stdin.close()
     if ff.wait() != 0:
-        raise SystemExit("ffmpeg failed")
+        raise RuntimeError("ffmpeg failed")
+    return out
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--state-dir", default="state")
+    ap.add_argument("--out", default=os.path.join("out", "short.mp4"))
+    ap.add_argument("--preview", help="also save one frame per second as PNG into this folder")
+    ap.add_argument("--since-hours", type=float, help="a recap of the last N hours (the daily Short)")
+    args = ap.parse_args()
+    since = None
+    if args.since_hours:
+        h = History(args.state_dir)
+        since = max(0, h.now_gen - int(args.since_hours * 3600 // h.gen_seconds))
+    render_video(args.state_dir, args.out, since, args.preview)
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
 
