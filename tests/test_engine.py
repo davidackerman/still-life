@@ -371,3 +371,31 @@ def test_a_burst_of_comments_shares_one_line():
                                               for i, t in enumerate("ABCDEFG")])
     engine.tick(w, LAUNCH + 600, yt)
     assert w.recent[0].startswith("gen 0: 7 comments") and len(w.recent) == 1
+
+
+def test_comments_dropped_under_the_old_hourly_rule_come_back_once(monkeypatch):
+    from collections import Counter
+    import admission
+    kid = [Comment(f"k{i}", "kid", "2027-01-15T08:00:00Z", t) for i, t in enumerate("ABCDEFG")]
+    w, yt = world(), FakeYT(kid + [comment("g", "u2", "glider 10,10")])
+    monkeypatch.setattr(admission, "AUTHOR_COOLDOWN_S", 3600)  # the old rule
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    applied = [e for e in ev if e["type"] == "injection"]
+    assert len(applied) == 2  # the kid's first letter and the glider
+    monkeypatch.setattr(admission, "AUTHOR_COOLDOWN_S", 0)  # every comment counts
+    logged = Counter(e["command"] for e in applied)
+    ev2 = engine.tick(w, LAUNCH + 900, yt, logged=logged)
+    assert {"type": "readmitted", "count": 6, "reason": "every comment counts now"} in ev2
+    assert len([e for e in ev2 if e["type"] == "injection"]) == 6  # B..G, nothing twice
+    ev3 = engine.tick(w, LAUNCH + 1200, yt, logged=logged)
+    assert not [e for e in ev3 if e["type"] in ("injection", "readmitted")]  # only once
+
+
+def test_force_pinned_skips_the_wait():
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    yt.comments.append(comment("b", "u2", "rpent 90,20"))
+    engine.tick(w, LAUNCH + 300, yt)
+    assert len(yt.updates) == 1  # throttled
+    engine.tick(w, LAUNCH + 600, yt, force_pinned=True)
+    assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]

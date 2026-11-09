@@ -15,6 +15,8 @@ Environment:
                    (default off)
   FORCE_THUMBNAIL  "true" to upload a fresh thumbnail this run (e.g. after a
                    design change); normally every 4 h and on phase changes
+  FORCE_PINNED     "true" to rewrite the status comments this run if their text
+                   changed (normally at most every 30 min, hourly on extras)
   PINNED_LINK      "false" to leave the live-page address out of the pinned
                    status comment (if YouTube holds comments with links)
   First run only (later runs read these from the log's genesis line):
@@ -81,7 +83,8 @@ def create_world(now: float, key: bytes, shape: tuple[int, int] | None = None, e
 
 
 def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | None = THUMB_PATH,
-        force_thumbnail: bool = False, dry_run: bool = True, render_obituary=None) -> list[dict]:
+        force_thumbnail: bool = False, dry_run: bool = True, render_obituary=None,
+        force_pinned: bool = False) -> list[dict]:
     """Load (or create), tick once, save; then, if the universe was already dead
     when the run began, move the death sequence on (death.py), and make any
     retired videos private. `yt_factory(world)` builds the YouTube client."""
@@ -103,7 +106,12 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world.recent = list(reversed(lines))[: engine.RECENT_MAX]
     was_dead = world.universe.phase == DIED
     yt = yt_factory(world)
-    events = engine.tick(world, now, yt, thumb_path, force_thumbnail, pinned_link=env_flag("PINNED_LINK", "true"))
+    logged = None
+    if engine.READMIT not in world.migrations:  # see engine.readmit_dropped
+        from collections import Counter
+        logged = Counter(e["command"] for e in read_log(store.path(LOG)) if e["type"] == "injection")
+    events = engine.tick(world, now, yt, thumb_path, force_thumbnail, pinned_link=env_flag("PINNED_LINK", "true"),
+                         force_pinned=force_pinned, logged=logged)
     store.save(world, events)
     if was_dead:
         import death
@@ -162,7 +170,7 @@ def main(argv=None) -> int:
                                extra_video_ids=extras, reply_counts=world.reply_counts, key=key)
 
     events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"),
-                 dry_run=dry_run)
+                 dry_run=dry_run, force_pinned=env_flag("FORCE_PINNED", "false"))
     for a in write_alerts(events, seen["world"], seen["world"].video_id or video_id):
         print(f"alert: {a['title']}")
     for e in events:

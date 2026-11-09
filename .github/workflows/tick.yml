@@ -9,6 +9,10 @@ on:
         description: "Upload a fresh thumbnail this run"
         type: boolean
         default: false
+      force_pinned:
+        description: "Rewrite the pinned status comments now (if their text changed)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -68,6 +72,7 @@ jobs:
           EXTRA_VIDEO_IDS: ${{ secrets.EXTRA_VIDEO_IDS }}
           STATE_KEY: ${{ secrets.STATE_KEY }}
           FORCE_THUMBNAIL: ${{ inputs.force_thumbnail || 'false' }}
+          FORCE_PINNED: ${{ inputs.force_pinned || 'false' }}
           PINNED_LINK: ${{ vars.PINNED_LINK || 'true' }}
 
       - name: Commit state

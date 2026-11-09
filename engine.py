@@ -21,9 +21,11 @@ Logged events hold game data only (see admission.py for the data policy).
 from __future__ import annotations
 
 import copy
+from collections import Counter
 from dataclasses import dataclass, field
 
 import admission
+import commands
 import render
 from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
@@ -66,6 +68,7 @@ class World:
     contest_by: dict | None = None  # the comment that broke the current loop: {"gen", "command"}
     saves: int = 0  # times comments saved it from a countdown (shown in the title)
     effects_backfilled: bool = False  # past comments' effects on its lifespan have been logged
+    migrations: list = field(default_factory=list)  # one-off fixes already applied, by name
     last_thumb_headline: str | None = None
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
@@ -97,7 +100,8 @@ class World:
                         "forecast": self.forecast, "recent": self.recent, "pinned": self.pinned,
                         "pinned_core": self.pinned_core, "pinned_suggest": self.pinned_suggest,
                         "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline,
-                        "saves": self.saves, "effects_backfilled": self.effects_backfilled},
+                        "saves": self.saves, "effects_backfilled": self.effects_backfilled,
+                        "migrations": self.migrations},
             "last_changer": self.last_changer,
             "quota": self.quota,
             "reply_counts": dict(sorted(self.reply_counts.items())),
@@ -129,6 +133,7 @@ class World:
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
             contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
             saves=disp.get("saves", 0), effects_backfilled=disp.get("effects_backfilled", False),
+            migrations=list(disp.get("migrations", [])),
         )
 
 
@@ -195,6 +200,33 @@ def effects_from_log(entries: list[dict]) -> list[dict]:
     return out
 
 
+READMIT = "readmit-dropped-2026-11-09"
+
+
+def readmit_dropped(world: World, comments: list, logged: Counter, shape) -> int:
+    """Once: comments dropped under the old one-per-hour rule count after all.
+    A comment already handled ("seen") whose move was never applied (not in the
+    log, not waiting in the queue) is forgotten, so admit() takes it as new.
+    Within one command, the earliest comments are the ones that were applied.
+    Random patches are unique to their comment, so those match exactly."""
+    left = Counter(logged)
+    for q in world.admission.queue:
+        left[q["command"]] += 1
+    forget = []
+    for c in sorted(comments, key=lambda c: (c.epoch, c.id)):
+        kid = admission.keyed(world.key, "comment", c.id)
+        if kid not in world.admission.seen:
+            continue
+        desc = commands.parse(c.id, c.text, shape).desc
+        if left[desc] > 0:
+            left[desc] -= 1
+        else:
+            forget.append(kid)
+    for kid in forget:
+        del world.admission.seen[kid]
+    return len(forget)
+
+
 def _display(world: World, op: str, now: float, call, events: list[dict]) -> bool:
     """Run one display call with backoff. Returns True on success."""
     b = world.backoff.get(op)
@@ -216,7 +248,7 @@ def _display(world: World, op: str, now: float, call, events: list[dict]) -> boo
 
 
 def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thumbnail: bool = False,
-         pinned_link: bool = True) -> list[dict]:
+         pinned_link: bool = True, force_pinned: bool = False, logged: Counter | None = None) -> list[dict]:
     """Advance the world to wall-clock `now`. Returns the run's log events.
 
     Order: fetch + admit comments -> apply up to MAX_PER_RUN injections at the
@@ -231,11 +263,12 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     events: list[dict] = []
 
     # 1. comments (input). A fetch failure skips input for this run only.
+    fetched = True
     try:
         comments = yt.fetch_comments(now - admission.FETCH_WINDOW_S,
                                      watch=[p["id"] for p in world.pinned.values()], now=now)
     except Exception as e:  # noqa: BLE001
-        comments = []
+        comments, fetched = [], False
         events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
     # The owner's status comment on each video is not a move in the game: note
     # its ID, skip it. Replies never count as status comments.
@@ -251,6 +284,11 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         if not slot or slot["id"] not in {c.id for c in mine}:
             world.pinned[str(v)] = {"id": max(mine, key=lambda c: (c.epoch, c.id)).id, "text": None, "at": None}
     comments = [c for c in comments if not is_status(c)]
+    if fetched and logged is not None and READMIT not in world.migrations and u.phase != DIED:
+        n = readmit_dropped(world, comments, logged, u.grid.shape)
+        world.migrations.append(READMIT)
+        if n:
+            events.append({"type": "readmitted", "count": n, "reason": "every comment counts now"})
     counts = admission.admit(world.admission, comments, now, world.key, dead=(u.phase == DIED),
                              shape=u.grid.shape)
     sim_from = len(events)
@@ -354,7 +392,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         main = v == "0"
         text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main)
         gap = PINNED_MIN_INTERVAL_S if main else PINNED_EXTRA_MIN_INTERVAL_S
-        due = slot.get("at") is None or now - slot["at"] >= gap
+        due = force_pinned or slot.get("at") is None or now - slot["at"] >= gap
         if hasattr(yt, "update_comment") and text != slot.get("text") and due:
             op = "update_pinned" if main else f"update_pinned_{v}"
             if _display(world, op, now, lambda: yt.update_comment(slot["id"], text), events):
