@@ -33,6 +33,7 @@ TITLE_MIN_INTERVAL_S = 15 * 60
 PINNED_MIN_INTERVAL_S = 30 * 60  # the main video's status comment
 PINNED_EXTRA_MIN_INTERVAL_S = 60 * 60  # status comments on the two newest extra videos (quota)
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
+PINNED_RESTAMP_S = 3 * 3600  # the main comment's "updated <time>" is refreshed this often (8 x 50 units/day)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.
@@ -415,13 +416,19 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     newest = set(sorted((k for k in world.pinned if k != "0"), key=int)[-2:])
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
         main = v == "0"
+        # slot["text"] is the text without its "updated <time>" stamp: the stamp
+        # alone never triggers a rewrite, except that the main video's comment is
+        # re-stamped every few hours so it never looks abandoned.
         text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main)
         gap = (PINNED_MIN_INTERVAL_S if main else PINNED_EXTRA_MIN_INTERVAL_S if v in newest
                else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
         due = force_pinned or slot.get("at") is None or now - slot["at"] >= gap
-        if hasattr(yt, "update_comment") and text != slot.get("text") and due:
+        stale = main and (slot.get("at") is None or now - slot["at"] >= PINNED_RESTAMP_S)
+        if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due:
             op = "update_pinned" if main else f"update_pinned_{v}"
-            if _display(world, op, now, lambda: yt.update_comment(slot["id"], text), events):
+            stamped = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main,
+                                         stamp=render.clock(now, date=False))
+            if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
                 slot["text"], slot["at"] = text, now
                 events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
 

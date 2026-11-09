@@ -1,5 +1,6 @@
 import engine
 import life
+import render
 from admission import Comment
 from universe import Universe, flatline_gens
 
@@ -247,9 +248,20 @@ def test_suggestion_only_changes_when_something_real_changes():
     w, yt = world(), PinYT([owner_status()])
     engine.tick(w, LAUNCH, yt)
     first = w.pinned_suggest
-    for t in range(1800, 4 * 3600, 1800):  # board evolves; countdown stays "~3 days"
+    for t in range(1800, 3 * 3600, 1800):  # board evolves; countdown stays "~3 days"
         engine.tick(w, LAUNCH + t, yt)
     assert w.pinned_suggest == first and len(yt.updates) == 1
+    # every 3 hours it is re-stamped with the time, with the same suggestion
+    engine.tick(w, LAUNCH + 3 * 3600, yt)
+    assert w.pinned_suggest == first and len(yt.updates) == 2
+    assert yt.updates[0][1].split("\n", 1)[1] == yt.updates[1][1].split("\n", 1)[1]
+
+
+def test_the_status_comment_says_when_it_was_updated():
+    w, yt = world(), PinYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    first_line = yt.updates[-1][1].split("\n")[0]
+    assert first_line.endswith(" · updated " + render.clock(LAUNCH, date=False))
 
 
 def test_a_save_credits_the_comment_that_broke_the_loop():

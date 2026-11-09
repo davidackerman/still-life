@@ -162,6 +162,20 @@ GRID_END = "\u2500\u2500 end of universe \u2500\u2500"
 MAX_PAGES = 20
 
 
+TITLE_LINE = "This title updates itself"  # how the main video's description opens
+
+
+def with_title_stamp(description: str, stamp: str) -> str:
+    """Viewers can't tell a self-updating title from a static one, so the
+    description's first line ("This title updates itself: …") ends with when it
+    last changed. A description that doesn't open that way is left alone."""
+    first, sep, rest = description.partition("\n")
+    if not first.startswith(TITLE_LINE):
+        return description
+    first = first.split(" Last update: ")[0].rstrip()
+    return f"{first} Last update: {stamp}." + sep + rest
+
+
 def with_grid(description: str, grid_text: str) -> str | None:
     """Description with the grid block replaced/appended, or None if it won't fit."""
     if GRID_BEGIN in description and GRID_END in description:
@@ -299,7 +313,9 @@ class YouTube:
         return out
 
     def set_title(self, title: str, grid_text: str = "") -> None:
-        """Change only the title (and, if enabled, the grid block in the description)."""
+        """Change the title, the "Last update" time in the description's first
+        line and, if enabled, the grid block in the description."""
+        import render
         validate_title(title)
         self.quota.spend(COST["videos.list"] + COST["videos.update"])
         items = self.service.videos().list(part="snippet", id=self.video_id).execute().get("items", [])
@@ -307,10 +323,11 @@ class YouTube:
             raise ConfigError(f"video {self.video_id} not found")
         body = writable_snippet(items[0]["snippet"])
         body["title"] = title
+        desc = with_title_stamp(body.get("description", ""), render.clock(time.time()))
         if self.description_grid and grid_text:
-            desc = with_grid(body.get("description", ""), grid_text)
-            if desc is not None:
-                body["description"] = desc
+            desc = with_grid(desc, grid_text) or desc
+        if len(desc.encode("utf-8")) <= DESCRIPTION_MAX_BYTES:
+            body["description"] = desc
         self.service.videos().update(part="snippet", body={"id": self.video_id, "snippet": body}).execute()
 
     def update_comment(self, comment_id: str, text: str) -> None:

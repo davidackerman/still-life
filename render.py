@@ -124,6 +124,11 @@ def _at(launch_time: float, gen: int, gen_seconds: int, fmt: str) -> str:
     return t.strftime(fmt).replace(" 0", " ")
 
 
+def clock(now: float, date: bool = True) -> str:
+    """When something was last updated: 'Mon Nov 9, 3:15 PM ET' ('Mon 3:15 PM ET' without the date)."""
+    return _at(now, 0, 0, "%a %b %d, %I:%M %p ET" if date else "%a %I:%M %p ET")
+
+
 def headline(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
              horizon_gens: int | None = None, launch_time: float | None = None) -> tuple[str, str]:
     """(big line, small line) for the thumbnail. Dates, not countdowns: a date
@@ -370,10 +375,12 @@ INTRO_EXTRA = ("This Short is a replay, but it is alive: every comment here adds
 
 
 def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,
-                main: bool = True) -> str:
+                main: bool = True, stamp: str | None = None) -> str:
     """The self-updating status comment. `main` is the video whose title and
-    thumbnail show the universe; other videos (a Short) only feed it comments."""
-    lines = [status, INTRO_MAIN if main else INTRO_EXTRA, "", "Latest moves (time it had left: before → after):"]
+    thumbnail show the universe; other videos (a Short) only feed it comments.
+    `stamp` (when it was written) shows readers that it updates itself."""
+    first = f"{status} · updated {stamp}" if stamp else status
+    lines = [first, INTRO_MAIN if main else INTRO_EXTRA, "", "Latest moves (time it had left: before → after):"]
     lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
     lines.append("")
     if suggest:

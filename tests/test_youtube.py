@@ -230,3 +230,22 @@ def test_extra_videos_are_read_and_tagged():
     out = yt(svc, extra=["SHORT", "VID", ""]).fetch_comments(T0 - 3600, now=T0)
     assert sorted((c.id, c.video) for c in out) == [("m1", 0), ("s1", 1)]
     assert [kw["videoId"] for _, kw in svc.calls] == ["VID", "SHORT"]  # duplicates and blanks dropped
+
+
+def test_the_description_says_when_the_title_last_changed():
+    from youtube import with_title_stamp
+    desc = "This title updates itself: it counts down to the moment this video dies.\n\nMore text."
+    once = with_title_stamp(desc, "Mon Nov 9, 3:15 PM ET")
+    assert once == ("This title updates itself: it counts down to the moment this video dies. "
+                    "Last update: Mon Nov 9, 3:15 PM ET.\n\nMore text.")
+    twice = with_title_stamp(once, "Mon Nov 9, 3:30 PM ET")
+    assert twice.count("Last update") == 1 and "3:30 PM ET." in twice and twice.endswith("\n\nMore text.")
+    assert with_title_stamp("Some other description", "x") == "Some other description"
+    assert with_title_stamp("", "x") == ""
+
+
+def test_clock_reads_like_a_person_wrote_it():
+    import render
+    t = 1794255300  # 2026-11-09 20:15 UTC
+    assert render.clock(t) == "Mon Nov 9, 3:15 PM ET"
+    assert render.clock(t, date=False) == "Mon 3:15 PM ET"
