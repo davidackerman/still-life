@@ -222,6 +222,37 @@ def event_line(ev: dict) -> str | None:
     return None
 
 
+def life_left(stuck: int | None, gen: int, flatline: int, gen_seconds: int, horizon: int) -> str:
+    """How long a universe at `gen` has left if nobody comments: '8 days', '5 hours'."""
+    if stuck is None:
+        return f"{(horizon + flatline) * gen_seconds // 86400}+ days"
+    return coarse_left((stuck + flatline - gen) * gen_seconds).lstrip("~")
+
+
+def effect_suffix(effect: dict, flatline: int, gen_seconds: int) -> str:
+    """' · 8 days → 2 days': the time it had left before and after this comment."""
+    h = effect.get("horizon", 30000)
+    b = life_left(effect["before"], effect["gen"], flatline, gen_seconds, h)
+    a = life_left(effect["after"], effect["gen"], flatline, gen_seconds, h)
+    return f" · {b} → {a}" if a != b else f" · still {a}"
+
+
+def lines_from_log(entries: list[dict], flatline: int, gen_seconds: int) -> list[str]:
+    """Pinned-comment lines for a whole log, oldest first (effects matched by gen and command)."""
+    effects = {}
+    for e in entries:
+        if e["type"] == "effect":
+            effects.setdefault((e["gen"], e["command"]), e)
+    out = []
+    for e in entries:
+        line = event_line(e)
+        if line and e["type"] == "injection" and e["changed"] and (e["gen"], e["command"]) in effects:
+            line += effect_suffix(effects[(e["gen"], e["command"])], flatline, gen_seconds)
+        if line:
+            out.append(line)
+    return out
+
+
 def pinned_status(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
                   horizon_gens: int | None = None) -> str:
     if u.phase == DIED:
@@ -268,7 +299,7 @@ def pinned_text(status: str, recent: list[str], suggest: str | None = None, link
                 main: bool = True) -> str:
     """The self-updating status comment. `main` is the video whose title and
     thumbnail show the universe; other videos (a Short) only feed it comments."""
-    lines = [status, INTRO_MAIN if main else INTRO_EXTRA, "", "Latest moves:"]
+    lines = [status, INTRO_MAIN if main else INTRO_EXTRA, "", "Latest moves (time it had left: before → after):"]
     lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
     lines.append("")
     if suggest:

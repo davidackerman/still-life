@@ -13,12 +13,17 @@ const History = (() => {
     if (!g || g.type !== "genesis") throw new Error("log does not start with a genesis line");
     const injections = new Map(); // gen -> [{cells, command, changed}]
     const events = []; // {gen, kind: "comment"|"phase", ...}
+    const effects = new Map(); // "gen|command" -> {before, after, horizon}: its lifespan before -> after
     let lastGen = 0;
+    for (const e of lines) {
+      if (e.type === "effect") effects.set(`${e.gen}|${e.command}`, e);
+    }
     for (const e of lines) {
       if (e.type === "injection") {
         if (!injections.has(e.gen)) injections.set(e.gen, []);
-        injections.get(e.gen).push(e);
-        events.push({ gen: e.gen, kind: "comment", command: e.command, changed: e.changed });
+        const effect = effects.get(`${e.gen}|${e.command}`) || null;
+        injections.get(e.gen).push({ ...e, effect });
+        events.push({ gen: e.gen, kind: "comment", command: e.command, changed: e.changed, effect });
       } else if (e.type === "phase") {
         events.push({ gen: e.gen, kind: "phase", to: e.to, reason: e.reason, deadline: e.deadline_gen });
       } else if (e.type === "tick") {

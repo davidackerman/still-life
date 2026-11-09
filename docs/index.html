@@ -162,8 +162,28 @@ function commentsNear(gen) {
   const out = [];
   if (!TL) return out;
   for (let g = gen; g >= Math.max(0, gen - TAG_GENS) && out.length < TAG_MAX; g--)
-    for (const e of TL.injections.get(g) || []) out.push({ gen: g, cells: e.cells, command: e.command, changed: e.changed });
+    for (const e of TL.injections.get(g) || []) out.push({ gen: g, cells: e.cells, command: e.command, changed: e.changed, effect: e.effect });
   return out.slice(0, TAG_MAX);
+}
+
+// How long it had left at `gen` if nobody commented, from a forecast (null = beyond it).
+function lifeLeft(stuck, gen, horizon, short) {
+  if (stuck == null) return `${Math.floor((horizon + S.flatGens) * S.genSec / 86400)}+${short ? "d" : " days"}`;
+  const secs = (stuck + S.flatGens - gen) * S.genSec;
+  if (secs >= 2 * 86400) return `${Math.floor(secs / 86400)}${short ? "d" : " days"}`;
+  if (secs >= 86400) return short ? "1d" : "1 day";
+  if (secs >= 2 * 3600) return `${Math.floor(secs / 3600)}${short ? "h" : " hours"}`;
+  return short ? "<2h" : "under 2 hours";
+}
+// What a comment did to its lifespan: {text, cls} or null.
+function effectOf(c, short) {
+  const f = c.effect;
+  if (!f) return null;
+  const b = lifeLeft(f.before, c.gen, f.horizon, short), a = lifeLeft(f.after, c.gen, f.horizon, short);
+  const longer = f.after == null ? f.before != null : f.before != null && f.after > f.before;
+  const shorter = f.before == null ? f.after != null : f.after != null && f.after < f.before;
+  if (a === b) return { text: short ? `still ${a}` : `still ${a} to live`, cls: "" };
+  return { text: `${b} → ${a}`, cls: longer ? "better" : shorter ? "worse" : "" };
 }
 
 // A pattern can straddle the wrapping edge (glider 64,71 nw also has cells at the
@@ -196,7 +216,14 @@ function drawTags(gen) {
     const tag = document.createElement("span");
     tag.className = "tag";
     tag.style.opacity = fade.toFixed(2);
+    const eff = effectOf(c, true);
     tag.textContent = c.changed ? c.command : `${c.command} (changed nothing)`;
+    if (eff) {
+      const span = document.createElement("span");
+      span.className = `eff ${eff.cls}`;
+      span.textContent = ` · ${eff.text}`;
+      tag.appendChild(span);
+    }
     const below = cy < canvas.height * 0.6;  // label on the roomier side of the ring
     tag.style.left = `${(100 * Math.min(Math.max(cx, canvas.width * 0.12), canvas.width * 0.88)) / canvas.width}%`;
     tag.style.top = `${(100 * (below ? cy + r : cy - r)) / canvas.height}%`;
@@ -279,7 +306,11 @@ function renderMarks() {
 }
 
 function describe(e) {
-  if (e.kind === "comment") return e.changed ? `a comment landed: ${e.command}` : `a comment changed nothing (${e.command})`;
+  if (e.kind === "comment") {
+    if (!e.changed) return `a comment changed nothing (${e.command})`;
+    const eff = effectOf(e, false);
+    return `a comment landed: ${e.command}` + (eff ? ` · time it had left: ${eff.text}` : "");
+  }
   return ({
     cycle_detected: "stuck in a loop; the 24-hour countdown started",
     new_cycle: "fell into a new loop; the countdown restarted",

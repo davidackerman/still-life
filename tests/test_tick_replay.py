@@ -171,4 +171,5 @@ def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
     st["display"].pop("recent", None)  # as written by the bot before this feature
     json.dump(st, open(p, "w"))
     tick.run(d, LAUNCH + 3600, lambda w: FakeYT(), KEY, thumb_path=None)
-    assert json.load(open(p))["display"]["recent"] == ["gen 2: block 5,5"]  # lands where the previous run stopped
+    recent = json.load(open(p))["display"]["recent"]
+    assert len(recent) == 1 and recent[0].startswith("gen 2: block 5,5 · ")  # lands where the previous run stopped

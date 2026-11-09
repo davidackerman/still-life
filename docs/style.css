@@ -60,3 +60,6 @@ main.wide { max-width: 68rem; }
 .toplinks { margin: -.6rem 0 1rem; font-size: .92rem; color: var(--muted); }
 .toplinks a { color: var(--accent); text-decoration: none; font-weight: 600; }
 .toplinks a:hover { text-decoration: underline; }
+.tag .eff { font-weight: 700; }
+.tag .eff.worse { color: #c0392b; }
+.tag .eff.better { color: #1f8a5b; }

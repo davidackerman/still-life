@@ -335,3 +335,32 @@ def test_a_bigger_universe_runs_the_same_way():
     inj = [e for e in ev if e["type"] == "injection"]
     assert len(inj) == 2 and all(0 <= x < 176 and 0 <= y < 99 for e in inj for x, y in e["cells"])
     assert w.universe.grid.shape == shape and w.universe.generation == 10
+
+
+def test_each_comment_logs_what_it_did_to_the_lifespan():
+    w, yt = world(), PinYT([owner_status(), comment("a", "u1", "glider 64,71 nw")])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    kinds = [e["type"] for e in ev]
+    eff = ev[kinds.index("injection") + 1]
+    assert eff["type"] == "effect" and eff["before"] == 1855 and eff["command"] == "glider 64,71 nw"
+    assert w.forecast["stuck_gen"] == eff["after"]  # reused, not recomputed
+    assert " → " in w.recent[0] or "still" in w.recent[0]
+    assert "Latest moves (time it had left: before → after):" in yt.updates[-1][1]
+
+
+def test_a_comment_that_changes_nothing_has_no_effect_line():
+    w = world()
+    ev = engine.tick(w, LAUNCH + 600, FakeYT([comment("a", "u1", "cells 0,0")]))  # one lonely cell
+    ev2 = engine.tick(w, LAUNCH + 1200, FakeYT([comment("a", "u1", "cells 0,0"), comment("b", "u2", "cells 0,0")]))
+    assert all(e["type"] != "effect" or e["before"] is not None for e in ev + ev2)
+
+
+def test_effects_can_be_rebuilt_from_an_old_log():
+    import tick
+    w = world()
+    yt = FakeYT([comment("a", "u1", "glider 64,71 nw"), comment("b", "u2", "rpent 90,20")])
+    ev = engine.tick(w, LAUNCH + 600, yt)
+    live = [e for e in ev if e["type"] == "effect"]
+    genesis = {"type": "genesis", "seed": "acorn", "shape": [72, 128], "flatline_gens": 720}
+    log = [genesis] + [e for e in ev if e["type"] != "effect"]
+    assert engine.effects_from_log(log) == live

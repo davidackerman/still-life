@@ -111,3 +111,10 @@ def test_saves_are_appended_and_the_title_stays_short():
     assert render.title(u, stuck_gen=1855, saves=0).endswith("if nobody comments")
     t = render.title(u, stuck_gen=1855, saves=3)
     assert t.endswith("if nobody comments · saved 3×") and len(t) <= 100
+
+
+def test_effect_suffix_reads_as_before_and_after():
+    e = {"gen": 544, "before": 6229, "after": 1373, "horizon": 30000}
+    assert render.effect_suffix(e, 720, 120) == " · 8 days → 2 days"
+    assert render.effect_suffix({**e, "after": 6230}, 720, 120) == " · still 8 days"
+    assert render.effect_suffix({**e, "after": None}, 720, 120) == " · 8 days → 42+ days"

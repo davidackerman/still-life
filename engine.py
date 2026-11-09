@@ -20,6 +20,7 @@ Logged events hold game data only (see admission.py for the data policy).
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 
 import admission
@@ -63,6 +64,7 @@ class World:
     pinned_suggest: str | None = None
     contest_by: dict | None = None  # the comment that broke the current loop: {"gen", "command"}
     saves: int = 0  # times comments saved it from a countdown (shown in the title)
+    effects_backfilled: bool = False  # past comments' effects on its lifespan have been logged
     last_thumb_headline: str | None = None
     backoff: dict = field(default_factory=dict)  # op -> {"until": t, "failures": n}
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
@@ -94,7 +96,7 @@ class World:
                         "forecast": self.forecast, "recent": self.recent, "pinned": self.pinned,
                         "pinned_core": self.pinned_core, "pinned_suggest": self.pinned_suggest,
                         "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline,
-                        "saves": self.saves},
+                        "saves": self.saves, "effects_backfilled": self.effects_backfilled},
             "last_changer": self.last_changer,
             "quota": self.quota,
             "reply_counts": dict(sorted(self.reply_counts.items())),
@@ -125,7 +127,7 @@ class World:
             retire_pending=list(d.get("retire_pending", [])),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
             contest_by=disp.get("contest_by"), last_thumb_headline=disp.get("last_thumb_headline"),
-            saves=disp.get("saves", 0),
+            saves=disp.get("saves", 0), effects_backfilled=disp.get("effects_backfilled", False),
         )
 
 
@@ -145,6 +147,51 @@ def refresh_forecast(world: World) -> dict | None:
         world.forecast = {"key": key, "stuck_gen": u.forecast_stuck(FORECAST_GENS),
                           "horizon": u.generation + FORECAST_GENS}
     return world.forecast
+
+
+def comment_effects(u: Universe, items: list[dict], before: int | None | bool = False) -> list[dict | None]:
+    """What each injection in `items` does to the universe's lifespan, if nobody
+    else comments: an "effect" event (when it would get stuck, before -> after)
+    per board-changing injection, None otherwise. Only while ALIVE: during a
+    countdown, the phase events say what a comment did. Works on a copy.
+    `before` is the current forecast if already known (False: compute it)."""
+    if u.phase != ALIVE:
+        return [None] * len(items)
+    if before is False:
+        before = u.forecast_stuck(FORECAST_GENS)
+    probe, out = copy.deepcopy(u), []
+    for it in items:
+        ev = probe.inject([it])[0]
+        if not ev["changed"] or probe.phase != ALIVE:
+            out.append(None)
+            continue
+        after = probe.forecast_stuck(FORECAST_GENS)
+        out.append({"type": "effect", "gen": ev["gen"], "command": it["command"], "before": before,
+                    "after": after, "horizon": FORECAST_GENS})
+        before = after
+    return out
+
+
+def effects_from_log(entries: list[dict]) -> list[dict]:
+    """comment_effects for every comment already in a log (run once, for comments
+    that landed before effects were tracked)."""
+    import life
+    g = entries[0]
+    shape = tuple(g["shape"])
+    u = Universe(life.mask(life.centered(g["seed"], shape), shape), g["flatline_gens"])
+    out, segment = [], []
+    for e in entries[1:]:
+        if e["type"] != "tick":
+            segment.append(e)
+            continue
+        inj = [{"command": x["command"], "cells": x["cells"], "run_at": x["run_at"]}
+               for x in segment if x["type"] == "injection"]
+        if inj:
+            out += [x for x in comment_effects(u, inj) if x]
+            u.inject(inj)
+        u.advance_to(e["gen_end"])
+        segment = []
+    return out
 
 
 def _display(world: World, op: str, now: float, call, events: list[dict]) -> bool:
@@ -215,20 +262,34 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     else:
         batch = admission.take_batch(world.admission)
         if batch:
-            inj_events = u.inject([{"command": q["command"], "cells": q["cells"], "run_at": run_at}
-                                   for q in batch])
+            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at} for q in batch]
+            f = world.forecast
+            known = f["stuck_gen"] if f and f["key"] == [u.history_base, u.phase] else False
+            effects = comment_effects(u, items, known)
+            inj_events = u.inject(items)
             for q, ev in zip(batch, [e for e in inj_events if e["type"] == "injection"]):
                 if ev["changed"]:
                     world.last_changer = {"comment": q["comment"], "author": q["author"],
                                           "gen": ev["gen"], "command": q["command"]}
-            events += inj_events
+            k = 0
+            for ev in inj_events:  # each comment's effect follows it in the log
+                events.append(ev)
+                if ev["type"] == "injection":
+                    if effects[k]:
+                        events.append(effects[k])
+                    k += 1
+            done = [e for e in effects if e]
+            if done and u.phase == ALIVE:  # the last effect's forecast is the new forecast
+                world.forecast = {"key": [u.history_base, u.phase], "stuck_gen": done[-1]["after"],
+                                  "horizon": u.generation + FORECAST_GENS}
             world.highlight.update(tuple(c) for q in batch for c in q["cells"])
         events += u.advance_to(target_generation(now, world.launch_time, world.gen_seconds))
 
     if world.recent is None:
         world.recent = []
     last_cmd = None
-    for ev in events[sim_from:]:
+    sim = events[sim_from:]
+    for i, ev in enumerate(sim):
         if ev["type"] == "injection" and ev["changed"]:
             last_cmd = (ev["gen"], ev["command"])
         if ev["type"] == "phase" and ev["reason"] == "injection" and last_cmd:
@@ -240,6 +301,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
                     f"(gen {world.contest_by['gen']:,})")
         else:
             line = render.event_line(ev)
+        if line and ev["type"] == "injection" and i + 1 < len(sim) and sim[i + 1]["type"] == "effect":
+            line += render.effect_suffix(sim[i + 1], u.flatline_gens, world.gen_seconds)
         if ev["type"] == "phase" and ev["to"] in (ALIVE, DIED):
             world.contest_by = None
         if line:

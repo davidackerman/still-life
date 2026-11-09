@@ -72,7 +72,8 @@ def create_world(now: float, key: bytes, shape: tuple[int, int] | None = None, e
     hours = hours or float(os.environ.get("FLATLINE_HOURS", "24"))
     launch = launch if launch is not None else float(os.environ.get("LAUNCH_TIME") or int(now))
     u = Universe(life.mask(life.centered(seed, shape), shape), flatline_gens(hours, gen_seconds))
-    world = engine.World(universe=u, launch_time=launch, seed=seed, gen_seconds=gen_seconds, key=key)
+    world = engine.World(universe=u, launch_time=launch, seed=seed, gen_seconds=gen_seconds, key=key,
+                         effects_backfilled=True)
     genesis = {"type": "genesis", "launch_time": launch, "seed": seed, "shape": list(shape),
                "gen_seconds": gen_seconds, "flatline_gens": u.flatline_gens, "flatline_hours": hours,
                "seed_hash": u.hash.hex(), "rules": "B3/S23 torus", **(extra or {})}
@@ -91,10 +92,15 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world, genesis = create_world(now, key)
         store.create(world, genesis)
         print(f"created a new universe in {state_dir}: {genesis['seed']}, launch {genesis['launch_time']:.0f}")
+    from store import LOG, read_log
+    if not world.effects_backfilled:  # once: what the comments before this feature did
+        effects = engine.effects_from_log(read_log(store.path(LOG)))
+        world.effects_backfilled = True
+        world.recent = None  # rebuilt below, with the effects
+        store.save(world, effects)
     if world.recent is None:  # first run with the pinned comment: backfill from the log
-        from store import LOG, read_log
-        lines = [render.event_line(e) for e in read_log(store.path(LOG))]
-        world.recent = [ln for ln in reversed(lines) if ln][: engine.RECENT_MAX]
+        lines = render.lines_from_log(read_log(store.path(LOG)), world.universe.flatline_gens, world.gen_seconds)
+        world.recent = list(reversed(lines))[: engine.RECENT_MAX]
     was_dead = world.universe.phase == DIED
     yt = yt_factory(world)
     events = engine.tick(world, now, yt, thumb_path, force_thumbnail, pinned_link=env_flag("PINNED_LINK", "true"))
