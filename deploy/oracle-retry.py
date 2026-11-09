@@ -1,23 +1,28 @@
 #!/usr/bin/env python3
 """Keep asking Oracle Cloud for the free Arm VM until one is free, then stop.
 
-    caffeinate -i python3 deploy/oracle-retry.py        # leave it running (Mac stays awake)
+    caffeinate -i python3 deploy/oracle-retry.py   # on a Mac (stays awake)
+    python3 deploy/oracle-retry.py                 # on an always-on Linux box, inside
+                                                   # tmux so it survives logging out
 
 Free Arm capacity comes and goes, so this tries every availability domain in
 turn, then waits two minutes and tries again. It creates at most one instance
 (named still-life-stream; it stops if one already exists), waits until it is
-running, prints its public IP and shows a notification.
+running, prints its public IP and (on a Mac) shows a notification.
 
-Needs the OCI CLI (`brew install oci-cli`) with an API key in ~/.oci/config
-(see SETUP.md), the network made by the VCN wizard (public subnet
-"public subnet-still-life-vcn"), and the SSH key from the console at
-~/.ssh/still-life-stream.key (its public half is derived from it).
+Needs the OCI CLI (`brew install oci-cli`, or `pip install oci-cli` in a venv)
+with an API key in ~/.oci/config (see SETUP.md), the network made by the VCN
+wizard (public subnet "public subnet-still-life-vcn"), and the public half of
+the SSH key from the console at ~/.ssh/still-life-stream.key.pub. Only the
+public half is needed here; if just the private key is present, the public
+half is derived from it.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -77,8 +82,9 @@ def public_ip(instance_id: str) -> str | None:
 
 
 def notify(msg: str) -> None:
-    subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Oracle VM" sound name "Glass"'],
-                   capture_output=True)
+    if shutil.which("osascript"):  # macOS only
+        subprocess.run(["osascript", "-e", f'display notification "{msg}" with title "Oracle VM" sound name "Glass"'],
+                       capture_output=True)
 
 
 def finish(inst: dict) -> None:
@@ -88,15 +94,15 @@ def finish(inst: dict) -> None:
         inst = need("compute", "instance", "get", "--instance-id", inst["id"])["data"]
     ip = public_ip(inst["id"])
     say(f"RUNNING. Public IP: {ip}")
-    say(f"log in with: ssh -i {KEY} ubuntu@{ip}")
+    say(f"log in (from wherever the private key is) with: ssh -i ~/.ssh/still-life-stream.key ubuntu@{ip}")
     notify(f"still-life-stream is running: {ip}")
 
 
 def main() -> None:
-    if not os.path.exists(KEY):
-        sys.exit(f"put the SSH private key from the console at {KEY} (chmod 600)")
     pub = KEY + ".pub"
     if not os.path.exists(pub):
+        if not os.path.exists(KEY):
+            sys.exit(f"put the SSH public key at {pub} (or the private key from the console at {KEY})")
         r = subprocess.run(["ssh-keygen", "-y", "-f", KEY], capture_output=True, text=True)
         if r.returncode:
             sys.exit(f"could not read {KEY}: {r.stderr.strip()} (is it chmod 600?)")
