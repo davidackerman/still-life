@@ -118,3 +118,14 @@ def test_effect_suffix_reads_as_before_and_after():
     assert render.effect_suffix(e, 720, 120) == " · 8d 21h → 2d 3h"
     assert render.effect_suffix({**e, "after": 6230}, 720, 120) == " · still 8d 21h"
     assert render.effect_suffix({**e, "after": None}, 720, 120) == " · 8d 21h → 42d+"
+
+
+def test_thumbnail_headlines_use_dates_not_countdowns():
+    L = 1794114283.0  # Sun Nov 8 2026, 12:04 AM ET (universe #1's launch)
+    u = Universe(life.mask(life.centered("acorn")), flatline_gens())
+    assert render.headline(u, 120, 1855, 30000, L) == ("DIES WED NOV 11", "if nobody comments · gen 0")
+    assert render.headline(u, 120, None, 30000, L)[0] == "LIVES PAST SUN DEC 20"
+    u.advance_to(1855)  # stuck: deadline gen 2575
+    assert render.headline(u, 120, None, None, L) == ("STUCK IN A LOOP", "dies Wed 1:54 PM ET unless a comment breaks it")
+    u.advance_to(2575)
+    assert render.headline(u, 120, None, None, L) == ("DIED", "stuck in a loop · died Nov 11, gen 2,575")

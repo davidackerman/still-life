@@ -114,9 +114,41 @@ def big_left(secs: float) -> str:
     return f"{m} MINUTE" + ("" if m == 1 else "S")
 
 
+THUMB_TZ = "America/New_York"
+
+
+def _at(launch_time: float, gen: int, gen_seconds: int, fmt: str) -> str:
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    t = dt.datetime.fromtimestamp(launch_time + gen * gen_seconds, ZoneInfo(THUMB_TZ))
+    return t.strftime(fmt).replace(" 0", " ")
+
+
 def headline(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None = None,
-             horizon_gens: int | None = None) -> tuple[str, str]:
-    """(big countdown, small context line) for the thumbnail."""
+             horizon_gens: int | None = None, launch_time: float | None = None) -> tuple[str, str]:
+    """(big line, small line) for the thumbnail. Dates, not countdowns: a date
+    stays true while time passes, so a thumbnail that can only be re-uploaded a
+    few times a day goes out of date only when a comment really changes things.
+    (Without `launch_time`, falls back to the countdown wording.)"""
+    if launch_time is None:
+        return _headline_countdown(u, gen_seconds, stuck_gen, horizon_gens)
+    day = lambda g: _at(launch_time, g, gen_seconds, "%a %b %d").upper()  # noqa: E731  'MON NOV 10'
+    when = lambda g: _at(launch_time, g, gen_seconds, "%a %I:%M %p ET")  # noqa: E731  'Tue 9:50 PM ET'
+    if u.phase == DIED:
+        return "DIED", f"stuck in a loop · died {_at(launch_time, u.died_gen, gen_seconds, '%b %d')}, gen {u.died_gen:,}"
+    if u.phase == FLATLINING:
+        return "STUCK IN A LOOP", f"dies {when(u.deadline_gen)} unless a comment breaks it"
+    if u.phase == CONTESTED:
+        return "A COMMENT BROKE THE LOOP", f"it lives if still changing {when(u.deadline_gen)}"
+    if stuck_gen is not None:
+        return f"DIES {day(stuck_gen + u.flatline_gens)}", f"if nobody comments · gen {u.generation:,}"
+    if horizon_gens is not None:
+        return f"LIVES PAST {day(u.generation + horizon_gens + u.flatline_gens)}", "even if nobody comments"
+    return "ALIVE", f"gen {u.generation:,}"
+
+
+def _headline_countdown(u: Universe, gen_seconds: int, stuck_gen: int | None,
+                        horizon_gens: int | None) -> tuple[str, str]:
     if u.phase == DIED:
         return "DIED", f"its universe got stuck in a loop · gen {u.died_gen:,}"
     if u.phase in (FLATLINING, CONTESTED):
@@ -134,7 +166,8 @@ def headline(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | None 
 
 
 def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECONDS,
-              stuck_gen: int | None = None, horizon_gens: int | None = None) -> int:
+              stuck_gen: int | None = None, horizon_gens: int | None = None,
+              launch_time: float | None = None) -> int:
     """Write the thumbnail PNG. `highlight` is an iterable of (x, y) cells to
     emphasize if alive (cells injected since the last render). The text is the
     countdown from headline(). Returns bytes."""
@@ -169,13 +202,16 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
     for i in range(70):  # soft fade into the band
         d.line([(0, H - 210 - i), (W, H - 210 - i)], fill=(0, 0, 0, int(200 * (1 - i / 70))))
     d.rectangle([0, H - 210, W, H], fill=(0, 0, 0, 200))
-    big, small = headline(u, gen_seconds, stuck_gen, horizon_gens)
+    big, small = headline(u, gen_seconds, stuck_gen, horizon_gens, launch_time)
     size = 110
     while size > 60 and d.textlength(big, font=_font(size)) > W * 0.76:  # stay clear of the duration badge
         size -= 4
+    small_size = 50
+    while small_size > 30 and d.textlength(small, font=_font(small_size)) > W * 0.76:
+        small_size -= 2
     # Reads top to bottom: "DIES IN 9 DAYS" / "if nobody comments · gen 385"
     d.text((36, H - 92), big, font=_font(size), fill=PHASE_COLOR[u.phase] + (255,), anchor="ls")
-    d.text((40, H - 34), small, font=_font(50), fill=(235, 235, 240, 255), anchor="ls")
+    d.text((40, H - 34), small, font=_font(small_size), fill=(235, 235, 240, 255), anchor="ls")
     im = Image.alpha_composite(im, band).convert("RGB")
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)

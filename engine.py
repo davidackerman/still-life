@@ -384,14 +384,14 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     # Refresh every 4 h and immediately on a phase change; a dead universe never
     # changes again, so after the DIED thumbnail there is nothing to refresh.
     periodic = world.last_thumb_at is None or now - world.last_thumb_at >= THUMB_INTERVAL_S
-    big, _ = render.headline(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS)
+    big, _ = render.headline(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS, world.launch_time)
     moved = (big != world.last_thumb_headline and world.last_thumb_at is not None
              and now - world.last_thumb_at >= THUMB_HEADLINE_MIN_S)
     if force_thumbnail or u.phase != world.last_thumb_phase or (periodic and u.phase != DIED) or moved:
         def upload():
             if thumb_path:
                 render.thumbnail(u, thumb_path, world.highlight, world.gen_seconds,
-                                 f and f["stuck_gen"], f and FORECAST_GENS)
+                                 f and f["stuck_gen"], f and FORECAST_GENS, world.launch_time)
             yt.set_thumbnail(thumb_path)
         if _display(world, "set_thumbnail", now, upload, events):
             world.last_thumb_at, world.last_thumb_phase, world.last_thumb_headline = now, u.phase, big
