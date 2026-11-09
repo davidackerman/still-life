@@ -418,23 +418,50 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
             add(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
                 grey=max(0.0, (i - n * 0.55) / (n * 0.3)))
 
-    # 7. the call to action over the present board, with the suggested spot marked
+    # 7. the call to action over the present board. The daily recap keeps it plain
+    # (no coordinates) and short, so it loops sooner; the full Short marks a spot to aim at.
     u = copy.deepcopy(now)
-    pick = render.suggestion(u)
-    spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
-    top = [("Comment anything to add cells.", "bold", 84)]
-    bottom = [(f"or aim one: {pick}", "demi", 62)]
-    if since_gen is None:  # the daily recap stays short: it loops sooner
-        bottom.append(("Live countdown: the main video on this channel", "demi", 50))
-    n = rf(*[s for s, _, _ in top + bottom])
-    n = n if since_gen is not None else max(n, 5 * FPS)
+    if since_gen is not None:
+        top = [("Comment anything.", "bold", 96)]
+        bottom = [("Your cells could save it. Or kill it.", "demi", 62)]
+        n, extras = rf(*[s for s, _, _ in top + bottom]), lambda a: []
+    else:
+        pick = render.suggestion(u)
+        spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
+        top = [("Comment anything to add cells.", "bold", 84)]
+        bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the main video on this channel", "demi", 50)]
+        n = max(rf(*[s for s, _, _ in top + bottom]), 5 * FPS)
+        extras = lambda a: [ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)]  # noqa: E731
     for i in range(n):
         if i % 6 == 0:
             u.advance_to(u.generation + 1)
         a = min(1.0, (i + 1) / FADE)
-        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a),
-            extras=[ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)])
+        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a), extras=extras(a))
     return frames
+
+
+def _span(seconds: float) -> str:
+    """'6 days', '1 day', '9 hours'."""
+    if seconds >= 86400:
+        n = round(seconds / 86400)
+        return f"{n} day{'s' * (n != 1)}"
+    n = max(1, round(seconds / 3600))
+    return f"{n} hour{'s' * (n != 1)}"
+
+
+def effect_words(before: int | None, after: int | None, gen_seconds: int) -> str:
+    """What a move did to the universe's life, in plain words (None: no loop
+    within the forecast, i.e. weeks to live)."""
+    if before is None and after is None:
+        return "it still has weeks to live"
+    if after is None:
+        return "gave it weeks more to live"
+    if before is None:
+        return "took weeks off its life"
+    d = (after - before) * gen_seconds
+    if abs(d) < 1800:
+        return "barely changed its fate"
+    return f"gave it {_span(d).replace(' ', ' more ', 1)} to live" if d > 0 else f"took {_span(-d)} off its life"
 
 
 def _impact(h: History, gen: int) -> float:
@@ -465,7 +492,8 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
         cells = [tuple(c) for e in batch for c in e["cells"]]
         piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
         lit = life.mask(cells, u.grid.shape)
-        caption = f"{len(batch)} comments landed" if len(batch) > 1 else f"a comment: {batch[0]['command']}"
+        # plain words, not "glider 67,69 ne": most viewers of a daily Short are new
+        caption = f"{len(batch)} comments landed here" if len(batch) > 1 else "a comment landed here"
         caption += effect_text(target, batch)
         hold, z = int(2.0 * FPS), 3.2
         for i in range(hold):
@@ -480,7 +508,10 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
 
 
 def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
-    """The daily Short after its hook: the day's moves under "Day N", then the stakes."""
+    """The daily Short after its hook. Most of its viewers have never seen this
+    universe, so it says what it is as it goes: what a comment does (the day's
+    two biggest moves, in plain words), then what "dies" means, shown on its
+    real future."""
     import render as rd
     G, F = h.gen_seconds, now.flatline_gens
     launch = h.genesis["launch_time"]
@@ -492,18 +523,13 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
     u = h.fresh()
     h.goto(u, since_gen)
 
-    # "Day N" heads the day's moves instead of a beat of its own: a short recap loops sooner
-    head = [(f"Day {day}.", "bold", 120),
-            (f"{count} comment{'s' * (count != 1)} in 24 hours" if count else "Nobody commented today", "demi", 60)]
+    head = [("Every comment adds cells to this Game of Life.", "bold", 76),
+            (f"Day {day}: {count} comment{'s' * (count != 1)} in the last day" if count
+             else f"Day {day}: no comments in the last day", "demi", 54)]
 
-    def effect_text(gen, batch):  # "\ntime left: 1d 18h to 9d 8h" (Avenir has no arrow)
+    def effect_text(gen, batch):  # "\ngave it 6 more days to live"
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
-        if not effs:
-            return ""
-        hz = effs[0].get("horizon", FORECAST_GENS)
-        b = rd.life_left(effs[0]["before"], gen, F, G, hz)
-        a = rd.life_left(effs[-1]["after"], gen, F, G, hz)
-        return f"\ntime left: {b} to {a}" if a != b else f"\ntime left: still {a}"
+        return "\n" + effect_words(effs[0]["before"], effs[-1]["after"], G) if effs else ""
     shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:2])
     _moves(h, u, shown, head, add, h.now_gen, effect_text)
 
@@ -511,8 +537,8 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
     def death_day(stuck):
         return rd._at(launch, stuck + F, G, "%a %b %d")
     if now.phase == "ALIVE" and stuck_now is not None:  # its real future: into the loop, then grey
-        top = [(f"Left alone, it dies {death_day(stuck_now)}.", "bold", 80)]
-        bottom = [("Then this Short goes private. For good.", "demi", 62)]
+        top = [("Left alone, it gets stuck in a loop", "bold", 76)]
+        bottom = [(f"and dies {death_day(stuck_now)}.", "bold", 80), ("Then this Short goes private.", "demi", 58)]
         fut = copy.deepcopy(now)
         start, n = fut.generation, rf(*[t for t, _, _ in top + bottom])
         for i in range(n):
@@ -533,7 +559,7 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
         bottom = [(f"It lives if it's still changing {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')}.",
                    "demi", 60)]
     else:  # alive, and no loop within the forecast
-        top = [("It won't get stuck for weeks.", "bold", 80)]
+        top = [("It won't get stuck in a loop for weeks.", "bold", 80)]
         bottom = [("Unless a comment changes that.", "demi", 60)]
     n = rf(*[t for t, _, _ in top + bottom])
     for i in range(n):

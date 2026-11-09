@@ -86,3 +86,13 @@ def test_busiest_finds_the_active_patch():
     w[60:64, 100:104] = 5
     x, y = short.busiest(w, 4.0)  # a 32 x 18 cell window
     assert abs(x / short.CELL - 102) <= 16 and abs(y / short.CELL - 62) <= 9
+
+
+def test_effect_words_are_plain():
+    g = 120  # seconds per generation
+    assert short.effect_words(1000, 1000 + 6 * 720, g) == "gave it 6 more days to live"
+    assert short.effect_words(5000, 5000 - 7 * 720, g) == "took 7 days off its life"
+    assert short.effect_words(5000, 5000 - 270, g) == "took 9 hours off its life"
+    assert short.effect_words(5000, None, g) == "gave it weeks more to live"
+    assert short.effect_words(None, 5000, g) == "took weeks off its life"
+    assert short.effect_words(5000, 5005, g) == "barely changed its fate"
