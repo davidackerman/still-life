@@ -72,7 +72,7 @@ def test_live_posts_once_a_day_and_its_comments_count(d):
     posted = [e for e in ev if e.get("alert", "").startswith("📼")]
     assert len(yt.uploads) == 1 and posted and "https://youtube.com/shorts/SHORT1" in posted[0]["alert"]
     up = yt.uploads[0]
-    assert up["title"] == "Day 1: this Short dies if nobody comments #GameOfLife"
+    assert up["title"] == "Day 1: This Short dies if nobody comments #GameOfLife"
     assert "1 comment in the last 24 hours" in up["description"] and "still-life universe 1 day 1" in up["description"]
     assert yt.posted[0][0] == "SHORT1"
     s = state(d)

@@ -68,7 +68,7 @@ def snippet(world, day: int, count: int, mark: str) -> dict:
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
-    return {"title": f"Day {day}: this Short dies if nobody comments #GameOfLife", "description": desc,
+    return {"title": f"Day {day}: This Short dies if nobody comments #GameOfLife", "description": desc,
             "tags": ["game of life", "conway's game of life", "cellular automata", "glider", "simulation",
                      "interactive", "live", "emergence"],
             "categoryId": "28", "defaultLanguage": "en"}
