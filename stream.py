@@ -333,6 +333,7 @@ class Screen:
             self.rewound_at = slot
             try:
                 self.rewind = Rewind(state_dir, slot, self.snap.u.generation)
+                log(f"rewind: the story so far, gen 0 to {self.snap.u.generation:,}")
             except Exception as e:  # noqa: BLE001 - no rewind this time; the live board goes on
                 log(f"rewind failed: {e!r}")
         if self.rewind:
@@ -644,14 +645,18 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
     threading.Thread(target=relay, daemon=True).start()
 
     log(f"streaming universe #{snap.universe_no} from gen {snap.u.generation} ({snap.u.phase})")
-    t0, n, data, last_key = time.monotonic(), 0, b"", None
+    t0, n, data, last_key, behind = time.monotonic(), 0, b"", None, 0.0
     try:
         while not puller.restart and (seconds is None or n < seconds * IN_FPS):
             now = time.time()
             new = puller.take()
             if new is not None:
                 screen.swap(new, now)
+            rewinding = screen.rewind is not None
             screen.tick(now, state_dir if rewinds else None)
+            if rewinding and screen.rewind is None:
+                log(f"rewind done; the frames ran at most {max(0.0, behind):.2f} s behind")
+                behind = 0.0
             k = screen.key(now)
             if not data or k != last_key or screen.animating(now):
                 data, last_key = screen.compose(now).tobytes(), k
@@ -663,6 +668,8 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
             proc.stdin.write(data)
             n += 1
             delay = t0 + n / IN_FPS - time.monotonic()
+            if screen.rewind is not None:
+                behind = max(behind, -delay)
             if delay > 0:  # behind (a slow frame): write the next ones straight away to catch up
                 time.sleep(delay)
     except BrokenPipeError:
