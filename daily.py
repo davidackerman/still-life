@@ -66,6 +66,7 @@ def snippet(world, day: int, count: int, mark: str) -> dict:
             f"Every comment adds cells, as many as you like: glider x,y · block x,y · rpent x,y · acorn x,y · "
             f"or just say anything (x 0–{w - 1}, y 0–{h - 1}, from the top-left). If it gets stuck in a loop "
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
+            f"Watch it live, 24/7 (type in its chat to play): {render.STREAM_URL}\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
     return {"title": f"This Short dies if nobody comments · Universe {world.universe_no}, Day {day} #GameOfLife", "description": desc,

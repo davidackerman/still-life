@@ -231,6 +231,7 @@ def thumbnail(u: Universe, path: str, highlight=(), gen_seconds: int = GEN_SECON
 PINNED_MARKERS = ("Latest changes to the universe", "This video is alive", "This Short is alive",
                   "This Short is a replay", "The video is the explainer")  # the owner's status comment
 LIVE_ADDRESS = "davidackerman.github.io/still-life"
+STREAM_URL = "https://www.youtube.com/channel/UCh9o5dGhiczNcq29QsRZ6pg/live"  # whatever the channel has live now
 PHASE_WORDS = {
     "cycle_detected": "got stuck in a loop: the 24-hour countdown started",
     "new_cycle": "fell into a new loop: the countdown restarted",

@@ -74,6 +74,7 @@ def test_live_posts_once_a_day_and_its_comments_count(d):
     up = yt.uploads[0]
     assert up["title"] == "This Short dies if nobody comments · Universe 1, Day 1 #GameOfLife"
     assert "1 comment in the last 24 hours" in up["description"] and "still-life universe 1 day 1" in up["description"]
+    assert "/live" in up["description"]  # the 24/7 stream
     assert yt.posted[0][0] == "SHORT1"
     s = state(d)
     assert s["config"]["extra_videos"] == ["SHORT1"] and s["daily"]["video"] == "SHORT1"
