@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import re
 import subprocess
 import sys
@@ -35,6 +36,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 import explainer as ex
 import render
+import stream_audio
 from engine import FORECAST_GENS
 from render import BG, GRID, HIGHLIGHT, PHASE_COLOR
 from universe import ALIVE, DIED, Universe, target_generation
@@ -54,7 +56,7 @@ SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"
-CODE = ("stream.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
+CODE = ("stream.py", "stream_audio.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
         "commands.py", "admission.py", "store.py")  # a change to these restarts the stream
 
 
@@ -246,6 +248,7 @@ class Screen:
         self.changed_at = 0.0
         self.cur: np.ndarray | None = None
         self.cur_key = None
+        self.sound = None  # a stream_audio.Soundtrack, when the stream has sound
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float) -> None:
@@ -255,12 +258,21 @@ class Screen:
             eff = snap.effects.get((e["gen"], e["command"]))
             suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
             self.tags.append(Tag(e["command"] + suffix, [tuple(c) for c in e["cells"]], now))
+            if self.sound and e["cells"]:
+                self.sound.landed(e["cells"][0][0], snap.u.grid.shape[1])
+        if self.sound and snap.universe_no == self.snap.universe_no:  # the comments' cells appearing
+            self.sound.generation(self.snap.u.grid, snap.u.grid, abs(snap.u.generation - self.snap.u.generation) + 1)
         self._changed(now)
         self.snap = snap
 
     def tick(self, now: float) -> None:
+        before, gen = (self.snap.u.grid.copy(), self.snap.u.generation) if self.sound else (None, 0)
         if step(self.snap, now):
             self._changed(now)
+            if self.sound:
+                self.sound.generation(before, self.snap.u.grid, self.snap.u.generation - gen)
+        if self.sound:
+            self.sound.set_phase(self.snap.u.phase)
 
     def _changed(self, now: float) -> None:
         self.prev = self.cur
@@ -463,17 +475,21 @@ class Puller(threading.Thread):
         return snap
 
 
-def ffmpeg_cmd(out: str, bitrate_k: int) -> list[str]:
+def ffmpeg_cmd(out: str, bitrate_k: int, audio_fd: int | None = None) -> list[str]:
+    """Video from stdin; audio from the pipe `audio_fd` (16-bit stereo PCM), or silence."""
     b = f"{bitrate_k}k"
+    audio = (["-thread_queue_size", "64", "-probesize", "32", "-analyzeduration", "0",  # don't wait for seconds of it
+              "-f", "s16le", "-ar", str(stream_audio.SR), "-ac", "2", "-i", f"pipe:{audio_fd}"]
+             if audio_fd is not None else ["-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={stream_audio.SR}"])
     return ["ffmpeg", "-y", "-hide_banner", "-nostats", "-loglevel", "warning",
-            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{SW}x{SH}", "-framerate", str(IN_FPS), "-i", "-",
-            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-thread_queue_size", "16", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{SW}x{SH}",
+            "-framerate", str(IN_FPS), "-i", "-", *audio,
             "-map", "0:v", "-map", "1:a", "-shortest",
-            # YouTube: H.264, CBR, a keyframe every 2 s, AAC audio (a silent track)
+            # YouTube: H.264, CBR, a keyframe every 2 s, AAC audio
             "-c:v", "libx264", "-preset", PRESET, "-pix_fmt", "yuv420p", "-r", str(OUT_FPS),
             "-g", str(2 * OUT_FPS), "-keyint_min", str(2 * OUT_FPS), "-sc_threshold", "0",
             "-b:v", b, "-minrate", b, "-maxrate", b, "-bufsize", f"{2 * bitrate_k}k", "-x264-params", "nal-hrd=cbr",
-            "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+            "-c:a", "aac", "-b:a", "128k", "-ar", str(stream_audio.SR),
             *(["-f", "flv"] if out.startswith("rtmp") else []), out]
 
 
@@ -481,13 +497,42 @@ def redact(line: str, secret: str | None) -> str:
     return line.replace(secret, "[stream key]") if secret else line
 
 
-def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull: bool, bitrate_k: int) -> int:
+def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull: bool, bitrate_k: int,
+           sound: bool = True) -> int:
     state_dir = os.path.join(repo, "state")
     snap = load(state_dir)
     screen = Screen(snap)
+    audio_r = audio = None
+    if sound:
+        screen.sound = stream_audio.Soundtrack()
+        screen.sound.warm()
+        audio_r, audio_w = os.pipe()
+        try:  # Linux: room for a few seconds of sound while ffmpeg starts
+            import fcntl
+            fcntl.fcntl(audio_w, 1031, 1 << 20)  # F_SETPIPE_SZ
+        except (ImportError, OSError):
+            pass
+        audio = os.fdopen(audio_w, "wb", buffering=0)
     puller = Puller(repo, state_dir, snap.seq, pull)
     puller.start()
-    proc = subprocess.Popen(ffmpeg_cmd(out, bitrate_k), stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(ffmpeg_cmd(out, bitrate_k, audio_r), stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                            pass_fds=(audio_r,) if sound else ())
+    if audio_r is not None:
+        os.close(audio_r)  # ffmpeg has its own copy
+    per_frame = stream_audio.SR // IN_FPS
+    # Sound goes through its own thread: a write to one of ffmpeg's pipes may wait
+    # while ffmpeg reads the other, and must not hold up the other one.
+    sound_q: queue.Queue = queue.Queue(maxsize=10 * IN_FPS)
+
+    def feed():
+        while (chunk := sound_q.get()) is not None:
+            try:
+                audio.write(chunk)
+            except OSError:
+                return
+    feeder = threading.Thread(target=feed, daemon=True)
+    if audio:
+        feeder.start()
 
     def relay():  # ffmpeg's messages, without the key
         for raw in proc.stderr:
@@ -506,6 +551,11 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
             k = screen.key(now)
             if not data or k != last_key or screen.animating(now):
                 data, last_key = screen.compose(now).tobytes(), k
+            if audio:
+                try:
+                    sound_q.put(screen.sound.chunk(per_frame), timeout=10)
+                except queue.Full:
+                    raise BrokenPipeError("ffmpeg stopped reading the sound") from None
             proc.stdin.write(data)
             n += 1
             delay = t0 + n / IN_FPS - time.monotonic()
@@ -515,10 +565,18 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
         log("ffmpeg stopped (connection lost?)")
         return 1
     finally:
-        try:
-            proc.stdin.close()
-        except BrokenPipeError:
-            pass
+        if audio:
+            try:
+                sound_q.put(None, timeout=1)
+            except queue.Full:
+                pass
+            feeder.join(timeout=5)
+        for f in (audio, proc.stdin):
+            try:
+                if f:
+                    f.close()
+            except BrokenPipeError:
+                pass
         proc.wait(timeout=30)
     return 0
 
@@ -531,6 +589,7 @@ def main(argv=None) -> int:
     ap.add_argument("--preview", help="write one frame to this PNG and stop")
     ap.add_argument("--no-pull", action="store_true", help="use the checkout as it is")
     ap.add_argument("--bitrate", type=int, default=5500, help="video kbit/s (YouTube's 1080p minimum is 5000)")
+    ap.add_argument("--no-sound", action="store_true", help="a silent track (also: STREAM_SOUND=off)")
     args = ap.parse_args(argv)
 
     if args.preview:
@@ -553,7 +612,8 @@ def main(argv=None) -> int:
     if not out:
         print("set STREAM_KEY (YouTube Studio → Go live → Stream key) or pass --out", file=sys.stderr)
         return 2
-    return stream(args.repo, out, secret, args.seconds, not args.no_pull, args.bitrate)
+    sound = not args.no_sound and os.environ.get("STREAM_SOUND", "on").strip().lower() not in ("0", "off", "false", "no")
+    return stream(args.repo, out, secret, args.seconds, not args.no_pull, args.bitrate, sound)
 
 
 if __name__ == "__main__":

@@ -106,3 +106,37 @@ def test_it_says_when_comments_were_last_checked(state_dir):
     assert stream.checked_text(snap.checked, LAUNCH + 3030) == "chat checked just now"
     assert stream.checked_text(snap.checked, LAUNCH + 3000 + 4 * 60 + 5) == "chat checked 4 min ago"
     assert stream.checked_text(None, LAUNCH) == ""
+
+
+def test_the_soundtrack_follows_the_board():
+    import numpy as np
+    import stream_audio as sa
+    s = sa.Soundtrack()
+    s.set_phase("ALIVE")
+    n = sa.SR // 10
+    quiet = np.frombuffer(b"".join(s.chunk(n) for _ in range(10)), "<i2")  # a second: pulse and chord only
+    assert len(quiet) == 2 * n * 10 and np.abs(quiet).max() < 32767
+    before = np.zeros((72, 128), np.uint8)
+    after = before.copy()
+    after[10:14, 20:24] = 1  # 16 cells born
+    s.generation(before, after)
+    loud = np.frombuffer(b"".join(s.chunk(n) for _ in range(10)), "<i2")
+    assert np.sqrt((loud.astype(float) ** 2).mean()) > 2 * np.sqrt((quiet.astype(float) ** 2).mean())
+    s2 = sa.Soundtrack()
+    s2.set_phase("ALIVE")
+    s2.generation(before, after, steps=sa.MAX_STEP + 1)  # a jump, not a generation: no notes
+    assert not s2.buf.any()
+    for _ in range(20):
+        s2.landed(5, 128)  # a burst of comments: chimes, but not piled up for ever
+    assert s2.last_chime - s2.t <= 3 * sa.SR
+
+
+def test_streams_with_sound_to_a_file(state_dir, tmp_path):
+    import subprocess
+    repo = tmp_path / "repo"
+    shutil.copytree(state_dir, repo / "state")
+    out = tmp_path / "s.mp4"
+    assert stream.stream(str(repo), str(out), None, 2.0, False, 800, sound=True) == 0
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,sample_rate",
+                            "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout
+    assert "audio,48000" in probe and "video" in probe
