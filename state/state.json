@@ -55,6 +55,7 @@
    "d191dd00d23b53fad6a1d98eda08da32": 1794283428.0,
    "d86a73b2e17ab5976a4a2756e07c80b1": 1794271351.0,
    "e12b9f35a26bb7ef14750c561ee97d55": 1794290684.0,
+   "edfa1b17892b4c1afd2d976c1d793c62": 1794317381.0,
    "f1bc96bbe2962bc5ef418c9a279a0793": 1794189452.0,
    "f1c7416eb3ba7a48d1cdb3e3ebc379f0": 1794225289.0,
    "f71b4f7c0484fc54fd6277b1878857ed": 1794278881.0
@@ -147,6 +148,7 @@
    "e24c75d52916588bc49a2d1480d7ffe1": 1794312387.0,
    "e83c5ea9800d51d8c2df36fbe393723f": 1794184661.0,
    "ea5695ad9f15df772ab1baf490fa36d1": 1794309855.0,
+   "eeafd49c329aa0b5ece8dbcd15a4116e": 1794317381.0,
    "ef6066340647ac6a23111c299d747c63": 1794189928.0,
    "f0017c7d0709a4b8c28960adfd17da9d": 1794283428.0,
    "f256445f73745fb722ee2dde12fa593d": 1794278831.0,
@@ -175,12 +177,12 @@
   "contest_by": null,
   "effects_backfilled": true,
   "forecast": {
-   "horizon": 31686,
+   "horizon": 31692,
    "key": [
-    1686,
+    1692,
     "ALIVE"
    ],
-   "stuck_gen": 2847
+   "stuck_gen": 2349
   },
   "highlight": [
    [
@@ -466,22 +468,66 @@
    [
     84,
     60
+   ],
+   [
+    108,
+    13
+   ],
+   [
+    108,
+    15
+   ],
+   [
+    109,
+    12
+   ],
+   [
+    109,
+    15
+   ],
+   [
+    110,
+    13
+   ],
+   [
+    111,
+    12
+   ],
+   [
+    111,
+    14
+   ],
+   [
+    112,
+    12
+   ],
+   [
+    112,
+    13
+   ],
+   [
+    112,
+    14
+   ],
+   [
+    112,
+    15
    ]
   ],
   "last_thumb_at": 1794307028.660665,
   "last_thumb_headline": "DIES THU NOV 12",
   "last_thumb_phase": "ALIVE",
-  "last_title": "This Game of Life video dies in 2d 10h 00m if nobody comments",
-  "last_title_at": 1794316353.6044729,
+  "last_title": "This Game of Life video dies in 1d 21h 45m if nobody comments",
+  "last_title_at": 1794317418.8210516,
   "migrations": [
    "readmit-dropped-2026-11-09",
    "recent-in-hours-2026-11-09"
   ],
   "pinned": {
    "0": {
-    "at": 1794315432.7712212,
+    "at": 1794317418.8210516,
     "id": "Ugwxgzcp8IrvpHaO1k14AaABAg",
-    "text": "🟢 ALIVE · this video dies in ~2 days if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 1,667: random 5x5 at 27,56 · 2d 1h → 2d 10h\n• gen 1,650: cells 15,70 (changed nothing)\n• gen 1,646: glider 1,1 se · 2d 14h → 2d 2h\n• gen 1,646: random 5x5 at 47,51 · 2d 0h → 2d 14h\n• gen 1,643: blinker 32,60 · 4d 2h → 2d 1h\n• gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h\n• gen 1,629: random 5x5 at 54,24 · 1d 22h → 1d 14h\n• gen 1,504: random 5x5 at 126,64 · 3d 9h → 2d 2h\n\nTry one: acorn 101,17 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
+    "text": "🟢 ALIVE · this video dies in ~1 day if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 1,692: random 5x5 at 108,12 · 2d 14h → 1d 21h\n• gen 1,686: glider 27,63 se · 2d 10h → 2d 14h\n• gen 1,667: random 5x5 at 27,56 · 2d 1h → 2d 10h\n• gen 1,650: cells 15,70 (changed nothing)\n• gen 1,646: glider 1,1 se · 2d 14h → 2d 2h\n• gen 1,646: random 5x5 at 47,51 · 2d 0h → 2d 14h\n• gen 1,643: blinker 32,60 · 4d 2h → 2d 1h\n• gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h\n\nTry one: acorn 101,22 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
    },
    "1": {
     "at": 1794314386.7491672,
@@ -494,38 +540,38 @@
     "text": "🟢 ALIVE · this video dies in ~2 days if nobody comments\nThis Short is a replay, but it is alive: every comment here adds cells to the live universe within minutes (as many as you like; replies count too). Watch your move land on the linked video's thumbnail or the live page below. If the universe dies, both videos die.\n\nLatest moves (time it had left: before → after):\n• gen 1,667: random 5x5 at 27,56 · 2d 1h → 2d 10h\n• gen 1,650: cells 15,70 (changed nothing)\n• gen 1,646: glider 1,1 se · 2d 14h → 2d 2h\n• gen 1,646: random 5x5 at 47,51 · 2d 0h → 2d 14h\n• gen 1,643: blinker 32,60 · 4d 2h → 2d 1h\n• gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h\n• gen 1,629: random 5x5 at 54,24 · 1d 22h → 1d 14h\n• gen 1,504: random 5x5 at 126,64 · 3d 9h → 2d 2h\n\nTry one: acorn 101,17 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
    }
   },
-  "pinned_core": "🟢 ALIVE · this video dies in ~2 days if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 1,686: glider 27,63 se · 2d 10h → 2d 14h\n• gen 1,667: random 5x5 at 27,56 · 2d 1h → 2d 10h\n• gen 1,650: cells 15,70 (changed nothing)\n• gen 1,646: glider 1,1 se · 2d 14h → 2d 2h\n• gen 1,646: random 5x5 at 47,51 · 2d 0h → 2d 14h\n• gen 1,643: blinker 32,60 · 4d 2h → 2d 1h\n• gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h\n• gen 1,629: random 5x5 at 54,24 · 1d 22h → 1d 14h\n\nRewind every move: davidackerman.github.io/still-life",
-  "pinned_suggest": "acorn 101,17",
+  "pinned_core": "🟢 ALIVE · this video dies in ~1 day if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 1,692: random 5x5 at 108,12 · 2d 14h → 1d 21h\n• gen 1,686: glider 27,63 se · 2d 10h → 2d 14h\n• gen 1,667: random 5x5 at 27,56 · 2d 1h → 2d 10h\n• gen 1,650: cells 15,70 (changed nothing)\n• gen 1,646: glider 1,1 se · 2d 14h → 2d 2h\n• gen 1,646: random 5x5 at 47,51 · 2d 0h → 2d 14h\n• gen 1,643: blinker 32,60 · 4d 2h → 2d 1h\n• gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h\n\nRewind every move: davidackerman.github.io/still-life",
+  "pinned_suggest": "acorn 101,22",
   "recent": [
+   "gen 1,692: random 5x5 at 108,12 · 2d 14h → 1d 21h",
    "gen 1,686: glider 27,63 se · 2d 10h → 2d 14h",
    "gen 1,667: random 5x5 at 27,56 · 2d 1h → 2d 10h",
    "gen 1,650: cells 15,70 (changed nothing)",
    "gen 1,646: glider 1,1 se · 2d 14h → 2d 2h",
    "gen 1,646: random 5x5 at 47,51 · 2d 0h → 2d 14h",
    "gen 1,643: blinker 32,60 · 4d 2h → 2d 1h",
-   "gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h",
-   "gen 1,629: random 5x5 at 54,24 · 1d 22h → 1d 14h"
+   "gen 1,631: random 5x5 at 80,59 · 1d 14h → 4d 3h"
   ],
   "saves": 0
  },
  "extra_read": {
-  "R_VATUWBY4Q": 1794316900.1215227,
-  "m-JcepjW41U": 1794316900.1215227
+  "R_VATUWBY4Q": 1794317418.8210516,
+  "m-JcepjW41U": 1794317418.8210516
  },
  "format": 1,
  "last_changer": {
-  "author": "7cc600c455dae08266051f7ab322fe21",
-  "command": "glider 27,63 se",
-  "comment": "41609a9549557d1451be63973be077bd",
-  "gen": 1686
+  "author": "edfa1b17892b4c1afd2d976c1d793c62",
+  "command": "random 5x5 at 108,12",
+  "comment": "eeafd49c329aa0b5ece8dbcd15a4116e",
+  "gen": 1692
  },
  "log": {
-  "head": "4a879c88b14810a7ca2a5aefd392de5f97d251fe1af1f974d420114ead1d3b17",
-  "seq": 792
+  "head": "3b5375adc3de8d752d1370a7f244b9049eba1e97217e35d6a68a46d1c7519345",
+  "seq": 797
  },
  "quota": {
   "day": "2026-11-10",
-  "used": 1610
+  "used": 1714
  },
  "reply_counts": {},
  "retire_pending": [],
@@ -534,10 +580,10 @@
   "deadline_gen": null,
   "died_gen": null,
   "flatline_gens": 720,
-  "generation": 1688,
-  "grid": "AA4AAAAAAAwAAAAAAAAAAAAfAAYAAAAAAAAAEBCAAAAAEgAJBwAAAAAAACg5QAAAABsACQAAAAAAAAAgQgAAAAAOAAUAAAwAYAAAGEDAAAAACQAAAAASAFgAAABAAAAAAAAAAAAAFABEAAAAKwAAAAwcbAAAAAgAZAAAABAAAAAMOGAAAAAAADgAAAAAAAAAAAhwAAHHAAAQAAAAAMAAAACAAAAAAAAAAAAAAADAAAABEgBgBBAAAAAIAAAAAAAAAT0AoAQQAAAACAAAAAAAAAM9gsAEEAAAAAgAAAAAAEABDTGAAAAAAAAAAAAAAACgARcxAAHAAAAgAAAAAAAAoACWAAAAAAAAMAAAAAAAAEAAQAAAAAAAAFAAACAAAAAAAAAAAAAAAAHwAABQAAAAAAAAAAAABgACsAAAUAAAAAAAAAAAAMYAAgAAACAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAIAABEAAAAAAAAAAAAAAAAQAAAOAAAAAAAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAFgAAABgAAAAAAAACAAAADhIAAAAYAAAAAAAAQgAAAxEAAAAAAAAAAAAAAEIAAAMRAAAAAAAAAAAAAABAAAAAEQAAAAAAAAAAAAAAAAAAAA4AAAAAAAAAAAAAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAAAAAAAAwAAAAYAAAAAAgAAAAAAAAAAAAAGAAAAAAIAAAAAAAAAAAAAAAQABgACAAAAAAAAAAAAAAAEAAkAAAAAAAAAAAAAAAAABAAGAAAAAAAAAAAAAAAAAAAAAAMAAADAAAAAAAAAAAAAAAADAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAABgAAAAAADAAAAAAgAAAAAAYAAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAQAAJAAAAAAAAAAAAAOAAAKAABgAAAAAAAAAAAAAAAAEgAAAAAAAAAAAAAAAACAAAwAAAAAAAAAAAAwAAAAgAAAA4AAAAAAAAEAMcAAAIAAAAAAAAAAAwIBwAAAAAAAAAAAAAAAAASDGCAAEAAAAAAAAAAAAAAIALSGACgAAAwAAAAAAAAABIaULQAoAAAMMAgAAAAAAAIJHDoMAAAAADAgAMAAAAAADgACEgQAAAAAAgDAAAAAABsAZgAKAAAAAAAAAAAAAAAGgAgQAgAAAAAoAAAAAAAAAoAAEg4AAAAAEgAAAAAAAAgAYBIkAAAAAAKwBgAAAQccABSKRAAAAAAZ0AkAAAMAIgB9gCAAAAAAH9AKAAGHgHcAAYAAAAAAAAwABAACjMAhAAAAAQAIAAAAAAAAAQoAO4AAAAKAFAAAAAAAAYAfEBEAQAACgAAAAAAAAAJAB4gOAUAAAQAMAAAAAAABgADwBADAAgAAAAAAAAAAAAABSAAAAAIAABgAAAAAAAAAA0QAAAACAAMYAAAAAAAAAACEAAAAAAABMAAAABgAAYAAAAAAAAAAA2AAAAAkAAGAAHAAAAAAAANAAAAAGAAAAA",
-  "hash": "872a5245d7adc178412be172a6704beff061ca50000f4f9c1c2b0941095a6e1d",
-  "history_base": 1686,
+  "generation": 1692,
+  "grid": "ABAAAgAAADQAAAAAMAAAAAAoAAcAAAAYAAAAABuAAAAAMAALBwAAACAAAADQAAAAAAAAGYAAAABQAAABAwAAAAAEAA8AAAwACAAAAQAAAAAABiAHAAASAEgAAAEAAAAAABpQAAAAFAAsAAAAkAAAAAxsiAAAAAgADgAAADAAAAAMKIgAAAAAAGwAAAAAAAAAACCIAAHHAABkAAAAAMAAAADJ0EAAAAAAOAAAAADAAAAAKOAgBBAAABAIAAAAAAAAASTAQAQQAAAACAAAAAWAAACQYAAEEAAAAAgAAAAKgEAAMgEAAAAAABAAAAAAAYCgAJJhAAHAAAAQAAAAAAyAoAGhgAAAAAAAKAAAAAAAAEAAgAAAAAAAABgAACAAAAAAAAAAAAAAAAEYAABQAAAAAAAAAAAABgACgAAAUAAAAAAAAAAAAAYAAkAAACAAAAAAAAAAAAAAAAFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAaAAADgAAAAAAAAAAAAAAOGgAAABgAAAAAAAACAAAAABoAAAAYAAAAAAAAQgAAA6CAAAAAAAAAAAAAAEIAAAOggAAAAAAAAAAAAABAAAAAIIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOAAAAAAADAAAAAAAAAAAAAAAAAAAAAwAAAAYAAAAAAgAAAAAAAAAAAAAGAAAAAAIAAAAAAAAAAAAAAAQABgACAAAAAAAAAAAAAAAEAAkAAAAAAAAAAAAAAAAABAAGAAAAAAAAAAAAAAAAAAAAAAMAAADAAAAAAAAAAAAAAAADAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAMAAAAAAAAAAAABgAAAAAADAAAAAAgAAAAAAYAAAAAAAAAAAAAUAAAAAAAAAAAAAAAAAQAAJAAAAAAAAAAAAAOAAAKAABgAAAAAAAAAAAAAAAAEgAAAAAAAAAAAAAAAACAAAwAAAAAAAAAAAAwAAAAgAAAA4AAAAAAAB4AMcAAAIAAAAAAAAAAAgAmAAAAAAAAAAAAAAAAABoABCAAAAAAAAAAAAAAAAASACAQAAAAAAwAAAAAAAAAHAAdxwAAAAAMMAAAAAAAAAAHC8IMAAAAADAAAMAAAAAAAwQEEAAAAAAAAADAAAAAAAAAEgADAAAAAAAAAAAAAAAYAAEABIAAAAAYAAAAAAAAHAAF7AMAAAAAFZAAAAAAACAAIyoAAAAAADQoBgAABQc2AEQmAAAAAAAIMAkAAAAAGgBARgAAAAAAAUAKAAGJgCEAYEAAAAAAAAAABAAC1ABhgBCAAQAAAAAAAAAAAW6ACQAIAAKAAAAAAAAAAYBggAoAAAACgAAAAAAAAAJAEAAAACAAAQAIAAAAAAABgAAAEQCgAgAAAAAAAAAAAAABkA4AYAIAACAAAAAAAAAAAOQAAAACAAAgAAAAAAAAAAAIAAAAAAAAAAAAABgAAYABoAAAAAAAAJAAAAAkAAGAAAAAAAAAAAFwAAAAGAAAAA",
+  "hash": "c956543718e07bbb335608423f0973302d1e97bdd05d61b51fc4ff876183f3a8",
+  "history_base": 1692,
   "phase": "ALIVE",
   "shape": [
    72,
