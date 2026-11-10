@@ -89,6 +89,9 @@ def centre(cells) -> tuple[float, float]:
     return tuple(pts.mean(axis=0))
 
 
+HOOK_ZOOM = 1.0  # the opening's zoom (1 = the whole board); see build()
+
+
 def busiest(weight, zoom: float) -> tuple[float, float]:
     """Centre (board-image px) of the on-screen window at `zoom` holding the most `weight`."""
     h, w = weight.shape
@@ -312,18 +315,20 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     stuck_seed = h.fresh().forecast_stuck(FORECAST_GENS)
     moves = sum(len(b) for b in h.batches.values())
 
-    # 1. hook over the live board (its real future, one generation per frame). Nearly
-    # half of viewers swiped the first Short away at once: the whole board's cells are
-    # too small to see moving on a phone. So it opens close up on the patch that
-    # changes most, then pulls back to the whole board.
+    # 1. hook over the live board (its real future, one generation per frame). With
+    # HOOK_ZOOM > 1 it opens close up on the patch that changes most, then pulls back.
+    # Measured: the teaser (whole board) kept 52.7% of viewers; Day 2 (4x close up)
+    # kept 44.5%. So it opens on the whole board again.
     n = int(2.7 * FPS)  # on screen from the very first frame: it is the thumbnail
-    Z, hold = 4.0, int(1.2 * FPS)
-    u, prev, churn = copy.deepcopy(now), now.grid.copy(), np.zeros(now.grid.shape, np.int64)
-    for _ in range(n):
-        u.advance_to(u.generation + 1)
-        churn += u.grid != prev
-        prev = u.grid.copy()
-    busy = busiest(churn, Z)
+    Z, hold = HOOK_ZOOM, int(1.2 * FPS)
+    busy = whole
+    if Z > 1:
+        u, prev, churn = copy.deepcopy(now), now.grid.copy(), np.zeros(now.grid.shape, np.int64)
+        for _ in range(n):
+            u.advance_to(u.generation + 1)
+            churn += u.grid != prev
+            prev = u.grid.copy()
+        busy = busiest(churn, Z)
     u = copy.deepcopy(now)
     for i in range(n):
         u.advance_to(u.generation + 1)

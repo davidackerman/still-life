@@ -69,15 +69,21 @@ def test_a_tampered_log_is_refused(state_dir, monkeypatch):
         short.build(state_dir)
 
 
-def test_the_daily_recap_is_short_and_opens_close_up(state_dir, monkeypatch):
+def test_the_daily_recap_is_short_and_opens_on_the_whole_board(state_dir, monkeypatch):
     monkeypatch.setattr(explainer, "SCALE", 1)
     frames = short.build(state_dir, since_gen=0)
     assert 12 * short.FPS < len(frames) < 25 * short.FPS  # short enough to be watched to the end
-    assert frames[0].zoom > 2  # big enough cells to see moving on a phone...
-    assert frames[int(2.6 * short.FPS)].zoom < 1.1  # ...then the whole board
+    assert frames[0].zoom == 1  # the whole board, as the teaser opened (it kept more viewers)
     assert 1 <= sum(1 for f in frames if f.cue and f.cue[0] == "inject") <= 2  # the day's biggest moves
     assert any(f.grey > 0 for f in frames)  # its future: stuck, then dead
     assert len(short.compose(frames[0])) == short.PW * short.PH * 3
+
+
+def test_a_close_up_opening_can_come_back(state_dir, monkeypatch):
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    monkeypatch.setattr(short, "HOOK_ZOOM", 4.0)
+    frames = short.build(state_dir, since_gen=0)
+    assert frames[0].zoom == 4.0 and frames[int(2.6 * short.FPS)].zoom < 1.1  # close up, then the whole board
 
 
 def test_busiest_finds_the_active_patch():
