@@ -26,7 +26,7 @@
   <div class="scrub">
     <button id="play" class="iconbtn" aria-label="Play the whole life">▶</button>
     <div class="track">
-      <span class="lifelabel">time left if nobody comments</span><span id="lifemax" class="lifelabel lifemax"></span>
+      <span class="lifelabel">time left if nobody comments</span>
       <canvas id="lifeline" class="lifeline" aria-hidden="true"></canvas>
       <div id="marks" class="marks"></div>
       <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Generation">
@@ -422,7 +422,14 @@ function lifeImage(end) {
       c.beginPath(); c.moveTo(x - 1, y(p)); c.lineTo(x, y(v)); c.stroke();
     }
   }
-  $("lifemax").textContent = `${days} days`;
+  // the scale, on the left: the top line, the middle, and zero
+  c.font = `${10 * dpr}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+  c.textBaseline = "middle"; c.lineJoin = "round";
+  for (const d of new Set([days, Math.round(days / 2), 0])) {
+    const label = d ? `${d}d` : "0", yy = Math.min(Math.max(y(d * 86400), 6 * dpr), H - 6 * dpr);
+    c.strokeStyle = cssVar("--bg"); c.lineWidth = 3 * dpr; c.strokeText(label, 2 * dpr, yy);
+    c.fillStyle = cssVar("--muted"); c.fillText(label, 2 * dpr, yy);
+  }
   lifeBase = { key, img, vals, y };
   return lifeBase;
 }
@@ -439,9 +446,17 @@ function drawLifeline(gen, end) {
   const v = b.vals[cx], dpr = window.devicePixelRatio || 1;
   lctx.strokeStyle = cssVar("--muted"); lctx.lineWidth = dpr;
   lctx.beginPath(); lctx.moveTo(cx + 0.5, 0); lctx.lineTo(cx + 0.5, H); lctx.stroke();
-  if (v != null) {
+  if (v != null) {  // a dot on the curve, and how much time that is
+    const dx = Math.min(Math.max(cx, 4 * dpr), W - 4 * dpr), dy = b.y(v);
     lctx.fillStyle = cssVar("--fg");
-    lctx.beginPath(); lctx.arc(Math.min(Math.max(cx, 4 * dpr), W - 4 * dpr), b.y(v), 3.5 * dpr, 0, 2 * Math.PI); lctx.fill();
+    lctx.beginPath(); lctx.arc(dx, dy, 3.5 * dpr, 0, 2 * Math.PI); lctx.fill();
+    const text = isFinite(v) ? `${fmtSpan(v)} left` : "weeks left";
+    lctx.font = `600 ${11 * dpr}px system-ui, -apple-system, "Segoe UI", sans-serif`;
+    lctx.textBaseline = "middle"; lctx.lineJoin = "round";
+    const tw = lctx.measureText(text).width || 0, right = dx + 8 * dpr + tw < W;
+    const tx = right ? dx + 8 * dpr : dx - 8 * dpr - tw, ty = Math.min(Math.max(dy - 9 * dpr, 7 * dpr), H - 7 * dpr);
+    lctx.strokeStyle = cssVar("--bg"); lctx.lineWidth = 4 * dpr; lctx.strokeText(text, tx, ty);
+    lctx.fillText(text, tx, ty);
   }
 }
 lifeCanvas.addEventListener("click", (e) => {
