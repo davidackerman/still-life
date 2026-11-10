@@ -50,13 +50,15 @@ COL_X, COL_W = 1500, 380  # the column on the right
 IN_FPS, OUT_FPS = 10, int(os.environ.get("STREAM_FPS", "30"))
 PRESET = os.environ.get("X264_PRESET", "veryfast")  # the preset barely matters for this picture
 PULL_S = 60
+REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
+REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 FADE_S = 0.6  # crossfade between generations
 RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
 SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"
-CODE = ("stream.py", "stream_audio.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
+CODE = ("stream.py", "stream_audio.py", "short.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
         "commands.py", "admission.py", "store.py")  # a change to these restarts the stream
 
 
@@ -215,17 +217,22 @@ def geometry(shape) -> tuple[int, int, int]:
 def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None) -> np.ndarray:
     h, w = grid.shape
     cell = geometry(grid.shape)[0]
-    if (h, w) not in _tiles:
+    if (h, w) not in _tiles:  # the empty board, and where each cell's inside is
         inner = np.zeros((cell, cell), bool)
         inner[1:-1, 1:-1] = True
-        _tiles[(h, w)] = np.tile(inner, (h, w))
-    tile = _tiles[(h, w)]
-    img = np.empty(tile.shape + (3,), np.uint8)
-    img[:] = GRID
-    img[tile] = BG
-    img[np.kron(grid, np.ones((cell, cell), np.uint8)).astype(bool) & tile] = PHASE_COLOR[phase]
+        tile = np.tile(inner, (h, w))
+        empty = np.empty(tile.shape + (3,), np.uint8)
+        empty[:] = GRID
+        empty[tile] = BG
+        _tiles[(h, w)] = (tile, empty)
+    tile, empty = _tiles[(h, w)]
+    img = empty.copy()
+
+    def big(m):  # a cell mask, scaled up to pixels (insides only)
+        return m.astype(bool).repeat(cell, 0).repeat(cell, 1) & tile
+    img[big(grid)] = PHASE_COLOR[phase]
     if lit is not None and lit.any():
-        img[np.kron(grid & lit, np.ones((cell, cell), np.uint8)).astype(bool) & tile] = HIGHLIGHT
+        img[big(grid & lit)] = HIGHLIGHT
     return img
 
 
@@ -240,6 +247,52 @@ def centre_px(cells, shape) -> tuple[float, float]:
     return left + (cx + 0.5) * cell, top + (cy + 0.5) * cell
 
 
+def rewind_slot(now: float) -> float | None:
+    """When the rewind running at `now` began (at :00 and :30), or None."""
+    slot = now // REWIND_EVERY_S * REWIND_EVERY_S
+    return slot if now - slot < REWIND_S else None
+
+
+class Rewind:
+    """The story so far: the universe from its first cells to now in REWIND_S,
+    replayed from the log with the bot's own rules (it ends on the live board)."""
+
+    def __init__(self, state_dir: str, start: float, end_gen: int):
+        import short
+        self.h = short.History(state_dir)
+        self.u = self.h.fresh()
+        self.start, self.end = start, max(1, end_gen)
+        self.lit: list[tuple[int, list]] = []  # (gen, cells) of recent comments, drawn white
+        self.pool, self.pool_at = self.u.grid.copy(), start  # sound: births and deaths pooled per 0.3 s
+
+    def done(self, now: float) -> bool:
+        return now >= self.start + REWIND_S
+
+    def advance(self, now: float, sound=None) -> None:
+        p = min(1.0, max(0.0, (now - self.start) / REWIND_S))
+        target = int(round(self.end * p))
+        if target > self.u.generation:
+            cells = self.h.goto(self.u, target)
+            if cells:
+                self.lit.append((self.u.generation, cells))
+                if sound:
+                    sound.landed(cells[0][0], self.u.grid.shape[1])
+        self.lit = [(g, c) for g, c in self.lit if self.u.generation - g < REWIND_LIT]
+        if sound and now - self.pool_at >= 0.3:
+            sound.generation(self.pool, self.u.grid)
+            self.pool, self.pool_at = self.u.grid.copy(), now
+
+    def lit_mask(self) -> np.ndarray | None:
+        if not self.lit:
+            return None
+        m = np.zeros(self.u.grid.shape, np.uint8)
+        h, w = m.shape
+        for _, cells in self.lit:
+            for x, y in cells:
+                m[y % h, x % w] = 1
+        return m
+
+
 class Screen:
     def __init__(self, snap: Snapshot):
         self.snap = snap
@@ -249,6 +302,9 @@ class Screen:
         self.cur: np.ndarray | None = None
         self.cur_key = None
         self.sound = None  # a stream_audio.Soundtrack, when the stream has sound
+        self.rewind: Rewind | None = None
+        self.rewound_at: float | None = None  # the slot of the last rewind (one per slot)
+        self._chrome = None  # (key, the frame without the board), see compose
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float) -> None:
@@ -265,21 +321,35 @@ class Screen:
         self._changed(now)
         self.snap = snap
 
-    def tick(self, now: float) -> None:
+    def tick(self, now: float, state_dir: str | None = None) -> None:
         before, gen = (self.snap.u.grid.copy(), self.snap.u.generation) if self.sound else (None, 0)
         if step(self.snap, now):
             self._changed(now)
-            if self.sound:
+            if self.sound and not self.rewind:
                 self.sound.generation(before, self.snap.u.grid, self.snap.u.generation - gen)
+        slot = rewind_slot(now)
+        if (state_dir and slot is not None and self.rewind is None and slot != self.rewound_at
+                and self.snap.u.phase != DIED):
+            self.rewound_at = slot
+            try:
+                self.rewind = Rewind(state_dir, slot, self.snap.u.generation)
+            except Exception as e:  # noqa: BLE001 - no rewind this time; the live board goes on
+                log(f"rewind failed: {e!r}")
+        if self.rewind:
+            self.rewind.advance(now, self.sound)
+            if self.rewind.done(now):
+                self.rewind = None
+                self._changed(now)  # crossfade back to the live board
         if self.sound:
-            self.sound.set_phase(self.snap.u.phase)
+            self.sound.set_phase(self.rewind.u.phase if self.rewind else self.snap.u.phase)
 
     def _changed(self, now: float) -> None:
         self.prev = self.cur
         self.changed_at = now
 
     def animating(self, now: float) -> bool:
-        return (now - self.changed_at < FADE_S) or any(now - t.t0 < RIPPLE_S for t in self.tags)
+        return (self.rewind is not None or now - self.changed_at < FADE_S
+                or any(now - t.t0 < RIPPLE_S for t in self.tags))
 
     def key(self, now: float):
         """Changes whenever the picture would: the board, the countdown's second, the labels."""
@@ -288,6 +358,10 @@ class Screen:
         return (id(self.snap), u.generation, u.phase, int(now), live)
 
     def board(self, now: float) -> np.ndarray:
+        if self.rewind:
+            r = self.rewind.u
+            self.cur, self.cur_key = board_rgb(r.grid, r.phase, self.rewind.lit_mask()), None
+            return self.cur
         u = self.snap.u
         self.tags = [t for t in self.tags if now - t.t0 < max(TAG_S, GLOW_S)]
         glowing = [c for t in self.tags if now - t.t0 < GLOW_S for c in t.cells]
@@ -306,20 +380,50 @@ class Screen:
         return self.cur
 
     def compose(self, now: float) -> Image.Image:
-        snap, u = self.snap, self.snap.u
-        img = np.empty((SH, SW, 3), np.uint8)
-        img[:] = SCREEN
+        u = self.snap.u
+        shape = u.grid.shape
+        cell, left, top = geometry(shape)
+        # Everything but the board changes at most once a second: drawn then, reused
+        # for the other frames (the rewind and the ripples draw every frame).
+        k = (int(now), id(self.snap), u.generation, u.phase)
+        if self._chrome is None or self._chrome[0] != k:
+            img = np.empty((SH, SW, 3), np.uint8)
+            img[:] = SCREEN
+            im = Image.fromarray(img)
+            d = ImageDraw.Draw(im, "RGBA")
+            d.rectangle((left - 1, top - 1, left + shape[1] * cell, top + shape[0] * cell), outline=(42, 46, 58))
+            self._axes(d, shape)
+            self._column(d, now)
+            self._bottom(d)
+            self._chrome = (k, np.asarray(im))
+        img = self._chrome[1].copy()
         b = self.board(now)
-        cell, left, top = geometry(u.grid.shape)
         img[top:top + b.shape[0], left:left + b.shape[1]] = b
         im = Image.fromarray(img)
         d = ImageDraw.Draw(im, "RGBA")
-        d.rectangle((left - 1, top - 1, left + b.shape[1], top + b.shape[0]), outline=(42, 46, 58))
-        self._axes(d, u.grid.shape)
-        self._moves(d, now, u.grid.shape)
-        self._column(d, now)
-        self._bottom(d)
+        if self.rewind:
+            self._rewind_banner(d, now, shape)
+        else:
+            self._moves(d, now, shape)
         return im
+
+    def _rewind_banner(self, d, now: float, shape) -> None:
+        """What the board is showing: the past, when, and how long until it's live again."""
+        r, snap = self.rewind, self.snap
+        cell, left, top = geometry(shape)
+        cx = left + shape[1] * cell / 2
+        when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%a %b %d, %I:%M %p")
+        line1 = "REWIND · the story so far"
+        line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, int(r.start + REWIND_S - now))} s"
+        f1, f2 = font("bold", 30), font("regular", 22)
+        w = int(max(d.textlength(line1, font=f1), d.textlength(line2, font=f2))) + 48
+        x0, y0 = int(cx - w / 2), top + 18  # whole pixels: older Pillow rejects some fractional rounded boxes
+        d.rounded_rectangle((x0, y0, x0 + w, y0 + 96), radius=12, fill=(5, 6, 9, 225), outline=(255, 255, 255, 90))
+        d.text((cx, y0 + 30), line1, font=f1, fill=WHITE, anchor="mm")
+        d.text((cx, y0 + 64), line2, font=f2, fill=LIGHT, anchor="mm")
+        frac = min(1.0, (now - r.start) / REWIND_S)
+        d.rounded_rectangle((x0 + 24, y0 + 82, x0 + w - 24, y0 + 86), radius=2, fill=(40, 44, 54))
+        d.rounded_rectangle((x0 + 24, y0 + 82, x0 + 24 + max(6, int((w - 48) * frac)), y0 + 86), radius=2, fill=WHITE)
 
     def _axes(self, d, shape) -> None:
         """Coordinates along the top and left, so a viewer can aim 'glider x,y'."""
@@ -498,7 +602,7 @@ def redact(line: str, secret: str | None) -> str:
 
 
 def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull: bool, bitrate_k: int,
-           sound: bool = True) -> int:
+           sound: bool = True, rewinds: bool = True) -> int:
     state_dir = os.path.join(repo, "state")
     snap = load(state_dir)
     screen = Screen(snap)
@@ -547,7 +651,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
             new = puller.take()
             if new is not None:
                 screen.swap(new, now)
-            screen.tick(now)
+            screen.tick(now, state_dir if rewinds else None)
             k = screen.key(now)
             if not data or k != last_key or screen.animating(now):
                 data, last_key = screen.compose(now).tobytes(), k

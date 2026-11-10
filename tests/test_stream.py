@@ -140,3 +140,33 @@ def test_streams_with_sound_to_a_file(state_dir, tmp_path):
     probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,sample_rate",
                             "-of", "csv=p=0", str(out)], capture_output=True, text=True).stdout
     assert "audio,48000" in probe and "video" in probe
+
+
+def test_rewinds_run_at_the_hour_and_half_hour():
+    assert stream.rewind_slot(LAUNCH + 1800 + 5) == LAUNCH + 1800  # LAUNCH is on the hour
+    assert stream.rewind_slot(LAUNCH + 1800 + stream.REWIND_S + 1) is None
+
+
+def test_the_rewind_ends_on_the_live_board(state_dir):
+    import numpy as np
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    r = stream.Rewind(state_dir, 0.0, snap.u.generation)
+    r.advance(stream.REWIND_S / 2)
+    assert 0 < r.u.generation < snap.u.generation
+    r.advance(stream.REWIND_S)
+    assert r.u.generation == snap.u.generation and np.array_equal(r.u.grid, snap.u.grid)
+    assert r.done(stream.REWIND_S)
+
+
+def test_the_screen_rewinds_then_goes_live_again(state_dir):
+    import stream_audio
+    now = LAUNCH + 3600 + 10  # 10 s into the rewind that began on the hour
+    screen = stream.Screen(stream.load(state_dir, now=now))
+    screen.sound = stream_audio.Soundtrack()
+    screen.tick(now, state_dir)
+    assert screen.rewind is not None and screen.animating(now)
+    assert screen.compose(now).size == (stream.SW, stream.SH)
+    screen.tick(now + stream.REWIND_S, state_dir)
+    assert screen.rewind is None  # live again
+    screen.tick(now + stream.REWIND_S + 1, state_dir)
+    assert screen.rewind is None  # one rewind per slot
