@@ -15,21 +15,23 @@
 
 <section class="live" aria-label="The universe, live">
   <div class="statusbar">
-    <span id="phase" class="phase">loading…</span>
+    <span class="status"><span id="phase" class="phase">loading…</span><span id="left" class="left"></span></span>
     <span id="gen" class="gen"></span>
   </div>
   <div class="boardwrap">
     <canvas id="board" width="1280" height="720" aria-label="The current grid"></canvas>
     <div id="tags" class="tags" aria-live="polite"></div>
+    <button id="sound" class="soundbtn" aria-pressed="false">🔇 Turn on sound</button>
   </div>
   <div class="scrub">
     <button id="play" class="iconbtn" aria-label="Play the whole life">▶</button>
     <div class="track">
+      <span class="lifelabel">time left if nobody comments</span><span id="lifemax" class="lifelabel lifemax"></span>
+      <canvas id="lifeline" class="lifeline" aria-hidden="true"></canvas>
       <div id="marks" class="marks"></div>
       <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Generation">
     </div>
     <button id="live" class="livebtn on" aria-label="Back to now">LIVE</button>
-    <button id="sound" class="iconbtn" aria-pressed="false" aria-label="Turn sound on" title="Sound">🔇</button>
   </div>
   <div class="legend" aria-label="What the marks mean">
     <span><i class="sw dark"><b class="cell"></b></i>made by a comment</span>
@@ -100,11 +102,6 @@ let forecastFor = null;
 
 const fmtTime = (epoch) => new Date(epoch * 1000).toLocaleString(undefined,
   { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-function fmtLeft(secs) {
-  if (secs <= 0) return "any moment";
-  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
-  return h ? `${h}h ${m}m left` : `${m}m left`;
-}
 const genTime = (g) => S.launch + g * S.genSec;
 
 async function load() {
@@ -132,6 +129,7 @@ async function load() {
         logSize = text.length;
         const heard = TL ? TL.events.length : null;
         TL = new History.Timeline(History.parse(text));
+        LIFE = null;
         if (heard !== null && mode === "live") cues(TL.events.slice(heard));
         cfCache.clear();
         renderEvents();
@@ -180,9 +178,11 @@ function statusAt(gen) {
 }
 
 // How long it had left at `gen` if nobody commented, from a forecast (null = beyond it).
-function lifeLeft(stuck, gen, horizon) {  // "3d 5h", "14h", "2h 05m", "45m" (as in the pinned comment)
+function lifeLeft(stuck, gen, horizon) {
   if (stuck == null) return `${Math.floor((horizon + S.flatGens) * S.genSec / 86400)}d+`;
-  const secs = Math.max(0, (stuck + S.flatGens - gen) * S.genSec);
+  return fmtSpan(Math.max(0, (stuck + S.flatGens - gen) * S.genSec));
+}
+function fmtSpan(secs) {  // "3d 5h", "14h", "2h 05m", "45m" (as in the pinned comment)
   const d = Math.floor(secs / 86400), h = Math.floor((secs % 86400) / 3600), m = Math.floor((secs % 3600) / 60);
   if (d) return `${d}d ${h}h`;
   if (h >= 3) return `${h}h`;
@@ -341,14 +341,113 @@ function draw(gen) {
   drawRipples(rips);
   const ph = $("phase");
   ph.textContent = st.phase; ph.style.color = `var(--${st.phase})`;
+  const left = lifeAt(gen);
+  $("left").textContent = left == null || st.phase === "DIED" ? ""
+    : !isFinite(left) ? "weeks left"
+    : st.phase === "ALIVE" ? `${fmtSpan(left)} left`
+    : st.phase === "FLATLINING" ? `dies in ${fmtSpan(left)}` : `decided in ${fmtSpan(left)}`;
   let right = st.phase === "DIED" ? `died at gen ${(st.died ?? gen).toLocaleString()}` : `Gen ${gen.toLocaleString()}`;
   if (mode !== "live") right += ` · ${fmtTime(genTime(gen))}`;
-  if ((st.phase === "FLATLINING" || st.phase === "CONTESTED") && st.deadline != null) {
-    const from = mode === "live" ? Date.now() / 1000 : genTime(gen);
-    right += ` · ${fmtLeft(genTime(st.deadline) - from)}`;
-  }
   $("gen").textContent = right;
 }
+
+// ---------------------------------------------------------------- lifeline
+// Time left if nobody comments, across the whole life: it runs down two minutes
+// per generation and jumps wherever a comment changed the forecast (the bot's
+// logged effects). Drawn above the slider, on the same scale.
+let LIFE = null;  // {steps: [{gen, stuck}], phaseGens}, from the log
+let lifeBase = null;  // the drawn curve, cached
+const lifeCanvas = $("lifeline"), lctx = lifeCanvas.getContext("2d");
+
+function lifeSteps() {
+  const steps = [], phaseGens = [];
+  for (const e of TL.events) {
+    if (e.kind === "phase") phaseGens.push(e.gen);
+    else if (e.effect) {
+      if (!steps.length) steps.push({ gen: 0, stuck: e.effect.before });
+      steps.push({ gen: e.gen, stuck: e.effect.after });
+    }
+  }
+  return { steps, phaseGens };
+}
+
+// Seconds left at `gen` if nobody comments after it (Infinity: beyond the forecast; null: unknown).
+function lifeAt(gen) {
+  const st = statusAt(gen);
+  if (st.phase === "DIED") return 0;
+  if (st.phase !== "ALIVE") return st.deadline != null ? Math.max(0, st.deadline - gen) * S.genSec : null;
+  if (!TL) return null;
+  LIFE = LIFE || lifeSteps();
+  let s = null;
+  for (const x of LIFE.steps) { if (x.gen > gen) break; s = x; }
+  if (!s || LIFE.phaseGens.some((p) => p > s.gen && p <= gen)) return null;  // a phase change made it stale
+  if (s.stuck == null) return Infinity;
+  return Math.max(0, s.stuck + S.flatGens - gen) * S.genSec;
+}
+
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function lifeImage(end) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.max(1, Math.round(lifeCanvas.clientWidth * dpr)), H = Math.max(1, Math.round(lifeCanvas.clientHeight * dpr));
+  const dark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
+  const key = `${logSize}|${end}|${W}|${H}|${S.hash}|${dark}`;
+  if (lifeBase && lifeBase.key === key) return lifeBase;
+  const img = document.createElement("canvas");
+  img.width = W; img.height = H;
+  const c = img.getContext("2d"), vals = [], phases = [];
+  for (let x = 0; x < W; x++) {
+    const g = Math.round((x / Math.max(1, W - 1)) * end);
+    vals.push(lifeAt(g)); phases.push(statusAt(g).phase);
+  }
+  const most = Math.max(0, ...vals.filter((v) => v != null && isFinite(v)));
+  const days = Math.max(3, Math.ceil(most / 86400)), ymax = days * 86400, top = 3 * dpr;
+  const y = (v) => H - 1 - (Math.min(v, ymax) / ymax) * (H - 1 - top);
+  c.strokeStyle = cssVar("--rule"); c.lineWidth = 1;
+  for (let d = 0; d <= days; d++) {  // a faint line per day
+    const yy = Math.round(y(d * 86400)) + 0.5;
+    c.beginPath(); c.moveTo(0, yy); c.lineTo(W, yy); c.stroke();
+  }
+  const color = { ALIVE: cssVar("--ALIVE"), FLATLINING: cssVar("--FLATLINING"), CONTESTED: cssVar("--CONTESTED"), DIED: cssVar("--DIED") };
+  const fall = (end / Math.max(1, W - 1)) * S.genSec * 4 + 600;  // more than this between columns is a comment's jump
+  c.lineWidth = 2 * dpr; c.lineCap = "round";
+  for (let x = 0; x < W; x++) {
+    const v = vals[x];
+    if (v == null) continue;
+    c.globalAlpha = 0.14; c.fillStyle = color[phases[x]]; c.fillRect(x, y(v), 1, H - y(v));
+    c.globalAlpha = 1;
+    const p = vals[x - 1];
+    if (x && p != null) {
+      c.strokeStyle = v - p < -fall ? color.FLATLINING : color[phases[x]];  // a drop is red
+      c.beginPath(); c.moveTo(x - 1, y(p)); c.lineTo(x, y(v)); c.stroke();
+    }
+  }
+  $("lifemax").textContent = `${days} days`;
+  lifeBase = { key, img, vals, y };
+  return lifeBase;
+}
+
+// The part already played is solid, the rest faint, with a cursor at `gen`.
+function drawLifeline(gen, end) {
+  if (!S || !TL || !lifeCanvas.clientWidth) return;
+  const b = lifeImage(end), W = b.img.width, H = b.img.height;
+  if (lifeCanvas.width !== W || lifeCanvas.height !== H) { lifeCanvas.width = W; lifeCanvas.height = H; }
+  const cx = Math.round((Math.min(gen, end) / Math.max(1, end)) * (W - 1));
+  lctx.clearRect(0, 0, W, H);
+  lctx.globalAlpha = 0.3; lctx.drawImage(b.img, 0, 0); lctx.globalAlpha = 1;
+  lctx.save(); lctx.beginPath(); lctx.rect(0, 0, cx + 1, H); lctx.clip(); lctx.drawImage(b.img, 0, 0); lctx.restore();
+  const v = b.vals[cx], dpr = window.devicePixelRatio || 1;
+  lctx.strokeStyle = cssVar("--muted"); lctx.lineWidth = dpr;
+  lctx.beginPath(); lctx.moveTo(cx + 0.5, 0); lctx.lineTo(cx + 0.5, H); lctx.stroke();
+  if (v != null) {
+    lctx.fillStyle = cssVar("--fg");
+    lctx.beginPath(); lctx.arc(Math.min(Math.max(cx, 4 * dpr), W - 4 * dpr), b.y(v), 3.5 * dpr, 0, 2 * Math.PI); lctx.fill();
+  }
+}
+lifeCanvas.addEventListener("click", (e) => {
+  const r = lifeCanvas.getBoundingClientRect();
+  if (S && r.width) jump(Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * liveGen()));
+});
 
 // ---------------------------------------------------------------- scrubber
 function setMode(m) {
@@ -535,6 +634,7 @@ function render() {
   const sl = $("slider");
   sl.max = end; sl.value = gen;
   draw(gen);
+  drawLifeline(gen, end);
   if (mode !== "live") {
     $("tick").textContent = "viewing the past · LIVE returns to now";
   } else if (S.phase === "DIED" || (S.phase === "FLATLINING" && gen >= S.deadline)) {
@@ -570,9 +670,8 @@ function forecast() {
 
 function showSound(on) {
   const b = $("sound");
-  b.textContent = on ? "🔊" : "🔇";
+  b.textContent = on ? "🔊 Sound on" : "🔇 Turn on sound";
   b.setAttribute("aria-pressed", String(on));
-  b.setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
 }
 $("sound").addEventListener("click", () => { const on = Sound.toggle(); showSound(on); if (on) Stats.track("sound"); });
 for (const type of ["pointerdown", "keydown"])  // a remembered "on" starts with the first click or key
