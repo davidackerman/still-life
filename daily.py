@@ -59,7 +59,7 @@ def snippet(world, day: int, count: int, mark: str) -> dict:
         fate = f"A comment broke its loop: it lives if it's still changing {render._at(world.launch_time, u.deadline_gen, G, '%a %I:%M %p ET')}."
     else:
         fate = "It won't get stuck for weeks unless a comment changes that."
-    desc = (f"Day {day} of a live Conway's Game of Life universe: {count} comment{'s' * (count != 1)} in the last "
+    desc = (f"Day {day} of universe {world.universe_no}, a live Conway's Game of Life: {count} comment{'s' * (count != 1)} in the last "
             f"24 hours. {fate}\n\n"
             f"This Short is a replay: your comment lands in the live universe within minutes. Watch it on the "
             f"main video's thumbnail, or live at {LIVE}\n\n"
@@ -68,7 +68,7 @@ def snippet(world, day: int, count: int, mark: str) -> dict:
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
-    return {"title": f"Day {day}: This Short dies if nobody comments #GameOfLife", "description": desc,
+    return {"title": f"Universe {world.universe_no}, Day {day}: This Short dies if nobody comments #GameOfLife", "description": desc,
             "tags": ["game of life", "conway's game of life", "cellular automata", "glider", "simulation",
                      "interactive", "live", "emergence"],
             "categoryId": "28", "defaultLanguage": "en"}
