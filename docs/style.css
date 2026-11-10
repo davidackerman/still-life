@@ -111,3 +111,4 @@ main.wide { max-width: 68rem; }
             color: #fff; border-radius: 999px; padding: .3rem .8rem; font: 600 .85rem/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; cursor: pointer; }
 .soundbtn:hover { border-color: #fff; }
 .soundbtn[aria-pressed="true"] { border-color: rgba(120,230,160,.7); }
+.checked { color: var(--muted); font-size: .95rem; margin: .5rem 0 0; }

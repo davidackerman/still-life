@@ -47,6 +47,7 @@
   </div>
   <p id="forecast" class="forecast"></p>
   <p id="cta" hidden><a id="video" class="button" href="#">Comment on the video to change it</a></p>
+  <p id="checked" class="checked"></p>
   <p id="tally" class="tally"></p>
   <details class="history" open>
     <summary>What has happened so far</summary>
@@ -158,12 +159,12 @@ function cues(events) {
 
 // When the bot last read the comments, so a commenter knows when theirs will show up.
 function showSync() {
-  const el = $("sync");
-  if (syncError) { el.textContent = "couldn't reach the bot's state; retrying"; return; }
-  if (!TL || !TL.checked) { el.textContent = S ? `bot's last state: gen ${S.gen.toLocaleString()}` : ""; return; }
+  $("sync").textContent = syncError ? "couldn't reach the bot's state; retrying"
+    : S ? `bot's last state: gen ${S.gen.toLocaleString()}` : "";
+  const el = $("checked");
+  if (!TL || !TL.checked) { el.textContent = ""; return; }
   const mins = Math.floor(Math.max(0, Date.now() / 1000 - TL.checked) / 60);
-  el.textContent = `comments checked ${mins < 1 ? "just now" : `${mins} min ago`} (about every 10 min)`;
-  el.title = `bot's last state: gen ${S.gen.toLocaleString()}`;
+  el.textContent = `New comments show up here within about 10 minutes. Last checked ${mins < 1 ? "just now" : `${mins} min ago`}.`;
 }
 
 function liveGen() {
@@ -411,8 +412,10 @@ function lifeImage(end) {
     const g = Math.round((x / Math.max(1, W - 1)) * end);
     vals.push(lifeAt(g)); phases.push(statusAt(g).phase);
   }
-  const most = Math.max(0, ...vals.filter((v) => v != null && isFinite(v)));
-  const days = Math.max(3, Math.ceil(most / 86400)), ymax = days * 86400, top = 3 * dpr;
+  // the scale fits most of the line; a rare spike runs off the top instead of squashing the rest
+  const finite = vals.filter((v) => v != null && isFinite(v)).sort((a, b) => a - b);
+  const typical = finite.length ? finite[Math.floor(0.95 * (finite.length - 1))] : 0;
+  const days = Math.max(3, Math.ceil(typical / 86400)), ymax = days * 86400, top = 3 * dpr;
   const y = (v) => H - 1 - (Math.min(v, ymax) / ymax) * (H - 1 - top);
   c.strokeStyle = cssVar("--rule"); c.lineWidth = 1;
   for (let d = 0; d <= days; d++) {  // a faint line per day
