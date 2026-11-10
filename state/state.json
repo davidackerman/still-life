@@ -41,6 +41,7 @@
    "84e0f87a26ac6dcbeebb4a008c4657eb": 1794259335.0,
    "853756c6496c2078c3ecd38a5b1d4740": 1794285772.0,
    "8a942283a92c8fe1be7e0585780cfee3": 1794280988.0,
+   "8ee034698eb6e23f9904eb39bf5a3d64": 1794325324.0,
    "92637b7bff98ba1ef7d6f6dd20ec5dad": 1794281888.0,
    "96f0a878accc10d15f34dfff453b5f5c": 1794192380.0,
    "9925bafffa0ecf3c07a2c0f22510a2fa": 1794321675.0,
@@ -89,6 +90,7 @@
    "227c04da7bf138f4c317cb068ef27e0a": 1794311536.0,
    "2314a1108df06cdc73a8e0ce9969fa44": 1794319682.0,
    "23eed4669356d3dce4edfc40ba2f7ed9": 1794193553.0,
+   "25be7f831af20cc7ff09735fe7c2e81b": 1794325324.0,
    "2a543f1737d8150f915ea2d67c8bf801": 1794324988.0,
    "2b055a9e158050bac3351384c4060fa3": 1794182555.0,
    "2b2c31af66a4fdcfb9f510624965b4d2": 1794193972.0,
@@ -106,6 +108,8 @@
    "41609a9549557d1451be63973be077bd": 1794316665.0,
    "428cb862d024ea58da209a44be999111": 1794311820.0,
    "47351b2e09ff795cd8ff320619806efe": 1794281888.0,
+   "48c6dc6b9977d38ba3492ffbeb5fd7a4": 1794325165.0,
+   "496164640dc96c3c598c34585064aeea": 1794325213.0,
    "4af446427986fa1df985b1f34c94926f": 1794323750.0,
    "4bd810e72ea1127a9ab3e76aa1ca4e99": 1794189003.0,
    "4f101b27f26581da63f58759451dad05": 1794284288.0,
@@ -159,6 +163,7 @@
    "cd57e796ec252cb4a3da4d449181d140": 1794180901.0,
    "cea387d31caeec78ef1bb1b2447ce603": 1794290684.0,
    "d442b0695327c3fa4d29a7be08aeee01": 1794182445.0,
+   "d7bd7c3108dc1002b92ac7407bd0d266": 1794325186.0,
    "d9829c64cdc5ca6a32a06019fe235195": 1794265350.0,
    "d98f7608990c4e1de989abe8a7a37e45": 1794225289.0,
    "dc1c233b4634d34ba0d1da3bdb7f6743": 1794259335.0,
@@ -175,7 +180,8 @@
    "f0017c7d0709a4b8c28960adfd17da9d": 1794283428.0,
    "f0372159040f68b3bd5a48deb61441f6": 1794321312.0,
    "f256445f73745fb722ee2dde12fa593d": 1794278831.0,
-   "f49a6a9c68b62d06f213dcf21cf1f8b8": 1794196698.0
+   "f49a6a9c68b62d06f213dcf21cf1f8b8": 1794196698.0,
+   "fde7bf661dda5ef342d604a97fefc3bd": 1794325088.0
   }
  },
  "config": {
@@ -200,12 +206,12 @@
   "contest_by": null,
   "effects_backfilled": true,
   "forecast": {
-   "horizon": 31755,
+   "horizon": 31758,
    "key": [
-    1755,
+    1758,
     "ALIVE"
    ],
-   "stuck_gen": 2150
+   "stuck_gen": 3822
   },
   "highlight": [
    [
@@ -305,6 +311,14 @@
     15
    ],
    [
+    33,
+    20
+   ],
+   [
+    33,
+    21
+   ],
+   [
     34,
     13
    ],
@@ -317,6 +331,14 @@
     16
    ],
    [
+    34,
+    20
+   ],
+   [
+    34,
+    21
+   ],
+   [
     35,
     13
    ],
@@ -343,6 +365,126 @@
    [
     36,
     17
+   ],
+   [
+    55,
+    67
+   ],
+   [
+    55,
+    68
+   ],
+   [
+    56,
+    67
+   ],
+   [
+    56,
+    68
+   ],
+   [
+    56,
+    70
+   ],
+   [
+    56,
+    71
+   ],
+   [
+    57,
+    67
+   ],
+   [
+    57,
+    68
+   ],
+   [
+    57,
+    69
+   ],
+   [
+    57,
+    70
+   ],
+   [
+    57,
+    71
+   ],
+   [
+    58,
+    67
+   ],
+   [
+    58,
+    69
+   ],
+   [
+    58,
+    70
+   ],
+   [
+    59,
+    67
+   ],
+   [
+    59,
+    70
+   ],
+   [
+    59,
+    71
+   ],
+   [
+    62,
+    34
+   ],
+   [
+    63,
+    33
+   ],
+   [
+    63,
+    34
+   ],
+   [
+    63,
+    35
+   ],
+   [
+    64,
+    33
+   ],
+   [
+    82,
+    46
+   ],
+   [
+    82,
+    47
+   ],
+   [
+    82,
+    49
+   ],
+   [
+    83,
+    45
+   ],
+   [
+    84,
+    49
+   ],
+   [
+    85,
+    45
+   ],
+   [
+    85,
+    46
+   ],
+   [
+    86,
+    46
    ],
    [
     96,
@@ -413,6 +555,30 @@
     11
    ],
    [
+    122,
+    33
+   ],
+   [
+    122,
+    36
+   ],
+   [
+    122,
+    37
+   ],
+   [
+    123,
+    34
+   ],
+   [
+    123,
+    35
+   ],
+   [
+    123,
+    36
+   ],
+   [
     124,
     9
    ],
@@ -423,6 +589,18 @@
    [
     124,
     13
+   ],
+   [
+    124,
+    33
+   ],
+   [
+    124,
+    35
+   ],
+   [
+    124,
+    36
    ],
    [
     125,
@@ -437,12 +615,32 @@
     13
    ],
    [
+    125,
+    33
+   ],
+   [
+    125,
+    34
+   ],
+   [
+    125,
+    35
+   ],
+   [
     126,
     9
    ],
    [
     126,
     13
+   ],
+   [
+    126,
+    33
+   ],
+   [
+    126,
+    37
    ],
    [
     127,
@@ -464,8 +662,8 @@
   "last_thumb_at": 1794321505.0495892,
   "last_thumb_headline": "DIES THU NOV 12",
   "last_thumb_phase": "ALIVE",
-  "last_title": "This Game of Life video dies in 5d 10h 45m if nobody comments",
-  "last_title_at": 1794324530.887069,
+  "last_title": "This Game of Life video dies in 3d 20h 30m if nobody comments",
+  "last_title_at": 1794325536.298134,
   "migrations": [
    "readmit-dropped-2026-11-09",
    "recent-in-hours-2026-11-09"
@@ -487,38 +685,38 @@
     "text": "🟢 ALIVE · this video dies in ~5 days if nobody comments\nThis Short is a replay, but it is alive: every comment here adds cells to the live universe within minutes (as many as you like; replies count too). Watch your move land on the linked video's thumbnail or the live page below. If the universe dies, both videos die.\n\nLatest moves (time it had left: before → after):\n• gen 1,728: random 5x5 at 10,1 · 2d 3h → 5d 6h\n• gen 1,725: random 5x5 at 15,40 · 4d 8h → 2d 3h\n• gen 1,720: random 5x5 at 52,23 · 3d 5h → 4d 8h\n• gen 1,711: random 5x5 at 127,35 · 2d 17h → 3d 5h\n• gen 1,708: random 5x5 at 54,5 · 2d 3h → 2d 17h\n• gen 1,697: random 5x5 at 110,1 · 2d 6h → 2d 3h\n• gen 1,692: random 5x5 at 11,14 · 1d 21h → 2d 6h\n• gen 1,692: random 5x5 at 108,12 · 2d 14h → 1d 21h\n\nTry one: acorn 91,27 (a quiet corner right now) · or just say anything\nRewind every move: davidackerman.github.io/still-life"
    }
   },
-  "pinned_core": "🟢 ALIVE · this video dies in ~1 day if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 1,755: random 5x5 at 124,9 · 2d 9h → 1d 13h\n• gen 1,754: random 5x5 at 96,29 · 5d 10h → 2d 9h\n• gen 1,750: glider 105,9 se · 1d 19h → 5d 10h\n• gen 1,747: random 5x5 at 32,13 · 10d 3h → 1d 19h\n• gen 1,745: random 5x5 at 27,47 · 5d 6h → 10d 3h\n• gen 1,728: random 5x5 at 10,1 · 2d 3h → 5d 6h\n• gen 1,725: random 5x5 at 15,40 · 4d 8h → 2d 3h\n• gen 1,720: random 5x5 at 52,23 · 3d 5h → 4d 8h\n\nRewind every move: davidackerman.github.io/still-life",
-  "pinned_suggest": "acorn 53,32",
+  "pinned_core": "🟢 ALIVE · this video dies in ~3 days if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 1,756: 5 comments · 1d 13h → 3d 20h\n• gen 1,755: random 5x5 at 124,9 · 2d 9h → 1d 13h\n• gen 1,754: random 5x5 at 96,29 · 5d 10h → 2d 9h\n• gen 1,750: glider 105,9 se · 1d 19h → 5d 10h\n• gen 1,747: random 5x5 at 32,13 · 10d 3h → 1d 19h\n• gen 1,745: random 5x5 at 27,47 · 5d 6h → 10d 3h\n• gen 1,728: random 5x5 at 10,1 · 2d 3h → 5d 6h\n• gen 1,725: random 5x5 at 15,40 · 4d 8h → 2d 3h\n\nRewind every move: davidackerman.github.io/still-life",
+  "pinned_suggest": "acorn 70,59",
   "recent": [
+   "gen 1,756: 5 comments · 1d 13h → 3d 20h",
    "gen 1,755: random 5x5 at 124,9 · 2d 9h → 1d 13h",
    "gen 1,754: random 5x5 at 96,29 · 5d 10h → 2d 9h",
    "gen 1,750: glider 105,9 se · 1d 19h → 5d 10h",
    "gen 1,747: random 5x5 at 32,13 · 10d 3h → 1d 19h",
    "gen 1,745: random 5x5 at 27,47 · 5d 6h → 10d 3h",
    "gen 1,728: random 5x5 at 10,1 · 2d 3h → 5d 6h",
-   "gen 1,725: random 5x5 at 15,40 · 4d 8h → 2d 3h",
-   "gen 1,720: random 5x5 at 52,23 · 3d 5h → 4d 8h"
+   "gen 1,725: random 5x5 at 15,40 · 4d 8h → 2d 3h"
   ],
   "saves": 0
  },
  "extra_read": {
-  "R_VATUWBY4Q": 1794325039.6148694,
-  "m-JcepjW41U": 1794325039.6148694
+  "R_VATUWBY4Q": 1794325536.298134,
+  "m-JcepjW41U": 1794325536.298134
  },
  "format": 1,
  "last_changer": {
-  "author": "3166ea3ad8b95d4a5383748b460a634a",
-  "command": "random 5x5 at 124,9",
-  "comment": "2a543f1737d8150f915ea2d67c8bf801",
-  "gen": 1755
+  "author": "8ee034698eb6e23f9904eb39bf5a3d64",
+  "command": "block 33,20",
+  "comment": "25be7f831af20cc7ff09735fe7c2e81b",
+  "gen": 1758
  },
  "log": {
-  "head": "17ac08edc87b42d81a5a615316e2078a46d14fa006762e02d7253c166938cabf",
-  "seq": 848
+  "head": "4e4d035ccb6f7c2f7f1fe71ae5db7a8a41a9e9f1cb88685d5ceae0c3e5dd13c7",
+  "seq": 860
  },
  "quota": {
   "day": "2026-11-10",
-  "used": 2459
+  "used": 2513
  },
  "reply_counts": {},
  "retire_pending": [],
@@ -527,10 +725,10 @@
   "deadline_gen": null,
   "died_gen": null,
   "flatline_gens": 720,
-  "generation": 1756,
-  "grid": "wBPgAAAACEMAAAAAAAIA4QA07AAAACKDAAAAAMAkAKAAECAABwAiAAAAAAFgCAEQAA50AAAAAAAAAAADuAABAAAIQAAAABwAAAAAAZgAARYACIAAAAAAAAAAAAGEMABRIAYAAAAAAAAUAAABtzAABtAEAAAAAAwARgAAALAAAANwCAAAAAAOAAQAAAAAAAAEABoAAAHAAAB4AAAAMAAADQAKAAAIAANAEAAAADgAAAyABAAAHBAGAAAIAAAACAALgAAgADIQB0AACAADgCgAGAAAEABhEAdwAAgAAAAYgAMADjAACAAACAAAAAAAAUAKAD+AAGQAAQAAAAAAAAFAAADVgABmAAEIAAAAAAAAgAABQEAATAAAYAAAACAAAAAABwQAADgAAAAAAABQAAAAAAT3QAAQBggAAAAAUAAAAAAHj4AAAAYMAAAAACAAAAAAAHCAAAAAFgAAAAAAAAAAAAAgAAAAADMAAAAAAAAAAAAAAAAAAAAzgAAAAAAAAEAAAAAAAAAAIwAAAAAAAABAAAAAAAAYAAIABgAAAAAAQACAAAAAGAAAAAYAAAAAAAAQgAAAAAAAAAAAAAAAAAAAEIAAAAAAAAAAAAAAAAAAABAAAAAAEAAAAAAAAAAAAAAAAAAAACgAAAAAAAAAAAAAAAAAAAMoAAAAAADAAAAAAAAAAAADEAAAAAAAwAAAAYAAAAAAAAAAAAAAAAAAMAGAAAAAAAAAAAAAAAAAADAAAQAAAgAAAAAAAAAAAAAAAAEAAAMAAAAAAAAAAAAAAAABAAAEgAAAAAAAAAAAAAAAAAAAAoAAADAAAAAAAAAAAAAAgAdgAAAwAAAAAAAAAAAAAEAEuAAAAAAAAMAAAAAAAAEgIBRgAAAAAADAAAAAAgABwBzSYAAAAAAAAAAAAAUAAAAEzAAAAAAAAAAAQAAJAAAAAsAAAAAAAOAAAKAABgAAAAcAAAAAAAAAAAEgAAAAAAAGAAAAAAAACAAAwAAAAAAAAwAAAAAAAAgAAAA4AAAAAAcgAAAcAAAIAAAAAAAAAAAVMAAAAAAAAAAAAAAAAAAAaGAAAAAAAAAAAAAAAAAAAYhAAAAAAAAAwAAAAAAAACOAAAAAAAAAAMAACAAAAABEKAAAAAAAAAAAAAwMAAAAEAwAAAAAAAAAAAACDAAAAIAkAAAAADAAAAAALAAAAADARAAAAABIAAAAAGOAAAIAAEQAAAAAMAAAAAA+QAAHAAAAAAAAAAAAAAAAEEAACoAASAAAAAAAAAAAAKWAAAiAAAgIAAAAAAAAAAFRAAAwYAAgFAAAAAAAAAAAwwAAQhAArBIDAAAQAAAAAELAAOU4ASAMBIAAKAAAAAAvsABCEAJMGAMAACgAAAAAEGAAMGDhmDAAAAAQAAAAAAAQAAiDEBAPgAAgAAAAFAADAAAKhAgACIAAIAAAABgAAAAQBwiQBBDAACAB0AAIAAAAJAIEAAA2gAAABuwAAAAAMEQAAAAEcYAAAAigAAAAADBGAAAABHAAAAAIwAAAAAAAUgAA",
-  "hash": "73af019126d3d2cd6ead5841b4f22f0a22a5a275b36a93e6e392fe7bb2f615c6",
-  "history_base": 1755,
+  "generation": 1760,
+  "grid": "wCoAAAAAAgMAAAAAYBGAkQAQgAAAAAUDAAAAAEAOADgAAIAABwAWAAAAAABAAAAAAAIAAAAAFgAAAAAADAAAAAAAoAAAAAgAAAAAACIAAA7AAEAAAAAAAAYAAAACMAAO4AAAAAAAAAAJAAABGzAACRAAAAAAAAMABQAAAQoAAAYAAAAACAADAAIAAAAiAAAHAAAAAB3AAIAAAAAAhAAAGAAYAAAnAAWAAAAAAOgAABiAGAAAWBAMgAAIAACgAAApAAAAAF4QBIAACAADgAYAIAAAIACeEACgAAgAAAAQgBSAUCAAcQAAgAAAAAAACEAAAMQAAFkAAOAAAAAAAANACQPEAAANgAAAAAAAAAAAgAAFAgAAAwAAAAAAACAAAAAAAB4AAAIADAAAAABQAAAAAAECAAAEBhoAAAAAUAAAAAAIAAAACAYgAAAAACAAAAAAAgIAAAAAUYAAAAAAAAAAAAAKAAAAAIpAAAAAAAAAAAAAAAAAAABq4AAAAAAAAEAAAAAAAAAAEYAAAAAAAABAAAAAAAAYAA4ABgAAAAAAQACAAAAAGAACAAYAAAAAAAAQgAAAAAAAAAAAAAAAAAAAEIAAAAAAAAAAAAAAAAAAABAAAAAAEAAAAAAAAAAAAAAAAAAAACgAAAAAAAAAAAAAAAAAAAMoAAAAAADAAAAAAAAAAAADEAAAAoAAwAAAAYACAAAAAAAAAASAAAAAMAGAEQAAAAAAAAAEgAAAADAAABIABwAAAAAAAwAAAAAAAAEQAAfAAAAAAAAAAAAAAAABEAAGQAAAAAAAAAAAAAAAAKAAAeAAADAAAAAAAAAAAAAAgAJgAAAwAAAAAAAAAAAAAEAEAAAAAAAAAMAAAAAAAAEgDiBgAAAAAADAAAAAAgABwAI+YAAAAAAAAAAAAAUAAAACcAAAAAAAAAAAQAAJAAAAAAAAAAAAAOAAACAABgAAAAAAAAAAAAAAAAEgAAAAAAAHwAAAAAAACAAAQAAAAAAAEAAAAAAAAAgAAkA4AAAAACAIAAAcAAAIAAMAAAAAAAAgBAAAAAAAAAAAAAAAAAAAZhgAAAAAAAAAAAAAAAAAACYQAAAAAAAAwAAAAAAAAAaJYAAAAAAAAMAADAAAAAAEGAAAAAAAAAAAABIMAAAAQ8AAAAAAAAAAAAASDAAAACAUAAAAADAAAAAAFgAAAABAFAAAAABIAAAAAJDAAAAAAAwAAAAAMAAAAAA7QAAHAAAAAAAAAAAAAAAAAEAABwAAAAAAAAAAAAAAAEGAAAAAABAEAAAAAAAAAACAAAAAAADMBAAAAAAAAAAAwgAAYDABLAQDAAAQAAAAAFEAAGA4AggABIAAKAAAAAAAQABgMAJcEAMAACgAAAAABTAAAAgQFBQAAAAQQAAAAAhAAAAEaBgAwAAgAIgAAAAFAAAHC5gYYAAAIABEACgAAwAgBwwAAEBAACAOAAAwAAAAfAAAAABAQAAADgAAEAAAMAEAAAAcHIAAAAYUAAAAAEBggEAAIAOAAAAyAAAAAAAwIIDg",
+  "hash": "72267bb898c0ccb31b0882df8a5df51bb3eb7cf592371dc179d9dd48fa056cbc",
+  "history_base": 1758,
   "phase": "ALIVE",
   "shape": [
    72,
