@@ -176,11 +176,11 @@ def last_check(state_dir: str) -> float | None:
 
 
 def checked_text(checked: float | None, now: float) -> str:
-    """'comments checked 4 min ago' ('' if unknown)."""
+    """'chat checked 4 min ago' ('' if unknown). The tick reads the chat and the comments together."""
     if checked is None:
         return ""
     mins = int(max(0.0, now - checked) // 60)
-    return "comments checked just now" if mins < 1 else f"comments checked {mins} min ago"
+    return "chat checked just now" if mins < 1 else f"chat checked {mins} min ago"
 
 
 def step(snap: Snapshot, now: float) -> bool:
@@ -402,10 +402,10 @@ class Screen:
         snap, u = self.snap, self.snap.u
         x, y = BOARD_X, BOARD_Y + BOARD_H + 34
         width = SW - 2 * BOARD_X
-        head = "Every comment adds cells. Some save it. Some kill it."
+        head = "Every chat message adds cells. Some save it. Some kill it."
         d.text((x, y), head, font=font("bold", 36), fill=WHITE, anchor="lt")
         try_one = f"try {render.suggestion(u)} (a quiet corner)   ·   " if u.phase != DIED else ""
-        line = f"Comment on the video youtu.be/{snap.video}   ·   {try_one}or just say anything"
+        line = f"Type it in the chat (or comment on youtu.be/{snap.video})   ·   {try_one}or just say anything"
         size = fit(d, line, "regular", 27, width, 18)
         d.text((x, y + 54), line, font=font("regular", size), fill=LIGHT, anchor="lt")
         cmds = (f"glider x,y [ne|nw|se|sw] · block x,y · blinker x,y · rpent x,y · acorn x,y · cells x,y x,y …"

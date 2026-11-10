@@ -76,6 +76,7 @@ class World:
     last_changer: dict | None = None  # keyed ids of the last board-changing comment
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
     reply_counts: dict = field(default_factory=dict)  # owned by youtube.YouTube (keyed thread -> [n, t])
+    chat: dict = field(default_factory=dict)  # owned by youtube.YouTube: the live stream's chat and where we are in it
     # Succession (death.py): which universe this is, the video hosting it (None =
     # the VIDEO_ID secret, universe #1), videos of dead universes never to be
     # driven again, the death sequence's progress, and videos still to make private.
@@ -111,6 +112,7 @@ class World:
             "last_changer": self.last_changer,
             "quota": self.quota,
             "reply_counts": dict(sorted(self.reply_counts.items())),
+            "chat": self.chat,
             "death": self.death,
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
@@ -134,7 +136,7 @@ class World:
             highlight={tuple(c) for c in disp["highlight"]}, backoff=dict(disp["backoff"]),
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
             forecast=disp.get("forecast"), recent=disp.get("recent"), pinned=pinned,
-            reply_counts=dict(d.get("reply_counts", {})),
+            reply_counts=dict(d.get("reply_counts", {})), chat=dict(d.get("chat") or {}),
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
@@ -280,6 +282,11 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     except Exception as e:  # noqa: BLE001
         comments, fetched = [], False
         events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
+    if hasattr(yt, "fetch_chat"):  # the live stream's chat plays like comments
+        try:
+            comments = comments + yt.fetch_chat(now)
+        except Exception as e:  # noqa: BLE001 - the comments still play
+            events.append({"type": "youtube_error", "op": "fetch_chat", "error": repr(e)[:500]})
     # The owner's status comment on each video is not a move in the game: note
     # its ID, skip it. Replies never count as status comments.
     known = {p["id"] for p in world.pinned.values()}

@@ -422,3 +422,30 @@ def test_comments_land_at_the_generation_they_were_posted_in():
     ev = engine.tick(w, LAUNCH + 900, yt)  # one run catches up 0 -> 7
     assert [e["gen"] for e in ev if e["type"] == "injection"] == [1, 2, 2, 5]
     assert w.universe.generation == 7
+
+
+class ChatYT(FakeYT):
+    def __init__(self, comments=(), chat=(), chat_fails=False):
+        super().__init__(comments)
+        self.chat, self.chat_fails = list(chat), chat_fails
+
+    def fetch_chat(self, now=None):
+        if self.chat_fails:
+            raise RuntimeError("chat failed")
+        return self.chat
+
+
+def test_live_chat_messages_play_and_a_chat_failure_does_not_stop_comments():
+    import datetime as dt
+    from admission import Comment
+    import youtube
+    w = world()
+    t = LAUNCH + 600
+    at = dt.datetime.fromtimestamp(t - 30, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    chat = [Comment("chat:m1", "UCv", at, "block 20,20", video=youtube.CHAT)]
+    events = engine.tick(w, t, ChatYT(chat=chat))
+    assert [e["command"] for e in events if e["type"] == "injection"] == ["block 20,20"]
+    w2 = world()
+    events = engine.tick(w2, t, ChatYT(comments=[comment("c1")], chat_fails=True))
+    assert [e["command"] for e in events if e["type"] == "injection"] == ["glider 10,10 se"]
+    assert any(e["type"] == "youtube_error" and e["op"] == "fetch_chat" for e in events)

@@ -200,7 +200,7 @@ def main(argv=None) -> int:
         extras, skip = choose_extras(world, extra_ids, now)
         return youtube.YouTube(service, main, quota["q"], env_flag("DESCRIPTION_GRID", "false"),
                                extra_video_ids=extras, reply_counts=world.reply_counts, key=key,
-                               skip_video_ids=skip)
+                               skip_video_ids=skip, chat=world.chat)
 
     events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"),
                  dry_run=dry_run, force_pinned=env_flag("FORCE_PINNED", "false"))

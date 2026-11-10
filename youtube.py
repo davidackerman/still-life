@@ -120,7 +120,7 @@ DAILY_BUDGET = 8000  # self-imposed; Google's default pool is 10,000/day
 PACIFIC = ZoneInfo("America/Los_Angeles")
 COST = {"commentThreads.list": 1, "comments.list": 1, "videos.list": 1, "videos.update": 50,
         "thumbnails.set": 50, "comments.update": 50, "commentThreads.insert": 50, "channels.list": 1,
-        "playlistItems.list": 1}
+        "playlistItems.list": 1, "liveBroadcasts.list": 1, "liveChatMessages.list": 5}
 # videos.insert is not in this pool: it has its own bucket of 100 uploads a day (checked 2026-11-08).
 
 # videos.update "part=status" also deletes any status property left out (docs,
@@ -211,6 +211,25 @@ def replies_in_thread(item: dict, video: int = 0) -> list:
     return [_comment(r, channel, video, True) for r in (item.get("replies") or {}).get("comments", [])]
 
 
+CHAT = -1  # Comment.video for a message in the live stream's chat
+CHAT_LOOKUP_S = 30 * 60  # with no live chat found, look for one again after this (1 unit)
+CHAT_PAGE = 2000  # liveChatMessages.list maxResults (200..2000)
+CHAT_GONE = ("liveChatEnded", "liveChatNotFound", "liveChatDisabled")
+
+
+def chat_comment(m: dict):
+    """admission.Comment for a live chat text message, or None (other events, and
+    the chat owner's own messages: announcements, not moves)."""
+    from admission import Comment
+
+    sn, who = m.get("snippet") or {}, m.get("authorDetails") or {}
+    if sn.get("type") != "textMessageEvent" or who.get("isChatOwner"):
+        return None
+    text = (sn.get("textMessageDetails") or {}).get("messageText") or sn.get("displayMessage", "")
+    author = who.get("channelId") or sn.get("authorChannelId") or "name:" + who.get("displayName", "")
+    return Comment(id="chat:" + m["id"], author=author, published_at=sn["publishedAt"], text=text, video=CHAT)
+
+
 class YouTube:
     """The engine's view of YouTube: comments in, title and thumbnail out.
 
@@ -222,10 +241,15 @@ class YouTube:
     state) remembers how many replies each busy thread had when we last fetched
     them all, keyed by HMAC under `key`, so a thread is re-read only when its
     count changes.
+
+    `chat` (also owned by the caller and persisted) is where fetch_chat keeps
+    the channel's live chat: {"id": liveChatId, "token": next page, "looked": t}.
+    These identify our own broadcast's chat, not anyone's messages.
     """
 
     def __init__(self, service, video_id: str, quota: Quota, description_grid: bool = False,
-                 extra_video_ids=(), reply_counts: dict | None = None, key: bytes = b"", skip_video_ids=()):
+                 extra_video_ids=(), reply_counts: dict | None = None, key: bytes = b"", skip_video_ids=(),
+                 chat: dict | None = None):
         self.service, self.video_id, self.quota = service, video_id, quota
         self.description_grid = description_grid
         self.videos = [video_id]
@@ -235,6 +259,55 @@ class YouTube:
         self.skip = set(skip_video_ids)  # not read this run (older Shorts are read every 30 min)
         self.reply_counts = {} if reply_counts is None else reply_counts
         self.key = key
+        self.chat = {} if chat is None else chat
+
+    def _live_chat(self, now: float) -> str | None:
+        """The live chat of the channel's broadcast that is live now (remembered)."""
+        if self.chat.get("id"):
+            return self.chat["id"]
+        if now - self.chat.get("looked", 0) < CHAT_LOOKUP_S:
+            return None
+        self.chat["looked"] = now
+        self.quota.spend(COST["liveBroadcasts.list"], critical=True)
+        resp = self.service.liveBroadcasts().list(part="snippet", broadcastStatus="active", broadcastType="all",
+                                                  maxResults=5).execute()
+        for b in resp.get("items", []):
+            if (b.get("snippet") or {}).get("liveChatId"):
+                self.chat.update(id=b["snippet"]["liveChatId"], token=None)
+                return self.chat["id"]
+        return None
+
+    def fetch_chat(self, now: float | None = None) -> list:
+        """New messages in the live stream's chat, as Comments (video=CHAT).
+
+        Picks up where the last run stopped (the page token is kept), so nothing
+        posted between runs is missed. When the chat has ended it is forgotten,
+        and the next run looks for a new broadcast."""
+        now = time.time() if now is None else now
+        chat = self._live_chat(now)
+        out = []
+        for _ in range(MAX_PAGES if chat else 0):
+            self.quota.spend(COST["liveChatMessages.list"], critical=True)
+            try:
+                resp = self.service.liveChatMessages().list(
+                    liveChatId=chat, part="snippet,authorDetails", maxResults=CHAT_PAGE,
+                    pageToken=self.chat.get("token")).execute()
+            except Exception as e:  # noqa: BLE001 - sorted below; anything else goes up
+                status, reason, _ = http_error_reason(e)
+                if reason in CHAT_GONE or status == 404:
+                    self.chat.clear()
+                    return out
+                if status == 400 and self.chat.get("token"):  # a stale page token: start from the latest
+                    self.chat["token"] = None
+                    continue
+                raise
+            items = resp.get("items", [])
+            out += [c for c in map(chat_comment, items) if c]
+            if resp.get("nextPageToken"):
+                self.chat["token"] = resp["nextPageToken"]
+            if len(items) < CHAT_PAGE or not resp.get("nextPageToken"):
+                break
+        return out
 
     def _threads(self, video: int, since: float) -> list[dict]:
         """Threads on one video, newest first, paging until older than `since`."""

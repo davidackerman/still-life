@@ -249,3 +249,87 @@ def test_clock_reads_like_a_person_wrote_it():
     t = 1794255300  # 2026-11-09 20:15 UTC
     assert render.clock(t) == "Mon Nov 9, 3:15 PM ET"
     assert render.clock(t, date=False) == "Mon 3:15 PM ET"
+
+
+class ChatService:
+    """liveBroadcasts.list and liveChatMessages.list, scripted."""
+
+    def __init__(self, broadcasts=(), pages=(), errors=()):
+        self.broadcasts, self.pages, self.errors, self.calls = list(broadcasts), list(pages), list(errors), []
+
+    def liveBroadcasts(self):
+        return self
+
+    def liveChatMessages(self):
+        return self
+
+    def list(self, **kw):
+        self.calls.append(kw)
+        if "broadcastStatus" in kw:
+            return Req(lambda: {"items": self.broadcasts})
+
+        def run():
+            if self.errors:
+                raise self.errors.pop(0)
+            return self.pages.pop(0)
+        return Req(run)
+
+
+class FakeHttpError(Exception):
+    def __init__(self, status, reason):
+        import json
+        super().__init__(reason)
+        self.resp = type("R", (), {"status": status})()
+        self.content = json.dumps({"error": {"errors": [{"reason": reason}], "message": reason}}).encode()
+
+
+def chat_msg(mid, text, t, author="UCv", owner=False, kind="textMessageEvent"):
+    return {"id": mid, "snippet": {"type": kind, "publishedAt": iso(t).replace("Z", ".123456+00:00"),
+                                   "textMessageDetails": {"messageText": text}, "displayMessage": text},
+            "authorDetails": {"channelId": author, "isChatOwner": owner, "displayName": "Viv"}}
+
+
+def chat_yt(svc, chat=None):
+    q = youtube.Quota({}, T0)
+    return youtube.YouTube(svc, "VID", q, key=b"k" * 16, chat={} if chat is None else chat)
+
+
+def test_chat_messages_play_like_comments_and_pick_up_where_they_left_off():
+    svc = ChatService(broadcasts=[{"id": "B1", "snippet": {"liveChatId": "LC1"}}],
+                      pages=[{"items": [chat_msg("m1", "glider 3,4", T0),
+                                        chat_msg("m2", "pinned: comment on the video", T0, owner=True),
+                                        chat_msg("m3", "", T0, kind="superStickerEvent")],
+                              "nextPageToken": "p1", "pollingIntervalMillis": 1000},
+                             {"items": [chat_msg("m4", "hi", T0 + 60)], "nextPageToken": "p2"}])
+    state = {}
+    y = chat_yt(svc, state)
+    out = y.fetch_chat(T0)
+    assert [(c.id, c.text, c.video, c.author) for c in out] == [("chat:m1", "glider 3,4", youtube.CHAT, "UCv")]
+    assert abs(out[0].epoch - (T0 + 0.123456)) < 1e-6  # fractional seconds and +00:00 parse
+    assert state == {"looked": T0, "id": "LC1", "token": "p1"} and y.quota.used == 1 + 5
+    assert [c.id for c in chat_yt(svc, state).fetch_chat(T0 + 300)] == ["chat:m4"]
+    assert svc.calls[-1]["pageToken"] == "p1" and "broadcastStatus" not in svc.calls[-1]  # no second lookup
+    assert state["token"] == "p2"
+
+
+def test_no_live_broadcast_means_no_chat_and_a_slow_look():
+    svc = ChatService()
+    state = {}
+    assert chat_yt(svc, state).fetch_chat(T0) == [] and len(svc.calls) == 1
+    assert chat_yt(svc, state).fetch_chat(T0 + 600) == [] and len(svc.calls) == 1  # looks again after 30 min
+    chat_yt(svc, state).fetch_chat(T0 + youtube.CHAT_LOOKUP_S + 1)
+    assert len(svc.calls) == 2
+
+
+def test_an_ended_chat_is_forgotten_and_a_stale_token_restarts():
+    svc = ChatService(errors=[FakeHttpError(403, "liveChatEnded")])
+    state = {"id": "LC1", "token": "p9"}
+    assert chat_yt(svc, state).fetch_chat(T0) == [] and state == {}
+    svc = ChatService(pages=[{"items": [chat_msg("m1", "hi", T0)], "nextPageToken": "p1"}],
+                      errors=[FakeHttpError(400, "pageTokenInvalid")])
+    state = {"id": "LC1", "token": "old"}
+    assert [c.id for c in chat_yt(svc, state).fetch_chat(T0)] == ["chat:m1"]
+    assert svc.calls[-1]["pageToken"] is None and state["token"] == "p1"
+    svc = ChatService(errors=[FakeHttpError(403, "quotaExceeded")])
+    with pytest.raises(FakeHttpError):  # anything else is the engine's to log
+        chat_yt(svc, {"id": "LC1"}).fetch_chat(T0)
