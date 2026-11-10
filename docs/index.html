@@ -29,6 +29,7 @@
       <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Generation">
     </div>
     <button id="live" class="livebtn on" aria-label="Back to now">LIVE</button>
+    <button id="sound" class="iconbtn" aria-pressed="false" aria-label="Turn sound on" title="Sound">🔇</button>
   </div>
   <div class="legend" aria-label="What the marks mean">
     <span><i class="sw dark"><b class="cell"></b></i>made by a comment</span>
@@ -78,6 +79,7 @@
 <script src="stats.js"></script>
 <script src="life.js"></script>
 <script src="history.js"></script>
+<script src="sound.js"></script>
 <script>
 "use strict";
 const VIDEO_URL = "https://www.youtube.com/watch?v=oFWeLMe4bhI";
@@ -128,7 +130,9 @@ async function load() {
       const text = await rl.text();
       if (text.length !== logSize) {
         logSize = text.length;
+        const heard = TL ? TL.events.length : null;
         TL = new History.Timeline(History.parse(text));
+        if (heard !== null && mode === "live") cues(TL.events.slice(heard));
         cfCache.clear();
         renderEvents();
       }
@@ -136,6 +140,20 @@ async function load() {
     $("sync").textContent = `bot's last state: gen ${S.gen.toLocaleString()}`;
   } catch (e) {
     $("sync").textContent = "couldn't reach the bot's state; retrying";
+  }
+}
+
+// Sound cues for log events: a chime per generation where comments landed, a chord for a rescue.
+function cues(events) {
+  let g = null;
+  for (const e of events) {
+    if (e.kind === "comment" && e.changed && e.gen !== g) {
+      g = e.gen;
+      const at = TL.injections.get(e.gen)?.[0]?.cells?.[0];
+      Sound.chime(at ? at[0] : S.w / 2);
+    } else if (e.reason === "survived_deadline") {
+      Sound.saved();
+    }
   }
 }
 
@@ -308,6 +326,7 @@ function drawRipples(rips) {
 
 function draw(gen) {
   const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
+  Sound.frame(gen, g, w, h, st.phase);
   const rips = ripplesAt(gen, g), lit = new Set();
   for (const r of rips) for (const i of r.born) lit.add(i);
   ctx.fillStyle = "#16191f"; ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -360,7 +379,9 @@ function playFrame(now) {
   const speed = Math.max(15, end / 45);  // whole life in about 45 s
   playPos += speed * (now - lastFrame) / 1000;
   lastFrame = now;
+  const was = histGen;
   histGen = Math.min(end, Math.floor(playPos));
+  if (TL) cues(TL.events.filter((e) => e.gen > was && e.gen <= histGen));
   render();
   if (histGen >= end) { setMode("live"); render(); return; }
   requestAnimationFrame(playFrame);
@@ -546,6 +567,17 @@ function forecast() {
     });
   }
 }
+
+function showSound(on) {
+  const b = $("sound");
+  b.textContent = on ? "🔊" : "🔇";
+  b.setAttribute("aria-pressed", String(on));
+  b.setAttribute("aria-label", on ? "Turn sound off" : "Turn sound on");
+}
+$("sound").addEventListener("click", () => { const on = Sound.toggle(); showSound(on); if (on) Stats.track("sound"); });
+for (const type of ["pointerdown", "keydown"])  // a remembered "on" starts with the first click or key
+  document.addEventListener(type, (e) => { if (!e.target.closest?.("#sound")) Sound.unlock(); }, true);
+showSound(Sound.restore());
 
 if (VIDEO_URL) { $("video").href = VIDEO_URL; $("cta").hidden = false; }
 if (Stats.start()) $("statsnote").hidden = false;  // anonymous counting, only when configured
