@@ -130,6 +130,7 @@ class Snapshot:
     seq: int  # log lines so far
     new: list[dict] = field(default_factory=list)  # injections since the previous snapshot
     effects: dict = field(default_factory=dict)  # (gen, command) -> effect event
+    checked: float | None = None  # when the tick last read the comments
 
 
 def load(state_dir: str, after_seq: int | None = None, now: float | None = None) -> Snapshot:
@@ -153,8 +154,33 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
                     snap.new.append(e)
                 elif e["type"] == "effect":
                     snap.effects.setdefault((e["gen"], e["command"]), e)
+    snap.checked = last_check(state_dir)
     step(snap, now if now is not None else time.time())
     return snap
+
+
+def last_check(state_dir: str) -> float | None:
+    """When the tick last read the comments: the time on the log's last tick line."""
+    with open(os.path.join(state_dir, "log.jsonl"), "rb") as f:
+        f.seek(0, os.SEEK_END)
+        f.seek(max(0, f.tell() - 65536))
+        tail = f.read().decode("utf-8", errors="replace").splitlines()
+    for line in reversed(tail):
+        try:
+            e = json.loads(line)
+        except ValueError:  # the first, cut-off line of the tail
+            continue
+        if e.get("type") == "tick" and "now" in e:
+            return float(e["now"])
+    return None
+
+
+def checked_text(checked: float | None, now: float) -> str:
+    """'comments checked 4 min ago' ('' if unknown)."""
+    if checked is None:
+        return ""
+    mins = int(max(0.0, now - checked) // 60)
+    return "comments checked just now" if mins < 1 else f"comments checked {mins} min ago"
 
 
 def step(snap: Snapshot, now: float) -> bool:
@@ -350,7 +376,13 @@ class Screen:
             frac = 1 - min(1.0, max(0.0, (nxt - now) / snap.gen_seconds))
             d.rounded_rectangle((x, y + 32, x + COL_W, y + 38), radius=3, fill=(40, 44, 54))
             d.rounded_rectangle((x, y + 32, x + max(6, int(COL_W * frac)), y + 38), radius=3, fill=PHASE_COLOR[u.phase])
-        y += 76
+        y += 58
+        checked = checked_text(snap.checked, now)
+        if checked:  # so a viewer knows when their comment will show up
+            d.text((x, y), checked, font=font("regular", 22), fill=LIGHT, anchor="lt")
+            d.text((x, y + 28), "(about every 10 min)", font=font("regular", 19), fill=MUTED, anchor="lt")
+            y += 64
+        y += 18
         d.text((x, y), "Latest moves", font=font("bold", 24), fill=WHITE, anchor="lt")
         y += 38
         for r in snap.recent:

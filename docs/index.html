@@ -98,7 +98,7 @@ let S = null;          // the bot's latest state
 let ahead = null;      // {gen, grid}: S stepped forward locally (no comments yet)
 let TL = null, logSize = -1;  // the past, rebuilt from the log
 let mode = "live", histGen = 0, playing = false, playPos = 0, lastFrame = 0;
-let forecastFor = null;
+let forecastFor = null, syncError = false;
 
 const fmtTime = (epoch) => new Date(epoch * 1000).toLocaleString(undefined,
   { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -135,10 +135,11 @@ async function load() {
         renderEvents();
       }
     }
-    $("sync").textContent = `bot's last state: gen ${S.gen.toLocaleString()}`;
+    syncError = false;
   } catch (e) {
-    $("sync").textContent = "couldn't reach the bot's state; retrying";
+    syncError = true;
   }
+  showSync();
 }
 
 // Sound cues for log events: a chime per generation where comments landed, a chord for a rescue.
@@ -153,6 +154,16 @@ function cues(events) {
       Sound.saved();
     }
   }
+}
+
+// When the bot last read the comments, so a commenter knows when theirs will show up.
+function showSync() {
+  const el = $("sync");
+  if (syncError) { el.textContent = "couldn't reach the bot's state; retrying"; return; }
+  if (!TL || !TL.checked) { el.textContent = S ? `bot's last state: gen ${S.gen.toLocaleString()}` : ""; return; }
+  const mins = Math.floor(Math.max(0, Date.now() / 1000 - TL.checked) / 60);
+  el.textContent = `comments checked ${mins < 1 ? "just now" : `${mins} min ago`} (about every 10 min)`;
+  el.title = `bot's last state: gen ${S.gen.toLocaleString()}`;
 }
 
 function liveGen() {
@@ -650,6 +661,7 @@ function render() {
   sl.max = end; sl.value = gen;
   draw(gen);
   drawLifeline(gen, end);
+  showSync();
   if (mode !== "live") {
     $("tick").textContent = "viewing the past · LIVE returns to now";
   } else if (S.phase === "DIED" || (S.phase === "FLATLINING" && gen >= S.deadline)) {

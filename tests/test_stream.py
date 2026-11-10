@@ -98,3 +98,11 @@ def test_streams_to_a_file(state_dir, tmp_path):
     out = str(tmp_path / "s.flv")
     assert stream.stream(str(repo), out, None, 1.0, False, 2000) == 0
     assert os.path.getsize(out) > 10_000
+
+
+def test_it_says_when_comments_were_last_checked(state_dir):
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    assert snap.checked == LAUNCH + 3000  # the last tick ran at +3000
+    assert stream.checked_text(snap.checked, LAUNCH + 3030) == "comments checked just now"
+    assert stream.checked_text(snap.checked, LAUNCH + 3000 + 4 * 60 + 5) == "comments checked 4 min ago"
+    assert stream.checked_text(None, LAUNCH) == ""

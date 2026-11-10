@@ -14,7 +14,7 @@ const History = (() => {
     const injections = new Map(); // gen -> [{cells, command, changed}]
     const events = []; // {gen, kind: "comment"|"phase", ...}
     const effects = new Map(); // "gen|command" -> {before, after, horizon}: its lifespan before -> after
-    let lastGen = 0;
+    let lastGen = 0, checked = null;  // checked: when the bot last read the comments
     for (const e of lines) {
       if (e.type === "effect") effects.set(`${e.gen}|${e.command}`, e);
     }
@@ -28,9 +28,10 @@ const History = (() => {
         events.push({ gen: e.gen, kind: "phase", to: e.to, reason: e.reason, deadline: e.deadline_gen });
       } else if (e.type === "tick") {
         lastGen = Math.max(lastGen, e.gen_end);
+        if (e.now) checked = Math.max(checked || 0, e.now);
       }
     }
-    return { genesis: g, injections, events, lastGen };
+    return { genesis: g, injections, events, lastGen, checked };
   }
 
   // Seed grid: the named pattern centred, exactly like life.centered() in Python.
@@ -62,6 +63,7 @@ const History = (() => {
       this.injections = parsed.injections;
       this.events = parsed.events;
       this.lastGen = parsed.lastGen;
+      this.checked = parsed.checked;
       this.snaps = new Map(); // gen -> grid after that gen's injections
       this.seed0 = seedGrid(g.seed, this.h, this.w);  // before any comment at gen 0
       this.cur = { gen: 0, grid: this.inject(0, this.seed0) };
