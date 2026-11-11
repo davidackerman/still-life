@@ -170,3 +170,28 @@ def test_the_screen_rewinds_then_goes_live_again(state_dir):
     assert screen.rewind is None  # live again
     screen.tick(now + stream.REWIND_S + 1, state_dir)
     assert screen.rewind is None  # one rewind per slot
+
+
+def test_the_puller_only_pulls_when_github_has_a_new_commit(tmp_path):
+    import subprocess
+
+    def git(*a, cwd=tmp_path):
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *a], cwd=cwd, check=True,
+                       capture_output=True)
+
+    def commit(repo, text):
+        (repo / "f").write_text(text)
+        git("add", "f", cwd=repo)
+        git("commit", "-qm", text, cwd=repo)
+        git("push", "-q", "origin", "main", cwd=repo)
+    git("init", "-q", "--bare", "-b", "main", "origin")
+    for name in ("work", "other"):
+        git("init", "-q", "-b", "main", name)
+        git("remote", "add", "origin", str(tmp_path / "origin"), cwd=tmp_path / name)
+    commit(tmp_path / "work", "1")
+    p = stream.Puller(str(tmp_path / "work"), str(tmp_path / "work"), 0, pull=False)
+    assert p._unchanged()
+    git("pull", "-q", "origin", "main", cwd=tmp_path / "other")
+    commit(tmp_path / "other", "2")
+    assert not p._unchanged()
+    assert not stream.Puller(str(tmp_path / "nowhere"), str(tmp_path), 0, pull=False)._unchanged()  # can't tell: pull

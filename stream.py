@@ -49,7 +49,7 @@ COL_X, COL_W = 1500, 380  # the column on the right
 # if the machine falls behind (YouTube's guidance is 30).
 IN_FPS, OUT_FPS = 10, int(os.environ.get("STREAM_FPS", "30"))
 PRESET = os.environ.get("X264_PRESET", "veryfast")  # the preset barely matters for this picture
-PULL_S = 60
+PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it pulls only then)
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 FADE_S = 0.6  # crossfade between generations
@@ -533,7 +533,8 @@ class Screen:
 
 # ---------------------------------------------------------------- the loop
 class Puller(threading.Thread):
-    """Every minute: git pull, then load the state if the log grew. Notices new code."""
+    """Every PULL_S: if GitHub has a new commit, git pull, then load the state if
+    the log grew. Notices new code."""
 
     def __init__(self, repo: str, state_dir: str, seq: int, pull: bool):
         super().__init__(daemon=True)
@@ -550,10 +551,23 @@ class Puller(threading.Thread):
                            capture_output=True, text=True)
         return r.stdout if r.returncode == 0 else None
 
+    def _unchanged(self) -> bool:
+        """True if GitHub's branch is at our commit (when it can't tell: pull anyway)."""
+        try:
+            remote = subprocess.run(["git", "-C", self.repo, "ls-remote", "origin", "HEAD"], capture_output=True,
+                                    text=True, timeout=30).stdout.split()
+            local = subprocess.run(["git", "-C", self.repo, "rev-parse", "HEAD"], capture_output=True,
+                                   text=True, timeout=30).stdout.strip()
+        except Exception:  # noqa: BLE001
+            return False
+        return bool(remote) and remote[0] == local
+
     def run(self) -> None:
         while not self.restart:
             time.sleep(PULL_S)
             if self.pull:
+                if self._unchanged():
+                    continue
                 r = subprocess.run(["git", "-C", self.repo, "pull", "--ff-only", "-q"], capture_output=True,
                                    text=True, timeout=120)
                 if r.returncode:
