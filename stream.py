@@ -58,6 +58,7 @@ REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the stor
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 # The instant replay of new moves: the board as it was, each move landing, the generations since.
 REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
+REWIND_SOUND, REPLAY_SOUND = 0.15, 0.3  # their notes' level: they play many at once (~ one live generation)
 FADE_S = 0.6  # crossfade between generations
 RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
 SCREEN = (5, 6, 9)
@@ -366,10 +367,10 @@ class Rewind:
             if cells:
                 self.lit.append((self.u.generation, cells))
                 if sound:
-                    sound.landed(cells[0][0], self.u.grid.shape[1])
+                    sound.landed(cells[0][0], self.u.grid.shape[1], REWIND_SOUND)
         self.lit = [(g, c) for g, c in self.lit if self.u.generation - g < REWIND_LIT]
         if sound and now - self.pool_at >= 0.3:
-            sound.generation(self.pool, self.u.grid)
+            sound.generation(self.pool, self.u.grid, gain=REWIND_SOUND)
             self.pool, self.pool_at = self.u.grid.copy(), now
 
     def lit_mask(self) -> np.ndarray | None:
@@ -429,9 +430,9 @@ class Replay:
                 tags.append(self.label(e, t))
                 self.lit += [tuple(c) for c in e["cells"]]
                 if sound and e["cells"]:
-                    sound.landed(e["cells"][0][0], self.u.grid.shape[1])
+                    sound.landed(e["cells"][0][0], self.u.grid.shape[1], REPLAY_SOUND)
             if sound:
-                sound.generation(before, self.u.grid)
+                sound.generation(before, self.u.grid, gain=REPLAY_SOUND)
         return tags
 
     def lit_mask(self) -> np.ndarray | None:

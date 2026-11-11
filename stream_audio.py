@@ -24,7 +24,7 @@ from universe import ALIVE, CONTESTED, DIED, FLATLINING
 SR = ex.SR  # 48 kHz, as the Shorts
 LOW = [f / 2 for f in ex.NOTES[:6]]  # A2..A3, for deaths
 PULSE = {ALIVE: (880.0, 1.5, 0.035), CONTESTED: (880.0, 0.9, 0.04), FLATLINING: (659.25, 2.2, 0.04)}
-PULSE_LEVEL = 0.3  # with OUT below, a bit softer than the Shorts' pulse: it never stops
+PULSE_LEVEL = 0.5  # with OUT below: it never stops, but the owner wanted it a little more present
 # The bed: (root, the notes above it), in A like everything else.
 PROGRESSION = [  # alive: A maj9, F#m9, D maj9, E sus, and round again
     (110.00, (164.81, 207.65, 246.94, 277.18)),
@@ -36,7 +36,7 @@ HOLD = {FLATLINING: (110.00, (164.81, 220.00, 261.63)),  # A minor: stuck in a l
         CONTESTED: (110.00, (164.81, 220.00, 246.94))}  # A sus2: a comment broke the loop; undecided
 CHORD_S = 80.0  # each chord of the progression
 EASE_SLOW, EASE_FAST, FAST_S = 0.012, 0.09, 6.0  # per 0.1 s: chords blend over ~25 s; a new phase in ~2 s
-BED = {"root": 0.0038, "note": 0.0024}  # per voice (the root a little more: low notes sound quieter)
+BED = {"root": 0.0053, "note": 0.0034}  # per voice (the root a little more: low notes sound quieter)
 CHIME = (880.0, 1108.73, 1318.51)
 SAVED = (220.0, 277.18, 329.63, 440.0, 554.37)
 OUT = 1.5  # about 9 dB above the Shorts' per-event level (their master is 0.56 * tanh(1.2 x)): the stream is sparse
@@ -90,15 +90,16 @@ class Soundtrack:
             self.buf[ch, at:at + n] += (amp * gains[ch] * sig).astype(np.float32)
 
     # -------------------------------------------------------------- events
-    def generation(self, before: np.ndarray, after: np.ndarray, steps: int = 1) -> None:
-        """A generation turned (or a comment's cells appeared): its births and deaths play."""
+    def generation(self, before: np.ndarray, after: np.ndarray, steps: int = 1, gain: float = 1.0) -> None:
+        """A generation turned (or a comment's cells appeared): its births and deaths play.
+        `gain`: softer for the rewind and the replay, which play many at once."""
         if before is None or before.shape != after.shape or steps > MAX_STEP or self.phase == DIED:
             return
         h, w = after.shape
         born = np.argwhere((after == 1) & (before == 0))
         died = np.argwhere((after == 0) & (before == 1))
-        self._voices(born, "born", ex.NOTES, 5, 0.035, 0.075, 0.05, h, w)
-        self._voices(died, "died", LOW, 3, 0.03, 0.06, 0.19, h, w)  # a beat after the births
+        self._voices(born, "born", ex.NOTES, 5, 0.035 * gain, 0.075 * gain, 0.05, h, w)
+        self._voices(died, "died", LOW, 3, 0.03 * gain, 0.06 * gain, 0.19, h, w)  # a beat after the births
 
     def _voices(self, cells, kind, notes, max_k, lo, hi, delay, h, w) -> None:
         count = len(cells)
@@ -112,7 +113,7 @@ class Soundtrack:
             note = self._note((kind, f), f, *((2.0, 0.55) if kind == "born" else (1.0, 0.25)))
             self._mix(note, loud / np.sqrt(k), delay + j * 0.055, pan=x / max(1, w - 1) * 1.4 - 0.7)
 
-    def landed(self, x: float, w: int) -> None:
+    def landed(self, x: float, w: int, gain: float = 1.0) -> None:
         """A comment landed at column x: a soft rising arpeggio (several: one after another)."""
         start = max(self.t + int(0.05 * SR), self.last_chime + int(0.35 * SR))
         if start - self.t > 3 * SR:  # a burst: don't pile them up
@@ -120,7 +121,7 @@ class Soundtrack:
         self.last_chime = start
         pan = x / max(1, w - 1) * 1.4 - 0.7
         for j, f in enumerate(CHIME):
-            self._mix(self._note(("chime", f), f, 2.5, 0.8), 0.04, (start - self.t) / SR + j * 0.09, pan)
+            self._mix(self._note(("chime", f), f, 2.5, 0.8), 0.04 * gain, (start - self.t) / SR + j * 0.09, pan)
 
     def set_phase(self, phase: str) -> None:
         was, self.phase = self.phase, phase
