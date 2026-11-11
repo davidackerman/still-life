@@ -76,11 +76,11 @@ def test_centre_px_handles_the_wrap():
     assert abs(cx - (left + 128 * cell)) < 2 * cell or abs(cx - left) < 2 * cell
 
 
-def test_effect_colours():
-    assert stream.effect_colour("2d 23h → 8d 22h") == stream.PHASE_COLOR["ALIVE"]
-    assert stream.effect_colour("8d 21h → 2d 23h") == (240, 90, 90)
-    assert stream.effect_colour("still 3d 0h") == stream.MUTED
-    assert stream.effect_colour("3d 0h → 42d+") == stream.PHASE_COLOR["ALIVE"]
+def test_effect_colors():
+    assert stream.effect_color("2d 23h → 8d 22h") == stream.PHASE_COLOR["ALIVE"]
+    assert stream.effect_color("8d 21h → 2d 23h") == (240, 90, 90)
+    assert stream.effect_color("still 3d 0h") == stream.MUTED
+    assert stream.effect_color("3d 0h → 42d+") == stream.PHASE_COLOR["ALIVE"]
 
 
 def test_the_stream_key_is_never_logged():
@@ -386,7 +386,7 @@ def test_the_stream_paints_the_cells_and_keeps_the_paint_as_they_move(tmp_path, 
     monkeypatch.setenv("LAUNCH_TIME", str(int(LAUNCH)))
     d = str(tmp_path)
     yt = FakeYT([Comment("c1", "u1", iso(LAUNCH + 900), "glider 64,60 nw red"),
-                 Comment("c2", "u2", iso(LAUNCH + 1000), "no colour here")])
+                 Comment("c2", "u2", iso(LAUNCH + 1000), "no color here")])
     for t in range(0, 3600, 600):
         tick.run(d, LAUNCH + t, lambda w: yt, KEY, thumb_path=None)
     snap = stream.load(d, now=LAUNCH + 3600 + 1200)  # ten generations past the last tick
@@ -400,7 +400,7 @@ def test_the_stream_paints_the_cells_and_keeps_the_paint_as_they_move(tmp_path, 
     y, x = np.argwhere(snap.paint == 1)[0]
     assert tuple(img[y * cell + cell // 2, x * cell + cell // 2]) == render_paint("red")
     assert stream.Screen(snap).compose(LAUNCH + 3600 + 1200).size == (stream.SW, stream.SH)
-    plain = stream.load(state_dir_copy_without_colour(tmp_path, d), now=LAUNCH + 3600)
+    plain = stream.load(state_dir_copy_without_color(tmp_path, d), now=LAUNCH + 3600)
     assert plain.paint is None  # nothing painted: nothing replayed
 
 
@@ -409,7 +409,7 @@ def render_paint(name):
     return render.PAINT[name]
 
 
-def state_dir_copy_without_colour(tmp_path, d):
+def state_dir_copy_without_color(tmp_path, d):
     out = tmp_path / "plain"
     shutil.copytree(d, out)
     log = (out / "log.jsonl").read_text().replace('"color": "red", ', "").replace(', "color": "red"', "")

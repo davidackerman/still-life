@@ -112,11 +112,11 @@ def test_random_patch_fits_in_5x5_window():
             assert (x - x0) % 128 < 5 and (y - y0) % 72 < 5
 
 
-def test_a_colour_word_anywhere_paints_the_move_and_changes_nothing_else():
+def test_a_color_word_anywhere_paints_the_move_and_changes_nothing_else():
     plain, blue = commands.parse("c1", "glider 10,20 ne"), commands.parse("c1", "glider 10,20 ne BLUE please")
     assert plain.color is None and blue.color == "blue"
     assert blue.cells == plain.cells and blue.desc == plain.desc  # the same move, only painted
-    assert commands.parse("c1", "red then pink: block 3,4").color == "red"  # the first colour word
+    assert commands.parse("c1", "red then pink: block 3,4").color == "red"  # the first color word
     hi = commands.parse("c9", "hi pink")  # no command: its random patch is painted
     assert hi.kind == "random" and hi.color == "pink"
     assert hi.cells == commands.parse("c9", "hi pink").cells

@@ -66,7 +66,7 @@ _DX = np.array([-1, 0, 1, -1, 1, -1, 0, 1])
 
 def paint_step(before: np.ndarray, after: np.ndarray, paint: np.ndarray) -> np.ndarray:
     """The paint on the cells one generation on, from `before` to `after` =
-    step(before). Paint (0: none, 1.. a colour) is only how cells look: it
+    step(before). Paint (0: none, 1.. a color) is only how cells look: it
     never changes which live. A cell that lives on keeps its paint; a cell
     born takes the paint of its three parents: the majority's, or if all three
     differ, the first one's (reading its neighbours from the top left). Dead

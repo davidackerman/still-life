@@ -20,7 +20,7 @@ BG = (10, 12, 16)
 GRID = (22, 25, 32)
 HIGHLIGHT = (255, 255, 255)  # cells injected since the last render
 # Paint a move can ask for (commands.COLORS, in that order: paint 1..7). Unpainted
-# cells take the phase colour (green while it's alive).
+# cells take the phase color (green while it's alive).
 PAINT = {"red": (242, 72, 72), "orange": (255, 150, 50), "yellow": (250, 225, 60), "blue": (70, 140, 255),
          "purple": (170, 105, 255), "pink": (255, 110, 200), "cyan": (60, 220, 235)}
 PHASE_COLOR = {
@@ -410,8 +410,8 @@ def quiet_spot(grid, win_w: int = 24, win_h: int = 14) -> tuple[int, int]:
 def suggestion(u: Universe) -> str:
     x, y = quiet_spot(u.grid)
     pattern = ("acorn", "rpent", "glider")[(u.generation // 180) % 3]
-    colour = commands.COLORS[(u.generation // 540) % len(commands.COLORS)]  # so people see they can paint
-    return f"{pattern} {x},{y} {colour}"
+    color = commands.COLORS[(u.generation // 540) % len(commands.COLORS)]  # so people see they can paint
+    return f"{pattern} {x},{y} {color}"
 
 
 # Leads with the distinction viewers miss: the video is a fixed recording, the

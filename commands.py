@@ -19,7 +19,7 @@ ignored. A comment with no valid command injects a 5x5 random patch:
 
 `text` is the comment text exactly as the API returned it (textFormat=plainText).
 
-A colour word anywhere in the text (red orange yellow blue purple pink cyan;
+A color word anywhere in the text (red orange yellow blue purple pink cyan;
 the first one wins) paints the move's cells. Paint is only how cells look: it
 never changes which cells live (see life.paint_step). Unpainted cells are
 green; dead ones are the dark background.

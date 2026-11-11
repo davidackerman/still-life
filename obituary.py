@@ -64,13 +64,13 @@ def board(f) -> Image.Image:
         inner[1:-1, 1:-1] = True
         _tiles[(h, w, c)] = np.tile(inner, (h, w))
     tile = _tiles[(h, w, c)]
-    colour = np.array(PHASE_COLOR[f.phase], float)
+    color = np.array(PHASE_COLOR[f.phase], float)
     if f.grey:
-        colour = colour * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
+        color = color * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
     img = np.empty(tile.shape + (3,), np.uint8)
     img[:] = GRID
     img[tile] = BG
-    img[f.grid.repeat(c, 0).repeat(c, 1).astype(bool) & tile] = colour.astype(np.uint8)
+    img[f.grid.repeat(c, 0).repeat(c, 1).astype(bool) & tile] = color.astype(np.uint8)
     if f.highlight is not None:
         img[(f.grid & f.highlight).repeat(c, 0).repeat(c, 1).astype(bool) & tile] = HIGHLIGHT
     im = Image.fromarray(img)

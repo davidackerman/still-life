@@ -78,7 +78,7 @@ def test_random_soup_median_transient():
     assert 1000 <= statistics.median(mus) <= 3000  # prototype: ~1900
 
 
-def test_paint_only_colours_cells_and_follows_them():
+def test_paint_only_colors_cells_and_follows_them():
     import numpy as np
     g = life.mask(life.place(life.PATTERNS["glider_se"], 5, 5, (20, 20)), (20, 20))
     paint = g * 4  # a blue glider

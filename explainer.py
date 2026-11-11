@@ -87,7 +87,7 @@ class Frame:
         self.died_gen = u.died_gen
         self.highlight = highlight
         self.texts = list(texts)  # (text, weight, size, (x, y), anchor, alpha), design units
-        self.grey = grey  # 0..1 desaturation toward the DIED colour
+        self.grey = grey  # 0..1 desaturation toward the DIED color
         self.hud = hud
         self.extras = list(extras)  # callables(draw)
         self.zoom = zoom  # >1 magnifies the centre of the grid
@@ -125,13 +125,13 @@ def board_image(f: Frame) -> np.ndarray:
     c = DCELL * SCALE
     t = tile()
     big = f.grid.repeat(c, 0).repeat(c, 1).astype(bool) & t
-    colour = np.array(PHASE_COLOR[f.phase], float)
+    color = np.array(PHASE_COLOR[f.phase], float)
     if f.grey:
-        colour = colour * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
+        color = color * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
     img = np.empty(t.shape + (3,), np.uint8)
     img[:] = GRID
     img[t] = BG
-    img[big] = colour.astype(np.uint8)
+    img[big] = color.astype(np.uint8)
     if f.highlight is not None:
         lit = (f.grid & f.highlight).repeat(c, 0).repeat(c, 1).astype(bool) & t
         img[lit] = HIGHLIGHT

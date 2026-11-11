@@ -118,7 +118,7 @@ def span_s(s: str) -> float | None:
     return sum(int(n) * {"d": 86400, "h": 3600, "m": 60}[u] for n, u in parts) if parts else None
 
 
-def effect_colour(effect: str):
+def effect_color(effect: str):
     """Green if the move gave the universe more time, red if less (as on the live page)."""
     before, arrow, after = effect.partition("→")
     a, b = span_s(after), span_s(before)
@@ -148,7 +148,7 @@ class Snapshot:
     effects: dict = field(default_factory=dict)  # (gen, command) -> effect event
     checked: float | None = None  # when the tick last read the comments
     deaths: list = field(default_factory=list)  # (gen, the gen it would die at, or None: beyond the forecast)
-    paint: np.ndarray | None = None  # the cells' colours (life.paint_step); None while no move has asked for one
+    paint: np.ndarray | None = None  # the cells' colors (life.paint_step); None while no move has asked for one
 
 
 def load(state_dir: str, after_seq: int | None = None, now: float | None = None) -> Snapshot:
@@ -180,7 +180,7 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
 
 
 def live_paint(state_dir: str, u: Universe) -> np.ndarray | None:
-    """The colours on the live board, replayed from the log (the bot keeps no
+    """The colors on the live board, replayed from the log (the bot keeps no
     paint: it is only how cells look). None while no move has asked for one."""
     with open(os.path.join(state_dir, "log.jsonl"), encoding="utf-8") as f:
         if '"color"' not in f.read():
@@ -372,7 +372,7 @@ def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.nd
         return m.astype(bool).repeat(cell, 0).repeat(cell, 1) & tile
     if paint is None or phase == DIED or not paint.any():  # a dead universe is grey, paint and all
         img[big(grid)] = PHASE_COLOR[phase]
-    else:  # 1: unpainted (the phase colour); 2..: the paint
+    else:  # 1: unpainted (the phase color); 2..: the paint
         lut = np.array([BG, PHASE_COLOR[phase]] + [render.PAINT[c] for c in commands.COLORS], np.uint8)
         idx = np.where(grid == 1, paint.astype(np.uint8) + 1, 0).repeat(cell, 0).repeat(cell, 1)
         inside = (idx > 0) & tile
@@ -833,7 +833,7 @@ class Screen:
         for r in snap.recent:
             what, _, effect = r.partition(" · ")  # "gen 716: random 5x5 at 47,17" · "8d 21h → 2d 23h"
             lines = [(ln, LIGHT) for ln in wrap(d, what, "regular", 20, COL_W)]
-            lines += [(ln, effect_colour(effect)) for ln in wrap(d, tidy(effect), "regular", 20, COL_W)]
+            lines += [(ln, effect_color(effect)) for ln in wrap(d, tidy(effect), "regular", 20, COL_W)]
             g = render.line_gen(r)
             age = f"   {ago(now - snap.launch - g * snap.gen_seconds)}" if g is not None else ""
             inline = bool(age) and d.textlength(lines[-1][0] + age, font=f20) <= COL_W
@@ -841,8 +841,8 @@ class Screen:
                 lines.append((age.strip(), MUTED))
             if y + 26 * len(lines) > BOARD_Y + BOARD_H:
                 break
-            for line, colour in lines:
-                d.text((x, y), line, font=f20, fill=colour, anchor="lt")
+            for line, color in lines:
+                d.text((x, y), line, font=f20, fill=color, anchor="lt")
                 y += 26
             if inline:  # when it came in, after how it changed things
                 d.text((x + d.textlength(lines[-1][0], font=f20), y - 26), age, font=f20, fill=MUTED, anchor="lt")
@@ -885,22 +885,22 @@ class Screen:
             x += d.textlength(args, font=fr) + 30
         f18 = font("regular", 18)
         for first in ("one move per message (the first command in it)", "one move per message"):
-            parts = [(first + "   ·   add a colour: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
+            parts = [(first + "   ·   add a color: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
             parts += [(f"  ·   every move so far: {render.LIVE_ADDRESS}", MUTED)]
             if sum(d.textlength(s, font=f18) for s, _ in parts) <= width:
                 break
-        for s, colour in parts:
-            d.text((x0, mid + 40), s, font=f18, fill=colour, anchor="lm")
+        for s, color in parts:
+            d.text((x0, mid + 40), s, font=f18, fill=color, anchor="lm")
             x0 += d.textlength(s, font=f18)
 
     def _films(self, d, now: float) -> None:
         """The legend's films, a frame each 1/DEMO_RATE s: so something always moves."""
         k = int(now * DEMO_RATE)
-        colour = PHASE_COLOR[ALIVE]
+        color = PHASE_COLOR[ALIVE]
         for x, top, film in self._demos:
             for cy, cx in np.argwhere(film[k % len(film)]):
                 px, py = x + cx * DEMO_CELL, top + cy * DEMO_CELL
-                d.rectangle((px, py, px + DEMO_CELL - 2, py + DEMO_CELL - 2), fill=colour)
+                d.rectangle((px, py, px + DEMO_CELL - 2, py + DEMO_CELL - 2), fill=color)
 
     def _graph(self, d) -> None:
         """Time left, from launch to now: falling steadily, jumping at each move
@@ -932,20 +932,20 @@ class Screen:
             yy = Y(k * every * day)
             d.line((px0, yy, px1, yy), fill=(34, 38, 48), width=1)
             d.text((px0 - 6, yy), f"{k * every}d", font=f, fill=MUTED, anchor="rm")
-        colour = PHASE_COLOR[playing.u.phase if playing else snap.u.phase]
+        color = PHASE_COLOR[playing.u.phase if playing else snap.u.phase]
         up = lambda b, a: PHASE_COLOR[ALIVE] if b > a else (240, 90, 90)  # noqa: E731
         if upto is not None:  # the whole story, faintly, under the part played so far
             xy = [(X(g), Y(v)) for g, v in pts]
-            d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=colour + (12,))
-            d.line(xy, fill=colour + (60,), width=1)
+            d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=color + (12,))
+            d.line(xy, fill=color + (60,), width=1)
             for g, a, b in jumps:
                 if g > upto:
                     d.line((X(g), Y(a), X(g), Y(b)), fill=up(b, a) + (70,), width=1)
         past = pts if upto is None else curve_until(pts, max(0, upto))
         xy = [(X(g), Y(v)) for g, v in past]
         if len(xy) > 1:
-            d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=colour + (38,))
-            d.line(xy, fill=colour + (200,), width=2)
+            d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=color + (38,))
+            d.line(xy, fill=color + (200,), width=2)
         flash = 40 if self.rewind else 3  # generations a jump flashes for, once it lands (the rewind is fast)
         for g, a, b in jumps:  # over the line, so each move shows
             if upto is None or g <= upto:

@@ -120,13 +120,13 @@ def board(f) -> Image.Image:
         inner[1:-1, 1:-1] = True
         _tile = np.tile(inner, (life.H, life.W))
     big = f.grid.repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
-    colour = np.array(PHASE_COLOR[f.phase], float)
+    color = np.array(PHASE_COLOR[f.phase], float)
     if f.grey:
-        colour = colour * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
+        color = color * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float) * f.grey
     img = np.empty(_tile.shape + (3,), np.uint8)
     img[:] = GRID
     img[_tile] = BG
-    img[big] = colour.astype(np.uint8)
+    img[big] = color.astype(np.uint8)
     if f.highlight is not None:
         lit = (f.grid & f.highlight).repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
         img[lit] = HIGHLIGHT
@@ -216,7 +216,7 @@ def films(i: int, alpha: float, at: str):
     def draw(d, to_canvas):
         a = int(255 * alpha)
         size = FILM_BOX * FILM_CELL
-        colour = tuple(PHASE_COLOR["ALIVE"]) + (a,)
+        color = tuple(PHASE_COLOR["ALIVE"]) + (a,)
         for k, (pattern, say, does) in enumerate(FILMS):
             cx = FILMS_W / 3 * (k % 3 + 0.5)
             top = FILMS_Y + (k // 3) * FILMS_ROW
@@ -226,7 +226,7 @@ def films(i: int, alpha: float, at: str):
             film = render.demo(pattern, FILM_BOX)
             for y, x in np.argwhere(film[(i // FILM_EVERY) % len(film)]):
                 px, py = x0 + x * FILM_CELL, top + y * FILM_CELL
-                d.rectangle((px + 1, py + 1, px + FILM_CELL - 2, py + FILM_CELL - 2), fill=colour)
+                d.rectangle((px + 1, py + 1, px + FILM_CELL - 2, py + FILM_CELL - 2), fill=color)
             label = say.format(at=at)
             size_b = 38
             while d.textlength(label, font=ex.font("bold", size_b)) > FILMS_W / 3 - 16 and size_b > 26:
@@ -301,7 +301,7 @@ class History:
 
     def fresh(self) -> Universe:
         """The universe at its first generation. It carries `paint`: the
-        colours its cells have been given (see life.paint_step), kept up by goto."""
+        colors its cells have been given (see life.paint_step), kept up by goto."""
         self.applied = set()
         shape = tuple(self.genesis["shape"])
         u = Universe(life.mask(life.centered(self.genesis["seed"], shape), shape), self.genesis["flatline_gens"])
