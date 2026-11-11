@@ -7,7 +7,9 @@ made while the stream runs, one video frame's worth at a time.
 - a chime where a comment lands, a warm chord when a comment saves it
 - a soft pulse that follows the phase, quieter than in the Shorts because it
   plays around the clock; dying is one long fading tone
-- a faint airy chord that follows the phase
+- underneath, a low bed of slow chords. While it's alive it drifts through a
+  calm progression (a chord every CHORD_S, each fading into the next); stuck or
+  contested, it moves within seconds to one darker chord and holds it
 The notes go through the same soft reverb as the Shorts'. Notes are rendered
 once (with their reverb tails) and mixed in ahead of time.
 """
@@ -23,9 +25,18 @@ SR = ex.SR  # 48 kHz, as the Shorts
 LOW = [f / 2 for f in ex.NOTES[:6]]  # A2..A3, for deaths
 PULSE = {ALIVE: (880.0, 1.5, 0.035), CONTESTED: (880.0, 0.9, 0.04), FLATLINING: (659.25, 2.2, 0.04)}
 PULSE_LEVEL = 0.3  # with OUT below, a bit softer than the Shorts' pulse: it never stops
-PAD = [440.0, 493.88, 523.25, 554.37, 659.25]
-CHORDS = {ALIVE: {440.0, 554.37, 659.25}, FLATLINING: {440.0, 523.25, 659.25},
-          CONTESTED: {440.0, 493.88, 659.25}, DIED: set()}
+# The bed: (root, the notes above it), in A like everything else.
+PROGRESSION = [  # alive: A maj9, F#m9, D maj9, E sus, and round again
+    (110.00, (164.81, 207.65, 246.94, 277.18)),
+    (92.50, (164.81, 207.65, 220.00, 277.18)),
+    (73.42, (185.00, 220.00, 277.18, 329.63)),
+    (82.41, (185.00, 220.00, 246.94, 277.18)),
+]
+HOLD = {FLATLINING: (110.00, (164.81, 220.00, 261.63)),  # A minor: stuck in a loop
+        CONTESTED: (110.00, (164.81, 220.00, 246.94))}  # A sus2: a comment broke the loop; undecided
+CHORD_S = 80.0  # each chord of the progression
+EASE_SLOW, EASE_FAST, FAST_S = 0.012, 0.09, 6.0  # per 0.1 s: chords blend over ~25 s; a new phase in ~2 s
+BED = {"root": 0.0038, "note": 0.0024}  # per voice (the root a little more: low notes sound quieter)
 CHIME = (880.0, 1108.73, 1318.51)
 SAVED = (220.0, 277.18, 329.63, 440.0, 554.37)
 OUT = 1.5  # about 9 dB above the Shorts' per-event level (their master is 0.56 * tanh(1.2 x)): the stream is sparse
@@ -40,7 +51,8 @@ class Soundtrack:
         self.t = 0  # samples made so far
         self.next_pulse = int(0.8 * SR)
         self.phase: str | None = None
-        self.pad_gain = np.zeros(len(PAD))
+        self.bed: dict = {}  # (kind, freq) -> gain now
+        self.fast_until = 0  # sample: until then the bed follows the phase quickly
         self.last_chime = -SR
         self._notes: dict = {}
 
@@ -123,6 +135,40 @@ class Soundtrack:
             tone = 0.03 * np.minimum(1, tt / 0.05) * np.clip((6 - tt) / 3, 0, 1) * np.sin(2 * np.pi * 880 * tt)
             self._mix((tone.astype(np.float32), None), 1 / 0.75, 0.05, reverb=False)
         self.next_pulse = max(self.next_pulse, self.t + int(0.4 * SR))
+        self.fast_until = self.t + int(FAST_S * SR)
+
+    def chord(self, t: int | None = None) -> tuple[float, tuple]:
+        """(root, notes) the bed is heading for at sample t."""
+        t = self.t if t is None else t
+        if self.phase in HOLD:
+            return HOLD[self.phase]
+        return PROGRESSION[int(t / SR / CHORD_S) % len(PROGRESSION)]
+
+    # -------------------------------------------------------------- the bed
+    def _bed(self, out: np.ndarray, t0: int, n: int) -> None:
+        """Mix the next n samples of the low chords into `out`, every voice easing
+        toward the chord of the moment (silent once it has died)."""
+        target = {}
+        if self.phase != DIED:
+            root, notes = self.chord(t0)
+            target = {("root", root): 1.0, **{("note", f): 1.0 for f in notes}}
+        k = (EASE_FAST if t0 < self.fast_until else EASE_SLOW) * n / (SR / 10)
+        t = (t0 + np.arange(n)) / SR
+        ramp = np.linspace(0, 1, n, endpoint=False)
+        for key in set(self.bed) | set(target):
+            kind, f = key
+            g0 = self.bed.get(key, 0.0)
+            g1 = g0 + (target.get(key, 0.0) - g0) * min(1.0, k)
+            self.bed[key] = g1
+            if g0 < 1e-4 and g1 < 1e-4:
+                self.bed.pop(key)
+                continue
+            w = 2 * np.pi * f * t
+            tone = np.sin(w) + 0.5 * np.sin(w * 1.0025)  # a slightly detuned twin: a slow, warm beat
+            if kind == "root":
+                tone += 0.35 * np.sin(2 * w)  # its octave, so small speakers carry it
+            swell = 0.65 + 0.35 * np.sin(2 * np.pi * (0.025 + (f % 7) * 0.007) * t + f) ** 2
+            out += (BED[kind] * (g0 + (g1 - g0) * ramp) * swell * tone).astype(np.float32)
 
     # -------------------------------------------------------------- output
     def chunk(self, n: int) -> bytes:
@@ -139,17 +185,7 @@ class Soundtrack:
         out = self.buf[:, :n].copy()
         self.buf[:, :-n] = self.buf[:, n:]
         self.buf[:, -n:] = 0
-        # the faint chord, gains easing toward the phase's chord
-        target = np.array([1.0 if v in CHORDS[self.phase or ALIVE] else 0.0 for v in PAD])
-        new = self.pad_gain + (target - self.pad_gain) * 0.09
-        t = (t0 + np.arange(n)) / SR
-        ramp = np.linspace(0, 1, n, endpoint=False)
-        for v, g0, g1 in zip(PAD, self.pad_gain, new):
-            if g0 < 1e-4 and g1 < 1e-4:
-                continue
-            swell = 0.6 + 0.4 * np.sin(2 * np.pi * 0.07 * t + v) ** 2
-            out += (0.0022 * (g0 + (g1 - g0) * ramp) * swell * np.sin(2 * np.pi * v * t)).astype(np.float32)
-        self.pad_gain = new
+        self._bed(out, t0, n)
         self.t += n
         pcm = np.clip(OUT * np.tanh(1.2 * out), -1, 1)
         return (pcm.T * 32767).astype("<i2").tobytes()

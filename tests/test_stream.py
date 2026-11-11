@@ -236,3 +236,50 @@ def test_a_frame_that_never_comes_ends_the_process(state_dir, tmp_path, monkeypa
     monkeypatch.setattr(stream.Screen, "compose", stuck)
     assert stream.stream(str(repo), str(tmp_path / "s.flv"), None, 30.0, False, 800, sound=False) == 1
     assert exits == [1]
+
+
+def test_the_countdown_ticks_to_the_death_date_and_the_curve_jumps_at_moves(state_dir):
+    assert stream.clock(3 * 86400 + 3723) == "3d 01:02:03" and stream.clock(59) == "00:00:59" and stream.clock(-5) == "00:00:00"
+    now = LAUNCH + 3700
+    snap = stream.load(state_dir, now=now)
+    die = stream.death_gen(snap)
+    assert snap.u.phase == "ALIVE" and die is not None
+    left = int(snap.launch + die * snap.gen_seconds - now)
+    assert stream.countdown_text(snap, now) == "in " + stream.clock(left)
+    assert stream.countdown_text(snap, now + 1) == "in " + stream.clock(left - 1)  # it ticks
+    # the curve: from launch to now, falling a generation per generation, jumping at the moves
+    pts, jumps = stream.time_left_curve(snap)
+    assert pts[0][0] == 0 and pts[-1] == (snap.u.generation, die - snap.u.generation)
+    assert all(a[0] <= b[0] for a, b in zip(pts, pts[1:]))
+    dies = [d for _, d in snap.deaths] + [die]
+    assert snap.deaths and len(jumps) == sum(a != b for a, b in zip(dies, dies[1:]))  # one per move that changed it
+    for (g0, v0), (g1, v1) in zip(pts, pts[1:]):
+        if g1 > g0:
+            assert v0 - v1 == g1 - g0  # between moves it just runs down
+    snap.deaths = []  # no moves yet: a straight line
+    assert stream.time_left_curve(snap)[1] == []
+
+
+def test_the_bed_drifts_through_its_chords_and_darkens_when_stuck():
+    import numpy as np
+    import stream_audio as sa
+    s = sa.Soundtrack()
+    s.set_phase("ALIVE")
+    chords = [s.chord(int(i * sa.CHORD_S * sa.SR)) for i in range(len(sa.PROGRESSION) + 1)]
+    assert chords[:-1] == sa.PROGRESSION and chords[-1] == sa.PROGRESSION[0]  # and round again
+    n = sa.SR // 10
+    for _ in range(300):
+        s.chunk(n)
+    root, notes = sa.PROGRESSION[0]
+    assert s.bed[("root", root)] > 0.9 and all(s.bed[("note", f)] > 0.9 for f in notes)
+    s.set_phase("FLATLINING")
+    for _ in range(40):  # four seconds: it has moved to the stuck chord
+        s.chunk(n)
+    root, notes = sa.HOLD["FLATLINING"]
+    assert all(s.bed[("note", f)] > 0.9 for f in notes)
+    assert all(g < 0.1 for (kind, f), g in s.bed.items() if kind == "note" and f not in notes)
+    s.set_phase("DIED")
+    for _ in range(60):
+        s.chunk(n)
+    assert all(g < 0.01 for g in s.bed.values())
+    assert np.abs(np.frombuffer(s.chunk(n), "<i2")).max() < 60  # the bed is silent once it died

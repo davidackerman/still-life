@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import queue
 import re
@@ -39,7 +40,7 @@ import render
 import stream_audio
 from engine import FORECAST_GENS
 from render import BG, GRID, HIGHLIGHT, PHASE_COLOR
-from universe import ALIVE, DIED, Universe, target_generation
+from universe import ALIVE, CONTESTED, DIED, FLATLINING, Universe, target_generation
 
 SW, SH = 1920, 1080
 BOARD_X, BOARD_Y, BOARD_W, BOARD_H = 56, 60, 1408, 792  # the board's box (128 x 72 at 11 px)
@@ -136,6 +137,7 @@ class Snapshot:
     new: list[dict] = field(default_factory=list)  # injections since the previous snapshot
     effects: dict = field(default_factory=dict)  # (gen, command) -> effect event
     checked: float | None = None  # when the tick last read the comments
+    deaths: list = field(default_factory=list)  # (gen, the gen it would die at, or None: beyond the forecast)
 
 
 def load(state_dir: str, after_seq: int | None = None, now: float | None = None) -> Snapshot:
@@ -160,8 +162,78 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
                 elif e["type"] == "effect":
                     snap.effects.setdefault((e["gen"], e["command"]), e)
     snap.checked = last_check(state_dir)
+    snap.deaths = death_history(state_dir, u.flatline_gens)
     step(snap, now if now is not None else time.time())
     return snap
+
+
+def death_history(state_dir: str, flatline: int) -> list[tuple[int, int | None]]:
+    """When the universe was due to die if nobody commented, and how each move
+    changed it: [(0, gen it would die at), (gen of a move, gen it would die at
+    after it), ...]. None: not within the forecast. From the moves' effects."""
+    out: list[tuple[int, int | None]] = []
+    die = lambda stuck: None if stuck is None else stuck + flatline  # noqa: E731
+    with open(os.path.join(state_dir, "log.jsonl"), encoding="utf-8") as f:
+        for line in f:
+            if '"effect"' not in line:
+                continue
+            e = json.loads(line)
+            if e.get("type") != "effect":
+                continue
+            if not out:
+                out.append((0, die(e["before"])))
+            out.append((e["gen"], die(e["after"])))
+    return out
+
+
+def death_gen(snap: Snapshot) -> int | None:
+    """The generation it dies at if nobody comments, as of now (None: not within the forecast)."""
+    u = snap.u
+    if u.phase == DIED:
+        return u.died_gen
+    if u.phase in (FLATLINING, CONTESTED):
+        return u.deadline_gen
+    if snap.forecast and snap.forecast.get("stuck_gen") is not None:
+        return snap.forecast["stuck_gen"] + u.flatline_gens
+    return None
+
+
+def clock(seconds: int) -> str:
+    """'2d 14:03:27', '14:03:27'."""
+    days, rest = divmod(max(0, seconds), 86400)
+    h, rest = divmod(rest, 3600)
+    t = f"{h:02d}:{rest // 60:02d}:{rest % 60:02d}"
+    return f"{days}d {t}" if days else t
+
+
+def countdown_text(snap: Snapshot, now: float) -> str | None:
+    """The live countdown under the headline: 'in 2d 14:03:27' (None when there's no date to count to)."""
+    g = death_gen(snap)
+    if g is None or snap.u.phase == DIED:
+        return None
+    t = clock(int(snap.launch + g * snap.gen_seconds - now))
+    return {ALIVE: f"in {t}", FLATLINING: f"{t} left", CONTESTED: f"{t} to go"}[snap.u.phase]
+
+
+def time_left_curve(snap: Snapshot) -> tuple[list[tuple[int, int]], list[tuple[int, int, int]]]:
+    """The time it had left, in generations, from launch to now: (points (gen, gens
+    left), jumps (gen, gens left before, after)). It falls one generation per
+    generation, and jumps where a move changed when it would die."""
+    cap = FORECAST_GENS + snap.u.flatline_gens  # 'not within the forecast' is drawn at the top
+    left = lambda die, g: cap if die is None else min(cap, max(0, die - g))  # noqa: E731
+    now_gen, current = snap.u.generation, death_gen(snap)
+    history = snap.deaths or [(0, current)]
+    die = history[0][1]
+    pts, jumps = [(0, left(die, 0))], []
+    for g, after in history[1:] + [(now_gen, current)]:
+        g = min(g, now_gen)
+        a, b = left(die, g), left(after, g)
+        pts.append((g, a))
+        if a != b:
+            pts.append((g, b))
+            jumps.append((g, a, b))
+        die = after
+    return pts, jumps
 
 
 def last_check(state_dir: str) -> float | None:
@@ -407,6 +479,7 @@ class Screen:
             self._axes(d, shape)
             self._column(d, now)
             self._bottom(d)
+            self._graph(d)
             self._chrome = (k, np.asarray(im))
         img = self._chrome[1].copy()
         b = self.board(now)
@@ -489,10 +562,14 @@ class Screen:
         for line in wrap(d, big, "bold", size, COL_W):
             d.text((x, y), line, font=font("bold", size), fill=PHASE_COLOR[u.phase], anchor="lt")
             y += int(size * 1.15)
+        count = countdown_text(snap, now)
+        if count:  # ticks every second; jumps when a move lands
+            d.text((x, y + 2), count, font=font("bold", 42), fill=WHITE, anchor="lt")
+            y += 54
         for line in wrap(d, small, "regular", 24, COL_W):
             d.text((x, y + 4), line, font=font("regular", 24), fill=LIGHT, anchor="lt")
             y += 31
-        y += 34
+        y += 26
         d.text((x, y), "generation", font=font("regular", 22), fill=MUTED, anchor="lt")
         d.text((x, y + 26), f"{u.generation:,}", font=font("bold", 52), fill=WHITE, anchor="lt")
         y += 92
@@ -528,7 +605,7 @@ class Screen:
     def _bottom(self, d) -> None:
         snap, u = self.snap, self.snap.u
         x, y = BOARD_X, BOARD_Y + BOARD_H + 34
-        width = SW - 2 * BOARD_X
+        width = COL_X - BOARD_X - 30  # the time-left graph has the corner
         head = "Every chat message adds cells. Some save it. Some kill it."
         d.text((x, y), head, font=font("bold", 36), fill=WHITE, anchor="lt")
         try_one = f"try {render.suggestion(u)} (a quiet corner)   ·   " if u.phase != DIED else ""
@@ -539,6 +616,40 @@ class Screen:
                 f"   ·   every move so far: {render.LIVE_ADDRESS}")
         size = fit(d, cmds, "regular", 22, width, 15)
         d.text((x, y + 98), cmds, font=font("regular", size), fill=MUTED, anchor="lt")
+
+
+    def _graph(self, d) -> None:
+        """Time left, from launch to now: falling steadily, jumping at each move
+        (green: it bought time; red: it took time away)."""
+        snap = self.snap
+        pts, jumps = time_left_curve(snap)
+        x0, x1, y0, y1 = COL_X, COL_X + COL_W, BOARD_Y + BOARD_H + 28, SH - 30
+        d.text((x0, y0), "Time left", font=font("bold", 20), fill=WHITE, anchor="lt")
+        gap = d.textlength("Time left", font=font("bold", 20)) + 10  # the server's font is wider than a Mac's
+        d.text((x0 + gap, y0 + 2), "each jump is a move", font=font("regular", 17), fill=MUTED, anchor="lt")
+        px0, px1, py0, py1 = x0 + 34, x1 - 6, y0 + 34, y1 - 22
+        day = 86400 / snap.gen_seconds  # generations in a day
+        top_days = max(1.0, max(p[1] for p in pts) / day)
+        every = next(s for s in (1, 2, 5, 10, 20, 50) if top_days / s <= 4)
+        top = math.ceil(top_days / every) * every * day
+        span = max(1, pts[-1][0])
+        X = lambda g: px0 + (px1 - px0) * g / span  # noqa: E731
+        Y = lambda v: py1 - (py1 - py0) * v / top  # noqa: E731
+        f = font("regular", 15)
+        for k in range(0, int(top / day / every) + 1):
+            yy = Y(k * every * day)
+            d.line((px0, yy, px1, yy), fill=(34, 38, 48), width=1)
+            d.text((px0 - 6, yy), f"{k * every}d", font=f, fill=MUTED, anchor="rm")
+        colour = PHASE_COLOR[snap.u.phase]
+        xy = [(X(g), Y(v)) for g, v in pts]
+        d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=colour + (38,))
+        d.line(xy, fill=colour + (200,), width=2)
+        for g, a, b in jumps:  # over the line, so each move shows
+            d.line((X(g), Y(a), X(g), Y(b)), fill=PHASE_COLOR[ALIVE] if b > a else (240, 90, 90), width=2)
+        cx, cy = xy[-1]
+        d.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=WHITE)
+        d.text((px0, py1 + 6), "launch", font=f, fill=MUTED, anchor="lt")
+        d.text((px1, py1 + 6), "now", font=f, fill=MUTED, anchor="rt")
 
 
 # ---------------------------------------------------------------- the loop
