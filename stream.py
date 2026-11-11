@@ -15,7 +15,7 @@ anywhere.
 
 When a pull brings new code it exits, so the service restarts on the new
 version (systemd Restart=always). If ffmpeg's connection drops it exits too,
-for the same restart, and so it does if no frame has gone out for a minute.
+for the same restart, and so it does if no frame has gone out for 15 s.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ COL_X, COL_W = 1500, 380  # the column on the right
 IN_FPS, OUT_FPS = 10, int(os.environ.get("STREAM_FPS", "30"))
 PRESET = os.environ.get("X264_PRESET", "veryfast")  # the preset barely matters for this picture
 PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it pulls only then)
-STALL_S = 60  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
+STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 FADE_S = 0.6  # crossfade between generations
@@ -668,9 +668,10 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
             log("ffmpeg: " + redact(raw.decode(errors="replace").rstrip(), secret))
     threading.Thread(target=relay, daemon=True).start()
 
-    # If frames stop going out, YouTube ends the broadcast after a minute or two and
-    # nothing here would notice (a stuck loop once froze it for hours with ffmpeg
-    # waiting quietly). So: no frame for STALL_S, and the whole process exits.
+    # If frames stop going out, YouTube soon ends the broadcast for good, and nothing
+    # here would notice (a stuck loop once froze it for hours with ffmpeg waiting
+    # quietly). So: no frame for STALL_S, and the whole process exits. Restarts that
+    # took ~12 s in all never ended a broadcast; this one takes ~15 + RestartSec 10.
     last_frame, finished = [time.monotonic()], threading.Event()
 
     def watchdog():
