@@ -311,6 +311,16 @@ class YouTube:
                 break
         return out
 
+    def chat_history(self) -> list:
+        """The live chat's recent messages as Comments (5 units), for names only:
+        it doesn't move our place in the chat. Empty when nothing is live."""
+        if not self.chat.get("id"):
+            return []
+        self.quota.spend(COST["liveChatMessages.list"])
+        resp = self.service.liveChatMessages().list(liveChatId=self.chat["id"], part="snippet,authorDetails",
+                                                    maxResults=CHAT_PAGE).execute()
+        return [c for c in (chat_comment(m) for m in resp.get("items", [])) if c]
+
     def _threads(self, video: int, since: float) -> list[dict]:
         """Threads on one video, newest first, paging until older than `since`."""
         from admission import parse_time

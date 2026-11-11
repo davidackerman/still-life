@@ -553,8 +553,8 @@ def test_latest_moves_name_who_made_them_and_the_names_are_never_stored():
     yt = PinYT(cs)
     engine.tick(w, LAUNCH + 600, yt)
     text = yt.updates[-1][1]
-    assert "• gen 0 · @ann: glider 10,10 se" in text and "• gen 0 · live chat: block 40,40" in text
-    assert w.recent_by[:2] and set(w.recent_by[:2]) == {keyed("u1"), "chat"}
+    assert "• gen 0 · @ann: glider 10,10 se" in text and "• gen 0 · Viv (live chat): block 40,40" in text
+    assert set(w.recent_by[:2]) == {keyed("u1"), "chat:" + keyed("u2")}
     state = str(engine.World.from_state(*w.to_state(), key=b"k" * 16).to_state()[0])
     assert "@ann" not in state and "Viv" not in state
 
@@ -563,3 +563,24 @@ def test_a_mover_with_no_name_found_is_just_not_named():
     assert render.with_author("gen 5: glider 1,1 se · 3d → 2d", "abc", {}) == "gen 5: glider 1,1 se · 3d → 2d"
     assert render.with_author("gen 5: glider 1,1 se", None, {"abc": "@x"}) == "gen 5: glider 1,1 se"
     assert render.with_author("gen 5: glider 1,1 se", "abc", {"abc": "@x"}) == "gen 5 · @x: glider 1,1 se"
+
+
+def test_an_earlier_chat_mover_is_named_from_the_chats_history():
+    import youtube
+
+    class ChatNamesYT(PinYT):
+        def __init__(self, comments=()):
+            super().__init__(comments)
+            self.history_reads = 0
+
+        def chat_history(self):
+            self.history_reads += 1
+            return [player("chat:c", "u2", "block 40,40", LAUNCH + 60, video=youtube.CHAT, name="Viv")]
+    w = world()
+    first = PinYT([owner_status(), player("chat:c", "u2", "block 40,40", LAUNCH + 60, video=youtube.CHAT, name="Viv")])
+    engine.tick(w, LAUNCH + 600, first)
+    later = ChatNamesYT([owner_status(), player("b", "u3", "rpent 90,20", LAUNCH + 3000, name="@cy")])
+    engine.tick(w, LAUNCH + 600 + 2700, later)  # the chat message is not in this run's reads
+    text = later.updates[-1][1]
+    assert "· Viv (live chat): block 40,40" in text and "· @cy: rpent 90,20" in text and later.history_reads == 1
+    assert render.with_author("gen 1: block 1,1", "chat", {}) == "gen 1 · live chat: block 1,1"  # old state

@@ -375,3 +375,13 @@ def test_the_live_streams_title_is_left_alone_when_right_or_nothing_is_live():
     svc = StreamService(live=())
     assert youtube.YouTube(svc, "MAIN", youtube.Quota({}, T0)).set_stream_title("Day 4") is None
     assert len(svc.calls) == 1
+
+
+def test_the_chats_history_gives_names_without_moving_our_place():
+    svc = ChatService(pages=[{"items": [chat_msg("m1", "hi", T0), chat_msg("m2", "x", T0, owner=True)]}])
+    chat = {"id": "LC1", "token": "T5"}
+    yt = chat_yt(svc, chat)
+    got = yt.chat_history()
+    assert [(c.id, c.name) for c in got] == [("chat:m1", "Viv")] and chat["token"] == "T5"
+    assert "pageToken" not in svc.calls[-1] and yt.quota.used == 5
+    assert chat_yt(ChatService(), {}).chat_history() == []

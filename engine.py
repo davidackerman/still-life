@@ -65,7 +65,7 @@ class World:
     highlight: set = field(default_factory=set)  # cells injected since the last thumbnail
     forecast: dict | None = None  # display only: {"key", "stuck_gen", "horizon"}
     recent: list | None = None  # latest event lines for the pinned comment (game data only)
-    recent_by: list = field(default_factory=list)  # who made each recent line: keyed author, "chat", or None
+    recent_by: list = field(default_factory=list)  # who made each recent line: keyed author ("chat:" + it), or None
     # The owner's own status comment on each video, by video index ("0" = main):
     # {"id": comment id, "text": HMAC of the last text set (it can name players), "at": when}
     pinned: dict = field(default_factory=dict)
@@ -296,8 +296,7 @@ def backfill_scores(world: World, comments: list, entries: list[dict], shape) ->
 def lookup_names(world: World, yt, comments: list, now: float, events: list[dict], wanted: set) -> dict:
     """Display names for the keyed authors in `wanted`, looked up now and never
     stored: from this run's comments and chat, else from one read of every comment
-    since launch (~4 units). Someone known only from an earlier live chat stays
-    unnamed."""
+    since launch (~4 units), then of the live chat's history (5 units)."""
     names: dict = {}
 
     def learn(cs):
@@ -305,11 +304,18 @@ def lookup_names(world: World, yt, comments: list, now: float, events: list[dict
             if c.name:
                 names[admission.keyed(world.key, "author", c.author)] = c.name
     learn(comments)
-    if any(a not in names for a in wanted):
+    reads = [("comments", lambda: yt.fetch_comments(world.launch_time, watch=[p["id"] for p in world.pinned.values()],
+                                                  now=now))]
+    if hasattr(yt, "chat_history"):
+        reads.append(("chat", yt.chat_history))  # chat messages are handed over once: re-read its history
+    for what, read in reads:
+        if all(a in names for a in wanted):
+            break
         try:
-            learn(yt.fetch_comments(world.launch_time, watch=[p["id"] for p in world.pinned.values()], now=now))
+            learn(read())
         except Exception as e:  # noqa: BLE001 - unnamed for now
-            events.append({"type": "youtube_error", "op": "lookup_names", "error": repr(e)[:500]})
+            if not getattr(e, "skip", False):
+                events.append({"type": "youtube_error", "op": f"lookup_names_{what}", "error": repr(e)[:500]})
     return names
 
 
@@ -427,7 +433,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
                     credit(world, q["author"], eff)
             inj_events = u.inject(items)
             for q, ev in zip(group, [e for e in inj_events if e["type"] == "injection"]):
-                who[id(ev)] = "chat" if q.get("chat") else q["author"]
+                who[id(ev)] = ("chat:" if q.get("chat") else "") + q["author"]
                 if ev["changed"]:
                     world.last_changer = {"comment": q["comment"], "author": q["author"],
                                           "gen": ev["gen"], "command": q["command"]}
@@ -525,7 +531,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         # who made each move, and the leaderboard: names looked up now, never stored
         by = (world.recent_by + [None] * len(world.recent))[:len(world.recent)]
         up, down = render.leaders(world.scores)
-        wanted = {a for _, a in up + down} | {a for a in by if a and a != "chat"}
+        wanted = {a for _, a in up + down} | {a.removeprefix("chat:") for a in by if a and a != "chat"}
         names = lookup_names(world, yt, comments, now, events, wanted) if wanted else {}
         board = render.leaderboard(up, down, names, world.gen_seconds) or None
         recent = [render.with_author(line, a, names) for line, a in zip(world.recent, by)]

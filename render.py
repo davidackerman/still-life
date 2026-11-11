@@ -404,10 +404,12 @@ def leaderboard(up: list, down: list, names: dict, gen_seconds: int) -> list[str
 
 def with_author(line: str, author: str | None, names: dict) -> str:
     """'gen 2,051 · @kyle: random 5x5 at 28,71 · …': who made a move, when known.
-    `author` is a keyed author (looked up in `names`), "chat" or None."""
+    `author` is a keyed author, "chat:" + one for a live-chat move, or None."""
     if not author:
         return line
-    tag = "live chat" if author == "chat" else " ".join((names.get(author) or "").split())[:40]
+    chat = author.startswith("chat")
+    name = " ".join((names.get(author.removeprefix("chat:")) or "").split())[:40]
+    tag = f"{name} (live chat)" if chat and name else "live chat" if chat else name
     head, sep, rest = line.partition(": ")
     return f"{head} · {tag}: {rest}" if tag and sep else line
 
