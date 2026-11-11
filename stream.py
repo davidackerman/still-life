@@ -497,7 +497,7 @@ class Screen:
         checked = checked_text(snap.checked, now)
         if checked:  # so a viewer knows when their comment will show up
             d.text((x, y), checked, font=font("regular", 22), fill=LIGHT, anchor="lt")
-            d.text((x, y + 28), "(about every 10 min)", font=font("regular", 19), fill=MUTED, anchor="lt")
+            d.text((x, y + 28), "(about every 5 min)", font=font("regular", 19), fill=MUTED, anchor="lt")
             y += 64
         y += 18
         d.text((x, y), "Latest moves", font=font("bold", 24), fill=WHITE, anchor="lt")
