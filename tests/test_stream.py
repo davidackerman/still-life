@@ -195,3 +195,44 @@ def test_the_puller_only_pulls_when_github_has_a_new_commit(tmp_path):
     commit(tmp_path / "other", "2")
     assert not p._unchanged()
     assert not stream.Puller(str(tmp_path / "nowhere"), str(tmp_path), 0, pull=False)._unchanged()  # can't tell: pull
+
+
+def test_labels_never_hunt_for_a_free_row_for_ever(state_dir):
+    """Ten moves at once near the bottom edge (03:24 UTC, Nov 11) froze the stream:
+    the old loop sent a label back and forth between two blocked rows."""
+    import signal
+    assert stream.free_row(500, 0, 100, [(0, 100, 500), (0, 100, 534), (0, 100, 466)], 0, 520) == 432
+    assert stream.free_row(500, 0, 100, [(0, 100, y) for y in range(0, 1000, 10)], 0, 520) == 500  # none free
+    now = LAUNCH + 3700
+    screen = stream.Screen(stream.load(state_dir, now=now))
+    h, w = screen.snap.u.grid.shape
+    screen.tags = [stream.Tag(f"random 5x5 at {x},{y}", [(x, y)], now)  # same column, 2 rows apart, at the bottom
+                   for x, y in [(6, 17), (64, h - 3), (64, h - 1), (90, h - 1)]]
+    signal.signal(signal.SIGALRM, lambda *_: pytest.fail("a frame took over 5 s"))
+    signal.alarm(5)
+    try:
+        assert screen.compose(now + 1).size == (stream.SW, stream.SH)
+    finally:
+        signal.alarm(0)
+
+
+def test_a_frame_that_never_comes_ends_the_process(state_dir, tmp_path, monkeypatch):
+    """No frame for STALL_S: exit, so systemd starts it again (YouTube ends a broadcast that gets nothing)."""
+    import os
+    import threading
+    repo = tmp_path / "repo"
+    shutil.copytree(state_dir, repo / "state")
+    exits, exited = [], threading.Event()
+    monkeypatch.setattr(stream, "STALL_S", 0.4)
+    monkeypatch.setattr(os, "_exit", lambda code: (exits.append(code), exited.set()))
+    real, calls = stream.Screen.compose, []
+
+    def stuck(self, now):
+        calls.append(now)
+        if len(calls) > 1:  # the second frame never finishes
+            exited.wait(10)
+            raise BrokenPipeError
+        return real(self, now)
+    monkeypatch.setattr(stream.Screen, "compose", stuck)
+    assert stream.stream(str(repo), str(tmp_path / "s.flv"), None, 30.0, False, 800, sound=False) == 1
+    assert exits == [1]

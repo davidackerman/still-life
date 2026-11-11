@@ -15,7 +15,7 @@ anywhere.
 
 When a pull brings new code it exits, so the service restarts on the new
 version (systemd Restart=always). If ffmpeg's connection drops it exits too,
-for the same restart.
+for the same restart, and so it does if no frame has gone out for a minute.
 """
 
 from __future__ import annotations
@@ -50,6 +50,7 @@ COL_X, COL_W = 1500, 380  # the column on the right
 IN_FPS, OUT_FPS = 10, int(os.environ.get("STREAM_FPS", "30"))
 PRESET = os.environ.get("X264_PRESET", "veryfast")  # the preset barely matters for this picture
 PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it pulls only then)
+STALL_S = 60  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 FADE_S = 0.6  # crossfade between generations
@@ -245,6 +246,16 @@ def centre_px(cells, shape) -> tuple[float, float]:
     ys = [y0 + (y - y0 + h // 2) % h - h // 2 for _, y in cells]
     cx, cy = (sum(xs) / len(xs)) % w, (sum(ys) / len(ys)) % h
     return left + (cx + 0.5) * cell, top + (cy + 0.5) * cell
+
+
+def free_row(y0: float, x0: float, x1: float, placed: list[tuple], lo: float, hi: float, step: int = 34) -> float:
+    """Where a label spanning x0..x1 goes: the first height, in steps from y0 (down to
+    hi, then up to lo), clear of the labels already `placed`; y0 itself if none is.
+    A bounded search: moves bunched near an edge once sent the old loop back and
+    forth between two blocked rows for ever, and froze the stream."""
+    ys = [y0] + [y0 + k * step for k in range(1, int((hi - y0) // step) + 1)]
+    ys += [y0 - k * step for k in range(1, int((y0 - lo) // step) + 1)]
+    return next((y for y in ys if not any(abs(y - py) < 32 and x0 < px1 and x1 > px0 for px0, px1, py in placed)), y0)
 
 
 def rewind_slot(now: float) -> float | None:
@@ -458,8 +469,7 @@ class Screen:
             tw = d.textlength(label, font=f)
             x0 = min(max(cx - tw / 2 - 9, left + 4), left + shape[1] * cell - tw - 22)
             y0 = cy - 46 if cy - 46 > top + 4 else cy + 18
-            while any(abs(y0 - py) < 32 and x0 < px1 and x0 + tw + 18 > px0 for px0, px1, py in placed):
-                y0 += 34 if y0 + 34 < bottom - 30 else -34
+            y0 = free_row(y0, x0, x0 + tw + 18, placed, top + 4, bottom - 30)
             placed.append((x0, x0 + tw + 18, y0))
             alpha = int(255 * min(1.0, (TAG_S - age) / 5))
             d.rounded_rectangle((x0, y0, x0 + tw + 18, y0 + 28), radius=6, fill=(255, 255, 255, alpha))
@@ -658,6 +668,18 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
             log("ffmpeg: " + redact(raw.decode(errors="replace").rstrip(), secret))
     threading.Thread(target=relay, daemon=True).start()
 
+    # If frames stop going out, YouTube ends the broadcast after a minute or two and
+    # nothing here would notice (a stuck loop once froze it for hours with ffmpeg
+    # waiting quietly). So: no frame for STALL_S, and the whole process exits.
+    last_frame, finished = [time.monotonic()], threading.Event()
+
+    def watchdog():
+        while not finished.wait(min(5.0, STALL_S / 4)):
+            if time.monotonic() - last_frame[0] > STALL_S:
+                log(f"no frame for {STALL_S} s: exiting so the service starts again")
+                os._exit(1)
+    threading.Thread(target=watchdog, daemon=True).start()
+
     log(f"streaming universe #{snap.universe_no} from gen {snap.u.generation} ({snap.u.phase})")
     t0, n, data, last_key, behind = time.monotonic(), 0, b"", None, 0.0
     try:
@@ -680,6 +702,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
                 except queue.Full:
                     raise BrokenPipeError("ffmpeg stopped reading the sound") from None
             proc.stdin.write(data)
+            last_frame[0] = time.monotonic()
             n += 1
             delay = t0 + n / IN_FPS - time.monotonic()
             if screen.rewind is not None:
@@ -690,6 +713,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
         log("ffmpeg stopped (connection lost?)")
         return 1
     finally:
+        finished.set()
         if audio:
             try:
                 sound_q.put(None, timeout=1)
