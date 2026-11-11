@@ -24,7 +24,7 @@ from universe import ALIVE, CONTESTED, DIED, FLATLINING
 SR = ex.SR  # 48 kHz, as the Shorts
 LOW = [f / 2 for f in ex.NOTES[:6]]  # A2..A3, for deaths
 PULSE = {ALIVE: (880.0, 1.5, 0.035), CONTESTED: (880.0, 0.9, 0.04), FLATLINING: (659.25, 2.2, 0.04)}
-PULSE_LEVEL = 0.5  # with OUT below: it never stops, but the owner wanted it a little more present
+PULSE_LEVEL = 0.5  # with DRIVE below: it never stops, but the owner wanted it a little more present
 # The bed: (root, the notes above it), in A like everything else.
 PROGRESSION = [  # alive: A maj9, F#m9, D maj9, E sus, and round again
     (110.00, (164.81, 207.65, 246.94, 277.18)),
@@ -39,7 +39,10 @@ EASE_SLOW, EASE_FAST, FAST_S = 0.012, 0.09, 6.0  # per 0.1 s: chords blend over 
 BED = {"root": 0.0053, "note": 0.0034}  # per voice (the root a little more: low notes sound quieter)
 CHIME = (880.0, 1108.73, 1318.51)
 SAVED = (220.0, 277.18, 329.63, 440.0, 554.37)
-OUT = 1.5  # about 9 dB above the Shorts' per-event level (their master is 0.56 * tanh(1.2 x)): the stream is sparse
+# The master: a soft limiter, tanh(DRIVE x). Below about -6 dBFS it is a plain
+# gain of DRIVE; louder peaks are rounded off instead of clipped. 5.7 is the
+# owner's "louder overall": 10 dB over the old 1.5 tanh(1.2 x).
+DRIVE = 5.7
 MAX_STEP = 6  # more generations than this at once (a restart, a pause) play no notes
 AHEAD_S = 14.0  # how far ahead notes can be mixed in
 
@@ -188,5 +191,5 @@ class Soundtrack:
         self.buf[:, -n:] = 0
         self._bed(out, t0, n)
         self.t += n
-        pcm = np.clip(OUT * np.tanh(1.2 * out), -1, 1)
+        pcm = np.tanh(DRIVE * out)
         return (pcm.T * 32767).astype("<i2").tobytes()
