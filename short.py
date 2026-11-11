@@ -208,76 +208,82 @@ def ring(cells, alpha: float, caption: str | None = None, dashed: bool = False):
     return draw
 
 
-# The daily Short's last beat: what you can comment, each move a little looping
-# film of what it does (render.demo), in two rows across the band, clear of the
-# Shorts buttons on the right.
-FILMS = [("glider_se", "glider {at} se blue", "flies off", "blue"), ("block", "block {at}", "just sits", None),
-         ("blinker", "blinker {at} cyan", "blinks", "cyan"), ("rpent", "rpent {at} yellow", "5 cells of chaos", "yellow"),
-         ("acorn", "acorn {at} red", "grows for ages", "red"), ("random", "anything else", "a random patch", None)]
-FILM_BOX, FILM_CELL, FILM_EVERY = 11, 16, 4  # 11 x 11 cells of 16 px; a generation every 4 frames
-FILMS_W, FILMS_Y, FILMS_ROW = 960, BAND_Y + 34, 290
+# Wherever the daily Short says "comment", a comment bubble below the board shows
+# one you could write and, beside it, a little film (render.demo) of exactly what it
+# adds. They take turns from the first frame until the ending, each held until its
+# film has played through; the ending then lists them all, one under another.
+EXAMPLES = [("hi!", "random", None, "adds a random patch"),
+            ("glider {at} se blue", "glider_se", "blue", "adds a blue glider that flies off"),
+            ("block {at}", "block", None, "adds a block that just sits"),
+            ("blinker {at} cyan", "blinker", "cyan", "adds a cyan blinker that blinks"),
+            ("rpent {at} yellow", "rpent", "yellow", "adds a yellow rpent: 5 cells of chaos"),
+            ("acorn {at} red", "acorn", "red", "adds a red acorn that grows for ages")]
+CYCLE = [EXAMPLES[k] for k in (0, 1, 5, 4)]  # the bubble's turns: hi!, glider, acorn, rpent
+CHIP_Y, CHIP_BOX, CHIP_CELL, CHIP_EVERY = 1516, 9, 10, 3  # the bubble's centre, below the captions; a generation every 3 frames
+STACK_Y, STACK_SCALE, STACK_GAP = 536, 0.9, 14  # the ending's list: its top, its bubbles' size, the gap between them
 
 
-def films(i: int, alpha: float, at: str):
-    """Frame i of the films, with `at` ('52,30') as the example spot."""
-    def draw(d, to_canvas):
-        a = int(255 * alpha)
-        size = FILM_BOX * FILM_CELL
-        color = tuple(PHASE_COLOR["ALIVE"]) + (a,)
-        for k, (pattern, say, does, paint) in enumerate(FILMS):
-            cx = FILMS_W / 3 * (k % 3 + 0.5)
-            top = FILMS_Y + (k // 3) * FILMS_ROW
-            x0 = int(cx - size / 2)
-            d.rounded_rectangle((x0 - 8, top - 8, x0 + size + 8, top + size + 8), radius=12,
-                                fill=(16, 18, 24, int(235 * alpha)), outline=(70, 76, 92, a), width=2)
-            film = render.demo(pattern, FILM_BOX)
-            fill = tuple(render.PAINT[paint]) + (a,) if paint else color
-            for y, x in np.argwhere(film[(i // FILM_EVERY) % len(film)]):
-                px, py = x0 + x * FILM_CELL, top + y * FILM_CELL
-                d.rectangle((px + 1, py + 1, px + FILM_CELL - 2, py + FILM_CELL - 2), fill=fill)
-            label = say.format(at=at)
-            size_b = 38
-            while d.textlength(label, font=ex.font("bold", size_b)) > FILMS_W / 3 - 16 and size_b > 26:
-                size_b -= 2
-            ex.text(d, (cx, top + size + 36), label, "bold", size_b, alpha, anchor="mm")
-            ex.text(d, (cx, top + size + 76), does, "demi", 32, alpha, fill=(200, 204, 214), anchor="mm")
-    return draw
+def _quote(say: str, at: str) -> str:
+    return "\u201c" + say.format(at=at) + "\u201d"
 
 
-# Wherever the Short says "comment", a comment bubble below the board shows one
-# you could write and, beside it, a little film of exactly what it adds. They
-# take turns; each film starts as its comment appears.
-EXAMPLES = [("hi!", "random", None, "adds a random patch"), ("glider {at} se blue", "glider_se", "blue", "adds a blue glider"),
-            ("acorn {at} red", "acorn", "red", "adds a red acorn"), ("rpent {at} yellow", "rpent", "yellow", "adds a yellow rpent")]
-EXAMPLE_S, CHIP_Y, CHIP_BOX, CHIP_CELL, CHIP_EVERY = 2.6, 1516, 9, 10, 3  # the bubble's centre, below the captions
+def _bubble_width(d, say: str, adds: str, s: float = 1.0) -> float:
+    tw = max(d.textlength(say, font=ex.font("demi", round(46 * s))), d.textlength(adds, font=ex.font("demi", round(30 * s))))
+    return 128 * s + tw + CHIP_BOX * round(CHIP_CELL * s)
 
 
-def comment_chip(i: int, alpha: float, at: str):
-    """Frame i (counted from the first bubble) of the comment bubbles."""
+def _bubble(d, x0: int, yc: float, w: float, say: str, adds: str, cells, paint, alpha: float, s: float = 1.0):
+    """One comment bubble at scale s: a commenter, what they wrote, what it adds, and a frame of its film."""
+    a = int(255 * alpha)
+    cell = round(CHIP_CELL * s)
+    box, h = CHIP_BOX * cell, 112 * s
+    d.rounded_rectangle((x0, yc - h / 2, x0 + w, yc + h / 2), radius=26 * s, fill=(245, 246, 250, int(238 * alpha)))
+    d.ellipse((x0 + 26 * s, yc - 22 * s, x0 + 70 * s, yc + 22 * s), fill=(150, 156, 170, a))  # a commenter
+    tx = x0 + 88 * s
+    ex.text(d, (tx, yc - 18 * s), say, "demi", round(46 * s), alpha, fill=(12, 14, 18), anchor="lm", outline=False)
+    ex.text(d, (tx, yc + 28 * s), adds, "demi", round(30 * s), alpha, fill=(90, 96, 110), anchor="lm", outline=False)
+    bx, by = int(x0 + w - 14 * s - box), int(yc - box / 2)
+    d.rounded_rectangle((bx - 4, by - 4, bx + box + 4, by + box + 4), radius=10, fill=(16, 18, 24, a))
+    fill = tuple(render.PAINT[paint] if paint else PHASE_COLOR["ALIVE"]) + (a,)
+    for y, x in np.argwhere(cells):
+        px, py = bx + x * cell, by + y * cell
+        d.rectangle((px + 1, py + 1, px + cell - 2, py + cell - 2), fill=fill)
+
+
+def chip_turn() -> int:
+    """Frames a bubble is held at the films' own pace: its film, played through once."""
+    return len(render.demo(CYCLE[0][1], CHIP_BOX)) * CHIP_EVERY
+
+
+def comment_chip(i: int, alpha: float, at: str, per: float | None = None):
+    """Frame i (counted from the first bubble) of the comment bubbles, `per` frames to a turn."""
+    per = per or chip_turn()
+
     def draw(d, to_canvas):
         if alpha <= 0:
             return
-        a = int(255 * alpha)
-        per = int(EXAMPLE_S * FPS)
-        say, pattern, paint, adds = EXAMPLES[(i // per) % len(EXAMPLES)]
-        say = "\u201c" + say.format(at=at) + "\u201d"
-        fq, fs = ex.font("demi", 46), ex.font("demi", 30)
-        box = CHIP_BOX * CHIP_CELL
-        tw = max(d.textlength(say, font=fq), d.textlength(adds, font=fs))
-        w = 26 + 44 + 18 + tw + 26 + box + 14
-        x0, y0 = int(CX - w / 2), CHIP_Y - 56
-        d.rounded_rectangle((x0, y0, x0 + w, y0 + 112), radius=26, fill=(245, 246, 250, int(238 * alpha)))
-        d.ellipse((x0 + 26, CHIP_Y - 22, x0 + 70, CHIP_Y + 22), fill=(150, 156, 170, a))  # a commenter
-        tx = x0 + 26 + 44 + 18
-        ex.text(d, (tx, CHIP_Y - 18), say, "demi", 46, alpha, fill=(12, 14, 18), anchor="lm", outline=False)
-        ex.text(d, (tx, CHIP_Y + 28), adds, "demi", 30, alpha, fill=(90, 96, 110), anchor="lm", outline=False)
-        bx, by = int(x0 + w - 14 - box), CHIP_Y - box // 2
-        d.rounded_rectangle((bx - 4, by - 4, bx + box + 4, by + box + 4), radius=10, fill=(16, 18, 24, a))
+        turn = int(i // per)
+        say, pattern, paint, adds = CYCLE[turn % len(CYCLE)]
+        say = _quote(say, at)
         film = render.demo(pattern, CHIP_BOX)
-        fill = tuple(render.PAINT[paint] if paint else PHASE_COLOR["ALIVE"]) + (a,)
-        for y, x in np.argwhere(film[min(len(film) - 1, (i % per) // CHIP_EVERY)]):
-            px, py = bx + x * CHIP_CELL, by + y * CHIP_CELL
-            d.rectangle((px + 1, py + 1, px + CHIP_CELL - 2, py + CHIP_CELL - 2), fill=fill)
+        k = min(len(film) - 1, int((i - turn * per) * len(film) / per))
+        w = _bubble_width(d, say, adds)
+        _bubble(d, int(CX - w / 2), CHIP_Y, w, say, adds, film[k], paint, alpha)
+    return draw
+
+
+def comment_stack(i: int, n: int, alpha: float, at: str):
+    """Frame i of the n-frame ending: every example, one under another, their
+    films starting together and playing through once."""
+    def draw(d, to_canvas):
+        s = STACK_SCALE
+        rows = [(_quote(say, at), pattern, paint, adds) for say, pattern, paint, adds in EXAMPLES]
+        w = max(_bubble_width(d, say, adds, s) for say, _, _, adds in rows)
+        h = 112 * s
+        for r, (say, pattern, paint, adds) in enumerate(rows):
+            film = render.demo(pattern, CHIP_BOX)
+            k = min(len(film) - 1, i * len(film) // n)
+            _bubble(d, int(CX - w / 2), STACK_Y + r * (h + STACK_GAP) + h / 2, w, say, adds, film[k], paint, alpha, s)
     return draw
 
 
@@ -410,7 +416,7 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
         frames.append(f)
 
     # the daily recap's comment bubbles (see comment_chip): from the first frame
-    # until its moves have played, fading out as the stakes come in
+    # until the ending, which lists them all (comment_stack)
     chipped: list = []
     chip_at: list = []  # the example spot: a quiet corner of the board as it is now
 
@@ -421,10 +427,11 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
         add(u, texts, extras=list(extras) + [comment_chip(k, min(1.0, (k + 1) / FADE), chip_at[0])], **kw)
         chipped.append(frames[-1])
 
-    def end_chips():
+    def end_chips():  # every turn a whole film, as many turns as fill the bubbles' time
         n = len(chipped)
-        for k in range(max(0, n - FADE), n):
-            chipped[k].extras[-1] = comment_chip(k, min(1.0, (k + 1) / FADE, (n - k - 1) / FADE), chip_at[0])
+        per = n / max(1, round(n / chip_turn()))
+        for k in range(n):
+            chipped[k].extras[-1] = comment_chip(k, min(1.0, (k + 1) / FADE, (n - k - 1) / FADE), chip_at[0], per)
 
     # where things stand now, and the forecasts
     now = h.fresh()
@@ -550,11 +557,12 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     u = copy.deepcopy(now)
     dim = 0.0
     if since_gen is not None:  # and what you can comment, each move shown doing its thing
-        top = [("Comment anything.", "bold", 96), ("Or one of these:", "demi", 60)]
+        top = [("Comment anything.", "bold", 96), ("Like one of these:", "demi", 60)]
         bottom = [("Your cells could save it. Or kill it.", "demi", 62)]
         n, dim = max(rf(*[s for s, _, _ in top + bottom]), 6 * FPS), 0.82
         x, y = render.quiet_spot(u.grid)
-        extras = lambda a, i: [films(i, a, f"{x},{y}")]  # noqa: E731
+        extras = lambda a, i: [comment_stack(i, n, a, f"{x},{y}")]  # noqa: E731
+        bottom_y = BOTTOM_Y + 24  # below the list
     else:
         pick = render.suggestion(u)
         spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
@@ -562,11 +570,12 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
         bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the main video on this channel", "demi", 50)]
         n = max(rf(*[s for s, _, _ in top + bottom]), 5 * FPS)
         extras = lambda a, i: [ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)]  # noqa: E731
+        bottom_y = BOTTOM_Y - 20
     for i in range(n):
         if i % 6 == 0:
             History.advance(u, u.generation + 1)
         a = min(1.0, (i + 1) / FADE)
-        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a), extras=extras(a, i), dim=dim * a)
+        add(u, block(top, TOP_Y, a) + block(bottom, bottom_y, a), extras=extras(a, i), dim=dim * a)
     return frames
 
 
@@ -664,9 +673,8 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
         return "\n" + effect_words(effs[0]["before"], effs[-1]["after"], G) if effs else ""
     shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:2])
-    _moves(h, u, shown, head, add_chip or add, h.now_gen, effect_text)
-    if end_chips:
-        end_chips()
+    say = add_chip or add  # the comment bubbles carry on under the moves and the stakes
+    _moves(h, u, shown, head, say, h.now_gen, effect_text)
 
     # the stakes: where its death stands now
     def death_day(stuck):
@@ -682,25 +690,27 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
                 History.advance(fut, start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
             elif i % 2 == 0:
                 History.advance(fut, fut.generation + 1)
-            add(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
+            say(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
                 grey=max(0.0, (i - n * 0.6) / (n * 0.3)))
-        return
-    if now.phase == "FLATLINING":
-        top = [("It's stuck in a loop.", "bold", 84)]
-        bottom = [(f"It dies {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it.",
-                   "demi", 60)]
-    elif now.phase == "CONTESTED":
-        top = [("A comment broke the loop.", "bold", 84)]
-        bottom = [(f"It lives if it's still changing {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')}.",
-                   "demi", 60)]
-    else:  # alive, and no loop within the forecast
-        top = [("It won't get stuck in a loop for weeks.", "bold", 80)]
-        bottom = [("Unless a comment changes that.", "demi", 60)]
-    n = rf(*[t for t, _, _ in top + bottom])
-    for i in range(n):
-        if i % 4 == 0:
-            h.goto(u, u.generation + 1)
-        add(u, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)))
+    else:
+        if now.phase == "FLATLINING":
+            top = [("It's stuck in a loop.", "bold", 84)]
+            bottom = [(f"It dies {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it.",
+                       "demi", 60)]
+        elif now.phase == "CONTESTED":
+            top = [("A comment broke the loop.", "bold", 84)]
+            bottom = [(f"It lives if it's still changing {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')}.",
+                       "demi", 60)]
+        else:  # alive, and no loop within the forecast
+            top = [("It won't get stuck in a loop for weeks.", "bold", 80)]
+            bottom = [("Unless a comment changes that.", "demi", 60)]
+        n = rf(*[t for t, _, _ in top + bottom])
+        for i in range(n):
+            if i % 4 == 0:
+                h.goto(u, u.generation + 1)
+            say(u, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)))
+    if end_chips:
+        end_chips()
 
 
 def render_video(state_dir: str, out: str, since_gen: int | None = None, preview: str | None = None) -> str:

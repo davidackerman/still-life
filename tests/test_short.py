@@ -77,7 +77,7 @@ def test_the_daily_recap_is_short_and_opens_on_the_whole_board(state_dir, monkey
     assert 1 <= sum(1 for f in frames if f.cue and f.cue[0] == "inject") <= 2  # the day's biggest moves
     assert any(f.grey > 0 for f in frames)  # its future: stuck, then dead
     assert len(short.compose(frames[0])) == short.PW * short.PH * 3
-    end = frames[-1]  # it ends on what you can comment, each move a film, over the dimmed board
+    end = frames[-1]  # it ends on what you can comment, one under another, each with its film, over the dimmed board
     assert end.extras and end.dim > 0.5 and any("one of these" in t[0] for t in end.texts)
     assert len(short.compose(end)) == short.PW * short.PH * 3
     assert len([f for f in frames if f.extras and f.dim]) >= 6 * short.FPS  # long enough to watch them
@@ -111,16 +111,31 @@ def test_effect_words_are_plain():
 def test_where_the_daily_short_says_comment_a_bubble_shows_one_and_what_it_adds(state_dir, monkeypatch):
     monkeypatch.setattr(explainer, "SCALE", 1)
     frames = short.build(state_dir, since_gen=0)
-    hook = int(2.7 * short.FPS)
-    assert all(f.extras for f in frames[:hook])  # from the first frame, under "if nobody comments"
-    per = int(short.EXAMPLE_S * short.FPS)
-    bubbles = [f for f in frames if f.extras and not f.dim]  # the opening and the recap (the ending has its films)
-    assert len(bubbles) > per  # long enough for more than one example
+    ending = next(i for i, f in enumerate(frames) if f.dim)  # the ending lists them all over the dimmed board
+    assert all(f.extras for f in frames[:ending])  # from the first frame, through the stakes, never a gap
+    assert ending > short.chip_turn()  # long enough for more than one example, each film played through
+    assert any(f.grey > 0 for f in frames[:ending])  # still there as it says how it dies
     assert len(short.compose(frames[0])) == short.PW * short.PH * 3
-    stakes = [f for f in frames if f.grey > 0]
-    assert stakes and not any(f.extras for f in stakes)  # gone by the time it says how it dies
     full = short.build(state_dir)  # the original Short is unchanged: no bubbles
-    assert not any(f.extras for f in full[:hook])
+    assert not any(f.extras for f in full[:int(2.7 * short.FPS)])
+
+
+def test_each_bubble_is_held_until_its_film_has_played_through():
+    from PIL import Image, ImageDraw
+    seen = []
+    real = short._bubble
+    try:
+        short._bubble = lambda d, x0, yc, w, say, adds, cells, *a, **k: seen.append((say, cells.sum()))
+        per = 100.5  # what end_chips picks: the bubbles' time split into whole films
+        d = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
+        for i in range(int(2 * per)):
+            short.comment_chip(i, 1.0, "5,5", per)(d, None)
+    finally:
+        short._bubble = real
+    film = short.render.demo(short.CYCLE[0][1], short.CHIP_BOX)
+    first = [n for say, n in seen if "hi!" in say]
+    assert len(first) == int(per) + 1 and first[0] == film[0].sum() and first[-1] == film[-1].sum()
+    assert seen[len(first)][0] != seen[0][0]  # then the next one, from the start of its own film
 
 
 def test_the_short_shows_paint(tmp_path, monkeypatch):
