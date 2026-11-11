@@ -199,7 +199,7 @@ def test_owner_status_comment_is_found_and_not_played():
     assert [e["command"] for e in ev if e["type"] == "injection"] == ["glider 10,10 se"]  # the status comment adds nothing
     cid, text = yt.updates[-1]
     assert cid == "Ugpin" and text.startswith("🟢 ALIVE · this video dies in ~")
-    assert "The video is the explainer." in text and "• gen 0: glider 10,10 se" in text
+    assert "The video is the explainer." in text and "• Fri 3:00 AM ET · gen 0: glider 10,10 se" in text
     assert "Try one: " in text and "davidackerman.github.io/still-life" in text
     assert "📺 Watch it live, 24/7, with sound, and see your comment land: https://www.youtube.com/channel/" in text
 
@@ -553,7 +553,8 @@ def test_latest_moves_name_who_made_them_and_the_names_are_never_stored():
     yt = PinYT(cs)
     engine.tick(w, LAUNCH + 600, yt)
     text = yt.updates[-1][1]
-    assert "• gen 0 · @ann: glider 10,10 se" in text and "• gen 0 · Viv (live chat): block 40,40" in text
+    assert "• Fri 3:00 AM ET · gen 0 · @ann: glider 10,10 se" in text
+    assert "• Fri 3:00 AM ET · gen 0 · Viv (live chat): block 40,40" in text
     assert set(w.recent_by[:2]) == {keyed("u1"), "chat:" + keyed("u2")}
     state = str(engine.World.from_state(*w.to_state(), key=b"k" * 16).to_state()[0])
     assert "@ann" not in state and "Viv" not in state
@@ -584,3 +585,16 @@ def test_an_earlier_chat_mover_is_named_from_the_chats_history():
     text = later.updates[-1][1]
     assert "· Viv (live chat): block 40,40" in text and "· @cy: rpent 90,20" in text and later.history_reads == 1
     assert render.with_author("gen 1: block 1,1", "chat", {}) == "gen 1 · live chat: block 1,1"  # old state
+
+
+def test_latest_moves_say_when_each_one_came_in():
+    # a move lands in the generation it was sent in, so its time is that generation's
+    assert render.line_gen("gen 2,316: random 5x5 at 8,51 · 2d 17h → 2d 22h") == 2316
+    assert render.line_gen("🫀 gen 2,400: SAVED, thanks to glider 1,1 se (gen 2,300)") == 2400
+    assert render.line_gen("no generation here") is None
+    assert render.with_time("gen 30: block 1,1", LAUNCH, 120) == "Fri 4:00 AM ET · gen 30: block 1,1"
+    assert (render.with_time("🫀 gen 0: SAVED, thanks to block 1,1 (gen 0)", LAUNCH, 120)
+            == "🫀 Fri 3:00 AM ET · gen 0: SAVED, thanks to block 1,1 (gen 0)")
+    line = render.with_author("gen 30: block 1,1", "abc", {"abc": "@x"})
+    assert render.with_time(line, LAUNCH, 120) == "Fri 4:00 AM ET · gen 30 · @x: block 1,1"
+    assert render.with_time("none yet", LAUNCH, 120) == "none yet"

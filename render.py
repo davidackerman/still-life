@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 
 import numpy as np
 
@@ -412,6 +413,26 @@ def with_author(line: str, author: str | None, names: dict) -> str:
     tag = f"{name} (live chat)" if chat and name else "live chat" if chat else name
     head, sep, rest = line.partition(": ")
     return f"{head} · {tag}: {rest}" if tag and sep else line
+
+
+MOVE_GEN = re.compile(r"gen ([\d,]+)")
+
+
+def line_gen(line: str) -> int | None:
+    """The generation a "Latest moves" line happened at: 'gen 2,316: …' → 2316."""
+    m = MOVE_GEN.search(line)
+    return int(m.group(1).replace(",", "")) if m else None
+
+
+def with_time(line: str, launch_time: float, gen_seconds: int = GEN_SECONDS) -> str:
+    """'Wed 5:18 AM ET · gen 2,316: …': when a "Latest moves" line happened. A
+    move lands in the generation it was sent in, so this is within one
+    generation of when its comment came in."""
+    m = MOVE_GEN.search(line)
+    if not m:
+        return line
+    when = _at(launch_time, line_gen(line), gen_seconds, "%a %I:%M %p ET")
+    return f"{line[:m.start()]}{when} · {line[m.start():]}"
 
 
 def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,

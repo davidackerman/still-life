@@ -310,3 +310,14 @@ def test_new_moves_replay_from_where_they_landed_then_go_live(state_dir):
     screen.swap(new, now, state_dir)
     screen.swap(stream.load(state_dir, after_seq=new.seq, now=now), now + 1, state_dir)
     assert screen.replay is None and len(screen.tags) == len(new.new)
+
+
+def test_latest_moves_say_how_long_ago_they_came_in(state_dir):
+    assert stream.ago(30) == "just now" and stream.ago(12 * 60 + 5) == "12 min ago"
+    assert stream.ago(2 * 3600 + 300) == "2h 05m ago" and stream.ago(5 * 3600 + 900) == "5h ago"
+    assert stream.ago(86400 + 3 * 3600) == "1d 3h ago" and stream.ago(-5) == "just now"
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    # an effect long enough to push the age onto its own line, and a line with no generation
+    snap.recent = ["gen 7: glider 64,71 nw · 2d 17h → 2d 22h", "gen 20: random 5x5 at 1,2 · " + "very " * 30,
+                   "a line with no generation"] + snap.recent
+    assert stream.Screen(snap).compose(LAUNCH + 3700).size == (stream.SW, stream.SH)

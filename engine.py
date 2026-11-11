@@ -535,6 +535,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         names = lookup_names(world, yt, comments, now, events, wanted) if wanted else {}
         board = render.leaderboard(up, down, names, world.gen_seconds) or None
         recent = [render.with_author(line, a, names) for line, a in zip(world.recent, by)]
+    recent = [render.with_time(line, world.launch_time, world.gen_seconds) for line in recent]
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
         main = v == "0"
         # slot["text"] is the text without its "updated <time>" stamp: the stamp

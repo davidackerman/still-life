@@ -268,6 +268,16 @@ def checked_text(checked: float | None, now: float) -> str:
     return "chat checked just now" if mins < 1 else f"chat checked {mins} min ago"
 
 
+def ago(secs: float) -> str:
+    """'just now', '12 min ago', '2h 05m ago', '1d 3h ago': how long ago a move came in."""
+    secs = max(0.0, secs)
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)} min ago"
+    return f"{render.short_span(secs)} ago"
+
+
 def step(snap: Snapshot, now: float) -> bool:
     """Advance to the generation the wall clock says (as the tick will). True if it moved."""
     target = target_generation(now, snap.launch, snap.gen_seconds)
@@ -707,15 +717,23 @@ class Screen:
         y += 18
         d.text((x, y), "Latest moves", font=font("bold", 24), fill=WHITE, anchor="lt")
         y += 38
+        f20 = font("regular", 20)
         for r in snap.recent:
             what, _, effect = r.partition(" · ")  # "gen 716: random 5x5 at 47,17" · "8d 21h → 2d 23h"
             lines = [(ln, LIGHT) for ln in wrap(d, what, "regular", 20, COL_W)]
             lines += [(ln, effect_colour(effect)) for ln in wrap(d, tidy(effect), "regular", 20, COL_W)]
+            g = render.line_gen(r)
+            age = f"   {ago(now - snap.launch - g * snap.gen_seconds)}" if g is not None else ""
+            inline = bool(age) and d.textlength(lines[-1][0] + age, font=f20) <= COL_W
+            if age and not inline:
+                lines.append((age.strip(), MUTED))
             if y + 26 * len(lines) > BOARD_Y + BOARD_H:
                 break
             for line, colour in lines:
-                d.text((x, y), line, font=font("regular", 20), fill=colour, anchor="lt")
+                d.text((x, y), line, font=f20, fill=colour, anchor="lt")
                 y += 26
+            if inline:  # when it came in, after how it changed things
+                d.text((x + d.textlength(lines[-1][0], font=f20), y - 26), age, font=f20, fill=MUTED, anchor="lt")
             y += 10
         if not snap.recent:
             d.text((x, y), "none yet: be the first!", font=font("regular", 19), fill=LIGHT, anchor="lt")
