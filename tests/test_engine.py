@@ -201,6 +201,7 @@ def test_owner_status_comment_is_found_and_not_played():
     assert cid == "Ugpin" and text.startswith("🟢 ALIVE · this video dies in ~")
     assert "The video is the explainer." in text and "• gen 0: glider 10,10 se" in text
     assert "Try one: " in text and "davidackerman.github.io/still-life" in text
+    assert "📺 Watch it live, 24/7, with sound, and see your comment land: https://www.youtube.com/channel/" in text
 
 
 def test_owner_comments_without_the_marker_still_play():

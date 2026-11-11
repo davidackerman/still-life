@@ -367,12 +367,12 @@ def suggestion(u: Universe) -> str:
 
 # Leads with the distinction viewers miss: the video is a fixed recording, the
 # universe is the thumbnail (and the live page).
-INTRO_MAIN = ("The video is the explainer. The universe itself lives in this video's thumbnail and on the "
-              "live page (link at the bottom), and the title counts down to its death. Every comment adds "
-              "cells (as many as you like; replies count too).")
+INTRO_MAIN = ("The video is the explainer. The universe itself lives in this video's thumbnail, on the 24/7 "
+              "live stream and on the live page (links at the bottom), and the title counts down to its death. "
+              "Every comment adds cells (as many as you like; replies count too).")
 INTRO_EXTRA = ("This Short is a replay, but it is alive: every comment here adds cells to the live universe "
-               "within minutes (as many as you like; replies count too). Watch your move land on the linked "
-               "video's thumbnail or the live page below. If the universe dies, both videos die.")
+               "within minutes (as many as you like; replies count too). Watch your move land on the 24/7 live "
+               "stream, the linked video's thumbnail or the live page below. If the universe dies, both videos die.")
 
 
 LEADERS = 3  # names in each line of the leaderboard
@@ -416,5 +416,6 @@ def pinned_text(status: str, recent: list[str], suggest: str | None = None, link
     lines.append("")
     if suggest:
         lines.append(f"Try one: {suggest} (a quiet corner right now) · or just say anything")
+    lines.append(f"📺 Watch it live, 24/7, with sound, and see your comment land: {STREAM_URL}")
     lines.append(f"Rewind every move: {LIVE_ADDRESS}" if link else "Rewind every move: the address is at the end of the video.")
     return "\n".join(lines)
