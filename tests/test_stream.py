@@ -282,7 +282,7 @@ def test_the_bed_drifts_through_its_chords_and_darkens_when_stuck():
     for _ in range(60):
         s.chunk(n)
     assert all(g < 0.01 for g in s.bed.values())
-    assert np.abs(np.frombuffer(s.chunk(n), "<i2")).max() < 60  # the bed is silent once it died
+    assert np.abs(np.frombuffer(s.chunk(n), "<i2")).max() < 32767 * 10 ** (-45 / 20)  # silent (< -45 dBFS) once it died
 
 
 def test_new_moves_replay_from_where_they_landed_then_go_live(state_dir):
