@@ -56,6 +56,7 @@ PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it
 STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
+REWIND_TAGS, REWIND_TAG_S = 10, 3.0  # during the rewind, the moves that changed the most get a label
 # The instant replay of new moves: the board as it was, each move landing, the generations since.
 REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
 REWIND_SOUND, REPLAY_SOUND = 0.15, 0.3  # their notes' level: they play many at once (~ one live generation)
@@ -268,6 +269,25 @@ def checked_text(checked: float | None, now: float) -> str:
     return "chat checked just now" if mins < 1 else f"chat checked {mins} min ago"
 
 
+def rewind_text(now: float) -> str:
+    """'next rewind in 12:34': when the story so far plays next."""
+    if rewind_slot(now) is not None:
+        return "rewinding: the story so far"
+    left = int((now // REWIND_EVERY_S + 1) * REWIND_EVERY_S - now)
+    return f"next rewind in {left // 60}:{left % 60:02d}"
+
+
+def curve_until(pts: list, g: float) -> list:
+    """The time-left curve up to generation `g`, ending exactly there (on the
+    line between the two points either side of it)."""
+    out = [p for p in pts if p[0] <= g]
+    nxt = next((p for p in pts if p[0] > g), None)
+    if out and nxt and out[-1][0] < g:
+        (g0, v0), (g1, v1) = out[-1], nxt
+        out.append((g, v0 + (v1 - v0) * (g - g0) / (g1 - g0)))
+    return out
+
+
 def ago(secs: float) -> str:
     """'just now', '12 min ago', '2h 05m ago', '1d 3h ago': how long ago a move came in."""
     secs = max(0.0, secs)
@@ -365,6 +385,13 @@ class Rewind:
         self.start, self.end = start, max(1, end_gen)
         self.lit: list[tuple[int, list]] = []  # (gen, cells) of recent comments, drawn white
         self.pool, self.pool_at = self.u.grid.copy(), start  # sound: births and deaths pooled per 0.3 s
+        # the moves that changed its lifespan the most: labelled as they land
+        stuck = lambda e, k: e["gen"] + FORECAST_GENS if e[k] is None else e[k]  # noqa: E731
+        swing = lambda e: abs(stuck(e, "after") - stuck(e, "before"))  # noqa: E731
+        big = sorted((e for e in self.h.effects.values() if swing(e)), key=lambda e: (-swing(e), e["gen"]))
+        self.big = {(e["gen"], e["command"]): e for e in big[:REWIND_TAGS]}
+        self.seen: set[int] = set()  # generations whose moves have landed
+        self.tags: list[Tag] = []
 
     def done(self, now: float) -> bool:
         return now >= self.start + REWIND_S
@@ -379,6 +406,14 @@ class Rewind:
                 if sound:
                     sound.landed(cells[0][0], self.u.grid.shape[1], REWIND_SOUND)
         self.lit = [(g, c) for g, c in self.lit if self.u.generation - g < REWIND_LIT]
+        for g in sorted(self.h.applied - self.seen):
+            self.seen.add(g)
+            for e in self.h.batches[g]:
+                eff = self.big.get((g, e["command"]))
+                if eff and e["cells"]:
+                    text = e["command"] + render.effect_suffix(eff, self.u.flatline_gens, self.h.gen_seconds)
+                    self.tags.append(Tag(text, [tuple(c) for c in e["cells"]], now))
+        self.tags = [t for t in self.tags if now - t.t0 < REWIND_TAG_S]
         if sound and now - self.pool_at >= 0.3:
             sound.generation(self.pool, self.u.grid, gain=REWIND_SOUND)
             self.pool, self.pool_at = self.u.grid.copy(), now
@@ -425,6 +460,11 @@ class Replay:
             t += pause(g) * squeeze
         self.start, self.end, self.label = start, t, label
         self.lit: list = []  # the new moves' cells, drawn white
+        self.shown = self.first - 1  # the last generation played (before the first: none yet)
+
+    def landed(self) -> bool:
+        """All its moves have landed (the panel can show what they did)."""
+        return not any(g in self.new for _, g in self.steps)
 
     def done(self, now: float) -> bool:
         return now >= self.end
@@ -436,6 +476,7 @@ class Replay:
             t, g = self.steps.pop(0)
             before = self.u.grid.copy()
             self.h.goto(self.u, g)
+            self.shown = g
             for e in self.new.get(g, []):
                 tags.append(self.label(e, t))
                 self.lit += [tuple(c) for c in e["cells"]]
@@ -514,6 +555,8 @@ class Screen:
             if self.sound and not self.rewind and not self.replay:
                 self.sound.generation(before, self.snap.u.grid, self.snap.u.generation - gen)
         if self.replay:
+            if self.after_replay is not None:
+                step(self.after_replay, now)  # its clock runs on too (its generation, 'next in')
             self.tags += self.replay.advance(now, self.sound)
             if self.replay.done(now):
                 self._end_replay(now)
@@ -534,6 +577,12 @@ class Screen:
         if self.sound:
             playing = self.rewind or self.replay
             self.sound.set_phase(playing.u.phase if playing else self.snap.u.phase)
+
+    def panel(self) -> Snapshot:
+        """What the column and the graph show: during a replay, the new snapshot
+        once its moves have landed (so the countdown jumps as they land)."""
+        r = self.replay
+        return self.after_replay if r and self.after_replay is not None and r.landed() else self.snap
 
     def _changed(self, now: float) -> None:
         self.prev = self.cur
@@ -578,7 +627,9 @@ class Screen:
         cell, left, top = geometry(shape)
         # Everything but the board changes at most once a second: drawn then, reused
         # for the other frames (the rewind and the ripples draw every frame).
-        k = (int(now), id(self.snap), u.generation, u.phase)
+        playing = self.rewind is not None or self.replay is not None
+        panel = self.panel()
+        k = (int(now), id(self.snap), u.generation, u.phase, playing, id(panel), panel.u.generation)
         if self._chrome is None or self._chrome[0] != k:
             img = np.empty((SH, SW, 3), np.uint8)
             img[:] = SCREEN
@@ -588,15 +639,19 @@ class Screen:
             self._axes(d, shape)
             self._column(d, now)
             self._bottom(d)
-            self._graph(d)
+            if not playing:  # while the past plays, the graph follows it every frame
+                self._graph(d)
             self._chrome = (k, np.asarray(im))
         img = self._chrome[1].copy()
         b = self.board(now)
         img[top:top + b.shape[0], left:left + b.shape[1]] = b
         im = Image.fromarray(img)
         d = ImageDraw.Draw(im, "RGBA")
+        if playing:
+            self._graph(d)
         if self.rewind:
             self._rewind_banner(d, now, shape)
+            self._moves(d, now, shape, self.rewind.tags, REWIND_TAG_S, avoid=self._banner_rows(shape, top + 18))
         else:
             if self.replay:
                 self._replay_banner(d, now, shape)
@@ -650,14 +705,23 @@ class Screen:
             d.text((left - 8, top + (y + 0.5) * cell), str(y), font=f, fill=MUTED, anchor="rm")
         d.text((left + w * cell, top - 8), "x →" if DEJAVU else "x", font=f, fill=MUTED, anchor="rs")
 
-    def _moves(self, d, now: float, shape) -> None:
-        """New moves: a ripple from where they landed, then a label for a while."""
-        placed: list[tuple] = []
+    @staticmethod
+    def _banner_rows(shape, y0: int) -> list[tuple]:
+        """The banner's box as label rows, so labels steer clear of it (see free_row)."""
+        cell, left, _ = geometry(shape)
+        cx = left + shape[1] * cell / 2
+        return [(cx - 330, cx + 330, y0 + k * 30) for k in range(4)]
+
+    def _moves(self, d, now: float, shape, tags: list | None = None, life: float = TAG_S,
+               avoid: list | None = None) -> None:
+        """New moves: a ripple from where they landed, then a label for `life` seconds."""
+        placed: list[tuple] = list(avoid or [])
         cell, left, top = geometry(shape)
         bottom = top + shape[0] * cell
-        for t in self.tags:
+        fade = min(5.0, life / 3)
+        for t in self.tags if tags is None else tags:
             age = now - t.t0
-            if age >= TAG_S:
+            if age >= life:
                 continue
             cx, cy = centre_px(t.cells, shape)
             for k in range(3):
@@ -672,12 +736,13 @@ class Screen:
             y0 = cy - 46 if cy - 46 > top + 4 else cy + 18
             y0 = free_row(y0, x0, x0 + tw + 18, placed, top + 4, bottom - 30)
             placed.append((x0, x0 + tw + 18, y0))
-            alpha = int(255 * min(1.0, (TAG_S - age) / 5))
+            alpha = int(255 * min(1.0, (life - age) / fade))
             d.rounded_rectangle((x0, y0, x0 + tw + 18, y0 + 28), radius=6, fill=(255, 255, 255, alpha))
             d.text((x0 + 9, y0 + 14), label, font=f, fill=(10, 12, 16, alpha), anchor="lm")
 
     def _column(self, d, now: float) -> None:
-        snap, u = self.snap, self.snap.u
+        snap = self.panel()
+        u = snap.u
         x, y = COL_X, BOARD_Y
         d.ellipse((x, y + 6, x + 16, y + 22), fill=(240, 60, 60))
         d.text((x + 26, y + 14), "LIVE", font=font("bold", 24), fill=WHITE, anchor="lm")
@@ -714,6 +779,13 @@ class Screen:
             d.text((x, y), checked, font=font("regular", 22), fill=LIGHT, anchor="lt")
             d.text((x, y + 28), "(about every 5 min)", font=font("regular", 19), fill=MUTED, anchor="lt")
             y += 64
+        if u.phase != DIED:  # the story so far, every half hour
+            text, extra = rewind_text(now), "  (every 30 min)"
+            d.text((x, y), text, font=font("regular", 22), fill=LIGHT, anchor="lt")
+            tw = d.textlength(text, font=font("regular", 22))
+            if tw + d.textlength(extra, font=font("regular", 19)) <= COL_W and not self.rewind:
+                d.text((x + tw, y + 3), extra, font=font("regular", 19), fill=MUTED, anchor="lt")
+            y += 34
         y += 18
         d.text((x, y), "Latest moves", font=font("bold", 24), fill=WHITE, anchor="lt")
         y += 38
@@ -778,9 +850,17 @@ class Screen:
 
     def _graph(self, d) -> None:
         """Time left, from launch to now: falling steadily, jumping at each move
-        (green: it bought time; red: it took time away)."""
-        snap = self.snap
+        (green: it bought time; red: it took time away). While a rewind or a
+        replay plays, the past is drawn up to where it has got to, the rest
+        faintly, and each jump flashes as its move lands."""
+        snap = self.panel() if not self.replay else (self.after_replay or self.snap)
         pts, jumps = time_left_curve(snap)
+        playing = self.rewind or self.replay
+        upto = None
+        if self.rewind:
+            upto = self.rewind.u.generation
+        elif self.replay:
+            upto = self.replay.shown
         x0, x1, y0, y1 = COL_X, COL_X + COL_W, BOARD_Y + BOARD_H + 28, SH - 30
         d.text((x0, y0), "Time left", font=font("bold", 20), fill=WHITE, anchor="lt")
         gap = d.textlength("Time left", font=font("bold", 20)) + 10  # the server's font is wider than a Mac's
@@ -798,14 +878,37 @@ class Screen:
             yy = Y(k * every * day)
             d.line((px0, yy, px1, yy), fill=(34, 38, 48), width=1)
             d.text((px0 - 6, yy), f"{k * every}d", font=f, fill=MUTED, anchor="rm")
-        colour = PHASE_COLOR[snap.u.phase]
-        xy = [(X(g), Y(v)) for g, v in pts]
-        d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=colour + (38,))
-        d.line(xy, fill=colour + (200,), width=2)
+        colour = PHASE_COLOR[playing.u.phase if playing else snap.u.phase]
+        up = lambda b, a: PHASE_COLOR[ALIVE] if b > a else (240, 90, 90)  # noqa: E731
+        if upto is not None:  # the whole story, faintly, under the part played so far
+            xy = [(X(g), Y(v)) for g, v in pts]
+            d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=colour + (12,))
+            d.line(xy, fill=colour + (60,), width=1)
+            for g, a, b in jumps:
+                if g > upto:
+                    d.line((X(g), Y(a), X(g), Y(b)), fill=up(b, a) + (70,), width=1)
+        past = pts if upto is None else curve_until(pts, max(0, upto))
+        xy = [(X(g), Y(v)) for g, v in past]
+        if len(xy) > 1:
+            d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=colour + (38,))
+            d.line(xy, fill=colour + (200,), width=2)
+        flash = 40 if self.rewind else 3  # generations a jump flashes for, once it lands (the rewind is fast)
         for g, a, b in jumps:  # over the line, so each move shows
-            d.line((X(g), Y(a), X(g), Y(b)), fill=PHASE_COLOR[ALIVE] if b > a else (240, 90, 90), width=2)
+            if upto is None or g <= upto:
+                fresh = upto is not None and upto - g <= flash
+                d.line((X(g), Y(a), X(g), Y(b)), fill=up(b, a), width=4 if fresh else 2)
+                if fresh:
+                    d.ellipse((X(g) - 7, Y(b) - 7, X(g) + 7, Y(b) + 7), outline=WHITE, width=2)
         cx, cy = xy[-1]
         d.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=WHITE)
+        if upto is not None:  # how long it had left, at the moment being played
+            label = f"{render.short_span(past[-1][1] * snap.gen_seconds)} left"
+            fb = font("bold", 16)
+            tw = d.textlength(label, font=fb)
+            lx = min(max(cx - tw / 2, px0 + 2), px1 - tw - 2)
+            ly = cy - 30 if cy - 30 > py0 - 8 else cy + 10
+            d.rounded_rectangle((int(lx - 6), int(ly - 2), int(lx + tw + 6), int(ly + 20)), radius=5, fill=(5, 6, 9, 220))
+            d.text((lx, ly), label, font=fb, fill=WHITE, anchor="lt")
         launched = render._at(snap.launch, 0, snap.gen_seconds, "%a %b %d")  # 'Sun Nov 8'
         d.text((px0, py1 + 6), f"launched {launched}", font=f, fill=MUTED, anchor="lt")
         d.text((px1, py1 + 6), "now", font=f, fill=MUTED, anchor="rt")

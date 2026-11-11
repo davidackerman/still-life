@@ -321,3 +321,45 @@ def test_latest_moves_say_how_long_ago_they_came_in(state_dir):
     snap.recent = ["gen 7: glider 64,71 nw · 2d 17h → 2d 22h", "gen 20: random 5x5 at 1,2 · " + "very " * 30,
                    "a line with no generation"] + snap.recent
     assert stream.Screen(snap).compose(LAUNCH + 3700).size == (stream.SW, stream.SH)
+
+
+def test_the_rewind_is_counted_down_and_the_graph_and_labels_follow_the_past(state_dir):
+    slot = LAUNCH // stream.REWIND_EVERY_S * stream.REWIND_EVERY_S + stream.REWIND_EVERY_S
+    assert stream.rewind_text(slot + 10) == "rewinding: the story so far"
+    assert stream.rewind_text(slot + 600) == "next rewind in 20:00"
+    assert stream.rewind_text(slot - 61) == "next rewind in 1:01"
+    pts = [(0, 100), (50, 50), (50, 80), (100, 30)]  # a fall, a jump at 50, a fall
+    assert stream.curve_until(pts, 25) == [(0, 100), (25, 75.0)]
+    assert stream.curve_until(pts, 50) == [(0, 100), (50, 50), (50, 80)]  # the jump has happened
+    assert stream.curve_until(pts, 75) == [(0, 100), (50, 50), (50, 80), (75, 55.0)]
+    assert stream.curve_until(pts, 200) == pts
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    screen = stream.Screen(snap)
+    screen.rewind = r = stream.Rewind(state_dir, slot, snap.u.generation)
+    assert set(r.big) <= set(r.h.effects) and len(r.big) <= stream.REWIND_TAGS
+    seen, t = [], slot
+    while not r.done(t):
+        r.advance(t)
+        seen += [tg.text for tg in r.tags if tg.text not in seen]
+        assert all(t - tg.t0 < stream.REWIND_TAG_S for tg in r.tags)  # each label goes after a few seconds
+        if r.tags:
+            assert screen.compose(t).size == (stream.SW, stream.SH)  # the graph drawn every frame
+        t += 0.1
+    assert len(seen) == len(r.big) >= 1 and all(" · " in s for s in seen)  # 'glider … · 2d → 5d'
+
+
+def test_the_panel_shows_a_replays_moves_as_they_land(state_dir):
+    now = LAUNCH + 3700
+    old = stream.load(state_dir, now=now)
+    new = stream.load(state_dir, after_seq=0, now=now)
+    screen = stream.Screen(old)
+    screen.swap(new, now, state_dir)
+    r = screen.replay
+    assert screen.panel() is old and r.shown == r.first - 1 and not r.landed()
+    last = max(t for t, g in r.steps if g in r.new)
+    screen.tick(last - 0.01)
+    assert screen.panel() is old  # one still to land
+    screen.tick(last + 0.01)
+    assert r.landed() and screen.panel() is new and screen.snap is old  # the countdown jumps now
+    assert r.shown == max(r.new)
+    assert screen.compose(last + 0.5).size == (stream.SW, stream.SH)
