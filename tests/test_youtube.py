@@ -333,3 +333,45 @@ def test_an_ended_chat_is_forgotten_and_a_stale_token_restarts():
     svc = ChatService(errors=[FakeHttpError(403, "quotaExceeded")])
     with pytest.raises(FakeHttpError):  # anything else is the engine's to log
         chat_yt(svc, {"id": "LC1"}).fetch_chat(T0)
+
+
+class StreamService:
+    """liveBroadcasts.list plus videos.list/update, for retitling the live stream."""
+
+    def __init__(self, live=("B1",), title="old"):
+        self.live, self.calls = list(live), []
+        self.snippet = {"title": title, "description": "about", "categoryId": "28", "channelId": "UCme"}
+
+    def liveBroadcasts(self):
+        return self
+
+    def videos(self):
+        return self
+
+    def list(self, **kw):
+        self.calls.append(("list", kw))
+        if "broadcastStatus" in kw:
+            return Req(lambda: {"items": [{"id": b} for b in self.live]})
+        return Req(lambda: {"items": [{"snippet": dict(self.snippet)}]})
+
+    def update(self, part, body):
+        self.calls.append(("update", body))
+        return Req(lambda: body)
+
+
+def test_the_live_streams_title_is_changed_and_nothing_else():
+    svc = StreamService()
+    yt = youtube.YouTube(svc, "MAIN", youtube.Quota({}, T0))
+    assert yt.set_stream_title("Day 4") == "B1"
+    up = [c[1] for c in svc.calls if c[0] == "update"]
+    assert up == [{"id": "B1", "snippet": {"title": "Day 4", "description": "about", "categoryId": "28"}}]
+    assert yt.quota.used == 52
+
+
+def test_the_live_streams_title_is_left_alone_when_right_or_nothing_is_live():
+    svc = StreamService(title="Day 4")
+    yt = youtube.YouTube(svc, "MAIN", youtube.Quota({}, T0))
+    assert yt.set_stream_title("Day 4") == "B1" and not [c for c in svc.calls if c[0] == "update"]
+    svc = StreamService(live=())
+    assert youtube.YouTube(svc, "MAIN", youtube.Quota({}, T0)).set_stream_title("Day 4") is None
+    assert len(svc.calls) == 1

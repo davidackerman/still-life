@@ -47,26 +47,33 @@ def marker(world, day: int) -> str:
     return f"still-life universe {world.universe_no} day {day}"
 
 
-def snippet(world, day: int, count: int, mark: str) -> dict:
+def stream_title(world, day: int) -> str:
+    return f"This stream dies if nobody chats · Game of Life, Universe {world.universe_no}, Day {day}"
+
+
+def snippet(world, day: int, count: int, mark: str, total: int | None = None, main: str | None = None) -> dict:
+    """The Short's title and description. The forecast in it is dated ("as of day 3"),
+    so the description stays true after the forecast moves on."""
     u, G = world.universe, world.gen_seconds
     h, w = u.grid.shape
     f = world.forecast
     if u.phase == ALIVE and f and f.get("stuck_gen") is not None:
-        fate = f"It's due to die {render._at(world.launch_time, f['stuck_gen'] + u.flatline_gens, G, '%a %b %d')} if nobody comments."
+        fate = f"it's due to die {render._at(world.launch_time, f['stuck_gen'] + u.flatline_gens, G, '%a %b %d')} if nobody comments."
     elif u.phase == "FLATLINING":
-        fate = f"It's stuck in a loop: it dies {render._at(world.launch_time, u.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it."
+        fate = f"it's stuck in a loop: it dies {render._at(world.launch_time, u.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it."
     elif u.phase == "CONTESTED":
-        fate = f"A comment broke its loop: it lives if it's still changing {render._at(world.launch_time, u.deadline_gen, G, '%a %I:%M %p ET')}."
+        fate = f"a comment has broken its loop: it lives if it's still changing {render._at(world.launch_time, u.deadline_gen, G, '%a %I:%M %p ET')}."
     else:
-        fate = "It won't get stuck for weeks unless a comment changes that."
+        fate = "it won't get stuck for weeks unless a comment changes that."
+    countdown = f" The main video's title counts down live: https://youtu.be/{main}" if main else ""
+    so_far = f" ({total:,} since it began)" if total is not None and total > count else ""
     desc = (f"Day {day} of universe {world.universe_no}, a live Conway's Game of Life: {count} comment{'s' * (count != 1)} in the last "
-            f"24 hours. {fate}\n\n"
-            f"This Short is a replay: your comment lands in the live universe within minutes. Watch it on the "
-            f"main video's thumbnail, or live at {LIVE}\n\n"
+            f"24 hours{so_far}. As of day {day}, {fate}{countdown}\n\n"
+            f"This Short is a replay: your comment lands in the live universe within minutes. Watch it happen on "
+            f"the 24/7 live stream (type in its chat to play): {render.STREAM_URL}\n\n"
             f"Every comment adds cells, as many as you like: glider x,y · block x,y · rpent x,y · acorn x,y · "
             f"or just say anything (x 0–{w - 1}, y 0–{h - 1}, from the top-left). If it gets stuck in a loop "
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
-            f"Watch it live, 24/7 (type in its chat to play): {render.STREAM_URL}\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
     return {"title": f"This Short dies if nobody comments · Universe {world.universe_no}, Day {day} #GameOfLife", "description": desc,
@@ -85,7 +92,8 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     day = day_number(world)
     since = max(0, world.universe.generation - RECAP_HOURS * 3600 // world.gen_seconds)
     from store import LOG, read_log
-    count = sum(1 for e in read_log(store.path(LOG)) if e["type"] == "injection" and e["gen"] > since)
+    injections = [e for e in read_log(store.path(LOG)) if e["type"] == "injection"]
+    count, total = sum(1 for e in injections if e["gen"] > since), len(injections)
     render_short(store.dir, out, since)
     mark = marker(world, day)
     if mode == "dry":
@@ -96,7 +104,7 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
                              "To post one every day, set the repository variable DAILY_SHORT to live."}]
         store.save(world, events)
         return events
-    vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark))
+    vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None)))
     if vid not in world.extra_videos:
         world.extra_videos.append(vid)
     world.daily = {"date": today(now), "day": day, "video": vid}
@@ -107,6 +115,11 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
         tip = "Its status comment is posted; the bot keeps it up to date."
     except Exception as e:  # noqa: BLE001 - the Short still counts without it
         tip = f"Posting its status comment failed ({e!r}); the bot will pick up one you post by hand."
+    if hasattr(yt, "set_stream_title"):  # the 24/7 stream's title counts the days too
+        try:
+            yt.set_stream_title(stream_title(world, day))
+        except Exception as e:  # noqa: BLE001 - only a title
+            tip += f" Retitling the live stream failed ({e!r})."
     events = [{"type": "daily_short", "day": day, "video": vid, "posted": True,
                "alert": f"📼 Day {day} Short is live: https://youtube.com/shorts/{vid}",
                "detail": f"Its comments now feed the universe. {tip}\n\nOptional, in Studio (the API can't): "

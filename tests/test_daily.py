@@ -16,10 +16,11 @@ LAUNCH = dt.datetime(2027, 1, 15, 12, 0, tzinfo=dt.timezone.utc).timestamp()  # 
 
 
 class DailyYT:
-    videos = ["MAIN"]
+    videos, video_id = ["MAIN"], "MAIN"
 
     def __init__(self):
         self.comments, self.uploads, self.posted, self.existing = [], [], [], {}
+        self.stream_titles = []
 
     def fetch_comments(self, since, watch=(), now=None):
         return list(self.comments)
@@ -32,6 +33,10 @@ class DailyYT:
 
     def find_upload(self, marker):
         return self.existing.get(marker)
+
+    def set_stream_title(self, title):
+        self.stream_titles.append(title)
+        return "LIVE1"
 
     def upload_video(self, path, snippet):
         self.uploads.append(snippet)
@@ -75,6 +80,8 @@ def test_live_posts_once_a_day_and_its_comments_count(d):
     assert up["title"] == "This Short dies if nobody comments · Universe 1, Day 1 #GameOfLife"
     assert "1 comment in the last 24 hours" in up["description"] and "still-life universe 1 day 1" in up["description"]
     assert "/live" in up["description"]  # the 24/7 stream
+    assert "As of day 1, it" in up["description"] and "counts down live: https://youtu.be/MAIN" in up["description"]
+    assert yt.stream_titles == ["This stream dies if nobody chats · Game of Life, Universe 1, Day 1"]
     assert yt.posted[0][0] == "SHORT1"
     s = state(d)
     assert s["config"]["extra_videos"] == ["SHORT1"] and s["daily"]["video"] == "SHORT1"
@@ -82,6 +89,8 @@ def test_live_posts_once_a_day_and_its_comments_count(d):
     assert len(yt.uploads) == 1  # once a day
     tick.run(d, LAUNCH + 35.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")  # next day 23:06
     assert len(yt.uploads) == 2 and yt.uploads[1]["title"].endswith("Universe 1, Day 2 #GameOfLife")
+    assert "0 comments in the last 24 hours (1 since it began)." in yt.uploads[1]["description"]
+    assert "since it began" not in yt.uploads[0]["description"]  # day 1: the same number
     assert state(d)["config"]["extra_videos"] == ["SHORT1", "SHORT2"]
 
 

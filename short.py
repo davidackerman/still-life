@@ -523,6 +523,7 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
     day = int(h.now_gen * G // 86400) + 1
     gens = sorted(g for g in h.batches if since_gen < g <= h.now_gen)
     count = sum(len(h.batches[g]) for g in gens)
+    total = sum(len(b) for g, b in h.batches.items() if g <= h.now_gen)
 
     # the board as it was a day ago
     u = h.fresh()
@@ -531,6 +532,8 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
     head = [("Every comment adds cells to this Game of Life.", "bold", 76),
             (f"Day {day}: {count} comment{'s' * (count != 1)} in the last day" if count
              else f"Day {day}: no comments in the last day", "demi", 54)]
+    if total > count:  # and how many it has had in all
+        head.append((f"{total:,} since it began", "demi", 44))
 
     def effect_text(gen, batch):  # "\ngave it 6 more days to live"
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]

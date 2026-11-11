@@ -403,6 +403,25 @@ class YouTube:
             body["description"] = desc
         self.service.videos().update(part="snippet", body={"id": self.video_id, "snippet": body}).execute()
 
+    def set_stream_title(self, title: str) -> str | None:
+        """Retitle the channel's broadcast that is live now. Its id, or None if nothing is live."""
+        validate_title(title)
+        self.quota.spend(COST["liveBroadcasts.list"] + COST["videos.list"])
+        live = self.service.liveBroadcasts().list(part="id", broadcastStatus="active", broadcastType="all",
+                                                  maxResults=5).execute().get("items", [])
+        if not live:
+            return None
+        vid = live[0]["id"]  # a broadcast's id is its video's id
+        items = self.service.videos().list(part="snippet", id=vid).execute().get("items", [])
+        if not items:
+            return None
+        body = writable_snippet(items[0]["snippet"])
+        if body.get("title") != title:
+            self.quota.spend(COST["videos.update"])
+            body["title"] = title
+            self.service.videos().update(part="snippet", body={"id": vid, "snippet": body}).execute()
+        return vid
+
     def update_comment(self, comment_id: str, text: str) -> None:
         """Rewrite one of the channel owner's own comments (the pinned status comment)."""
         self.quota.spend(COST["comments.update"])
