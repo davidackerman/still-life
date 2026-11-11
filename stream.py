@@ -8,8 +8,9 @@
 A window onto the same universe the main video's comments play. It reads the
 public state from this git checkout (pulling every minute), steps the board one
 generation every 2 minutes on the wall clock exactly as the tick does, and
-when the tick commits new comments it shows their cells with a ripple and a
-label. It calls no API and needs no secret except the stream key, which comes
+when the tick commits new comments it replays them: back to the generation
+the first one landed in, each landing with a ripple and a label, then forward
+to the live board. It calls no API and needs no secret except the stream key, which comes
 from the environment, is redacted from ffmpeg's messages and is never written
 anywhere.
 
@@ -55,6 +56,8 @@ PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it
 STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
+# The instant replay of new moves: the board as it was, each move landing, the generations since.
+REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
 FADE_S = 0.6  # crossfade between generations
 RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
 SCREEN = (5, 6, 9)
@@ -370,14 +373,69 @@ class Rewind:
             self.pool, self.pool_at = self.u.grid.copy(), now
 
     def lit_mask(self) -> np.ndarray | None:
-        if not self.lit:
-            return None
-        m = np.zeros(self.u.grid.shape, np.uint8)
-        h, w = m.shape
-        for _, cells in self.lit:
-            for x, y in cells:
-                m[y % h, x % w] = 1
-        return m
+        return mask_of([c for _, cells in self.lit for c in cells], self.u.grid.shape)
+
+
+def mask_of(cells, shape) -> np.ndarray | None:
+    """A board-sized 0/1 mask of these cells (None if there are none)."""
+    if not cells:
+        return None
+    m = np.zeros(shape, np.uint8)
+    h, w = shape
+    for x, y in cells:
+        m[y % h, x % w] = 1
+    return m
+
+
+class Replay:
+    """New moves, played back from the log: the board as it was just before the
+    first one landed, each landing (lit, with its ripple, chime and label), and
+    the generations since, up to the live board. The moves land in the past
+    (each at the generation it was sent), so without this they'd only show up
+    already a few generations old."""
+
+    def __init__(self, state_dir: str, moves: list[dict], start: float, live_gen: int, label):
+        import short
+        self.h = short.History(state_dir)
+        self.u = self.h.fresh()
+        self.first = min(e["gen"] for e in moves)
+        self.live = max(live_gen, self.first)
+        self.h.goto(self.u, self.first - 1)
+        self.u.advance_to(self.first)  # the moment before the first one lands
+        self.new: dict[int, list[dict]] = {}
+        for e in moves:
+            self.new.setdefault(e["gen"], []).append(e)
+        gens = range(self.first, self.live + 1)
+        pause = lambda g: REPLAY_LAND_S if g in self.new else REPLAY_GEN_S  # noqa: E731
+        squeeze = min(1.0, (REPLAY_MAX_S - REPLAY_HOLD_S) / sum(pause(g) for g in gens))  # long ones go faster
+        t, self.steps = start + REPLAY_HOLD_S, []
+        for g in gens:
+            self.steps.append((t, g))
+            t += pause(g) * squeeze
+        self.start, self.end, self.label = start, t, label
+        self.lit: list = []  # the new moves' cells, drawn white
+
+    def done(self, now: float) -> bool:
+        return now >= self.end
+
+    def advance(self, now: float, sound=None) -> list[Tag]:
+        """Play the generations that are due. The labels of the moves that landed."""
+        tags = []
+        while self.steps and self.steps[0][0] <= now:
+            t, g = self.steps.pop(0)
+            before = self.u.grid.copy()
+            self.h.goto(self.u, g)
+            for e in self.new.get(g, []):
+                tags.append(self.label(e, t))
+                self.lit += [tuple(c) for c in e["cells"]]
+                if sound and e["cells"]:
+                    sound.landed(e["cells"][0][0], self.u.grid.shape[1])
+            if sound:
+                sound.generation(before, self.u.grid)
+        return tags
+
+    def lit_mask(self) -> np.ndarray | None:
+        return mask_of(self.lit, self.u.grid.shape)
 
 
 class Screen:
@@ -390,17 +448,34 @@ class Screen:
         self.cur_key = None
         self.sound = None  # a stream_audio.Soundtrack, when the stream has sound
         self.rewind: Rewind | None = None
+        self.replay: Replay | None = None
+        self.after_replay: Snapshot | None = None  # the new snapshot, shown once its moves have played
         self.rewound_at: float | None = None  # the slot of the last rewind (one per slot)
         self._chrome = None  # (key, the frame without the board), see compose
 
     # A new snapshot (the tick committed) or a new generation (the clock).
-    def swap(self, snap: Snapshot, now: float) -> None:
-        if snap.universe_no != self.snap.universe_no:
+    def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
+        """With `state_dir`, new moves are replayed first (see Replay); the panel
+        (countdown, graph, latest moves) changes when the replay reaches now."""
+        if self.replay:  # another update before the last replay finished: finish it now
+            for t in self.replay.advance(float("inf")):
+                self.tags.append(t)
+            self._end_replay(now)
+        same = snap.universe_no == self.snap.universe_no
+        if not same:
             self.tags = []
+        moves = [e for e in snap.new if e.get("cells")]
+        if state_dir and same and moves and self.rewind is None and snap.u.phase != DIED:
+            try:
+                self.replay = Replay(state_dir, moves, now, snap.u.generation, lambda e, t: self._tag(snap, e, t))
+                self.after_replay = snap
+                log(f"replay: {len(moves)} new move(s), gen {self.replay.first:,} to {self.replay.live:,}")
+                return
+            except Exception as e:  # noqa: BLE001 - no replay this time; show them as before
+                log(f"replay failed: {e!r}")
+                self.replay = self.after_replay = None
         for e in snap.new:
-            eff = snap.effects.get((e["gen"], e["command"]))
-            suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
-            self.tags.append(Tag(e["command"] + suffix, [tuple(c) for c in e["cells"]], now))
+            self.tags.append(self._tag(snap, e, now))
             if self.sound and e["cells"]:
                 self.sound.landed(e["cells"][0][0], snap.u.grid.shape[1])
         if self.sound and snap.universe_no == self.snap.universe_no:  # the comments' cells appearing
@@ -408,15 +483,32 @@ class Screen:
         self._changed(now)
         self.snap = snap
 
+    @staticmethod
+    def _tag(snap: Snapshot, e: dict, t0: float) -> Tag:
+        eff = snap.effects.get((e["gen"], e["command"]))
+        suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
+        return Tag(e["command"] + suffix, [tuple(c) for c in e["cells"]], t0)
+
+    def _end_replay(self, now: float) -> None:
+        self.replay = None
+        if self.after_replay is not None:
+            self.snap, self.after_replay = self.after_replay, None
+            step(self.snap, now)
+        self._changed(now)  # crossfade from the replay to the live board
+
     def tick(self, now: float, state_dir: str | None = None) -> None:
         before, gen = (self.snap.u.grid.copy(), self.snap.u.generation) if self.sound else (None, 0)
         if step(self.snap, now):
             self._changed(now)
-            if self.sound and not self.rewind:
+            if self.sound and not self.rewind and not self.replay:
                 self.sound.generation(before, self.snap.u.grid, self.snap.u.generation - gen)
+        if self.replay:
+            self.tags += self.replay.advance(now, self.sound)
+            if self.replay.done(now):
+                self._end_replay(now)
         slot = rewind_slot(now)
-        if (state_dir and slot is not None and self.rewind is None and slot != self.rewound_at
-                and self.snap.u.phase != DIED):
+        if (state_dir and slot is not None and self.rewind is None and self.replay is None
+                and slot != self.rewound_at and self.snap.u.phase != DIED):
             self.rewound_at = slot
             try:
                 self.rewind = Rewind(state_dir, slot, self.snap.u.generation)
@@ -429,14 +521,15 @@ class Screen:
                 self.rewind = None
                 self._changed(now)  # crossfade back to the live board
         if self.sound:
-            self.sound.set_phase(self.rewind.u.phase if self.rewind else self.snap.u.phase)
+            playing = self.rewind or self.replay
+            self.sound.set_phase(playing.u.phase if playing else self.snap.u.phase)
 
     def _changed(self, now: float) -> None:
         self.prev = self.cur
         self.changed_at = now
 
     def animating(self, now: float) -> bool:
-        return (self.rewind is not None or now - self.changed_at < FADE_S
+        return (self.rewind is not None or self.replay is not None or now - self.changed_at < FADE_S
                 or any(now - t.t0 < RIPPLE_S for t in self.tags))
 
     def key(self, now: float):
@@ -446,9 +539,10 @@ class Screen:
         return (id(self.snap), u.generation, u.phase, int(now), live)
 
     def board(self, now: float) -> np.ndarray:
-        if self.rewind:
-            r = self.rewind.u
-            self.cur, self.cur_key = board_rgb(r.grid, r.phase, self.rewind.lit_mask()), None
+        playing = self.rewind or self.replay
+        if playing:
+            r = playing.u
+            self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask()), None
             return self.cur
         u = self.snap.u
         self.tags = [t for t in self.tags if now - t.t0 < max(TAG_S, GLOW_S)]
@@ -493,8 +587,22 @@ class Screen:
         if self.rewind:
             self._rewind_banner(d, now, shape)
         else:
+            if self.replay:
+                self._replay_banner(d, now, shape)
             self._moves(d, now, shape)
         return im
+
+    def _replay_banner(self, d, now: float, shape) -> None:
+        """'REPLAY · 3 new moves': at the top of the board, or the bottom if a move landed up there."""
+        r, snap = self.replay, self.snap
+        cell, left, top = geometry(shape)
+        n = sum(len(v) for v in r.new.values())
+        line1 = f"REPLAY · {'a new move' if n == 1 else f'{n} new moves'}"
+        when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%I:%M %p").lstrip("0")
+        line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, math.ceil(r.end - now))} s"
+        high = any(centre_px(e["cells"], shape)[1] < top + 150 for v in r.new.values() for e in v)
+        y0 = top + shape[0] * cell - 114 if high else top + 18
+        self._banner(d, shape, y0, line1, line2, (now - r.start) / max(0.1, r.end - r.start))
 
     def _rewind_banner(self, d, now: float, shape) -> None:
         """What the board is showing: the past, when, and how long until it's live again."""
@@ -504,13 +612,18 @@ class Screen:
         when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%a %b %d, %I:%M %p")
         line1 = "REWIND · the story so far"
         line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, int(r.start + REWIND_S - now))} s"
+        self._banner(d, shape, top + 18, line1, line2, (now - r.start) / REWIND_S)
+
+    def _banner(self, d, shape, y0: int, line1: str, line2: str, frac: float) -> None:
+        cell, left, top = geometry(shape)
+        cx = left + shape[1] * cell / 2
         f1, f2 = font("bold", 30), font("regular", 22)
         w = int(max(d.textlength(line1, font=f1), d.textlength(line2, font=f2))) + 48
-        x0, y0 = int(cx - w / 2), top + 18  # whole pixels: older Pillow rejects some fractional rounded boxes
+        x0, y0 = int(cx - w / 2), int(y0)  # whole pixels: older Pillow rejects some fractional rounded boxes
         d.rounded_rectangle((x0, y0, x0 + w, y0 + 96), radius=12, fill=(5, 6, 9, 225), outline=(255, 255, 255, 90))
         d.text((cx, y0 + 30), line1, font=f1, fill=WHITE, anchor="mm")
         d.text((cx, y0 + 64), line2, font=f2, fill=LIGHT, anchor="mm")
-        frac = min(1.0, (now - r.start) / REWIND_S)
+        frac = min(1.0, max(0.0, frac))
         d.rounded_rectangle((x0 + 24, y0 + 82, x0 + w - 24, y0 + 86), radius=2, fill=(40, 44, 54))
         d.rounded_rectangle((x0 + 24, y0 + 82, x0 + 24 + max(6, int((w - 48) * frac)), y0 + 86), radius=2, fill=WHITE)
 
@@ -825,7 +938,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
             now = time.time()
             new = puller.take()
             if new is not None:
-                screen.swap(new, now)
+                screen.swap(new, now, state_dir if rewinds else None)
             rewinding = screen.rewind is not None
             screen.tick(now, state_dir if rewinds else None)
             if rewinding and screen.rewind is None:

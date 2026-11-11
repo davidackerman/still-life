@@ -283,3 +283,30 @@ def test_the_bed_drifts_through_its_chords_and_darkens_when_stuck():
         s.chunk(n)
     assert all(g < 0.01 for g in s.bed.values())
     assert np.abs(np.frombuffer(s.chunk(n), "<i2")).max() < 60  # the bed is silent once it died
+
+
+def test_new_moves_replay_from_where_they_landed_then_go_live(state_dir):
+    import numpy as np
+    now = LAUNCH + 3700
+    old = stream.load(state_dir, now=now)
+    screen = stream.Screen(old)
+    new = stream.load(state_dir, after_seq=0, now=now)  # both comments' moves are new
+    screen.swap(new, now, state_dir)
+    r = screen.replay
+    assert r is not None and screen.snap is old  # the panel waits for the replay
+    assert r.first == min(e["gen"] for e in new.new) and r.u.generation == r.first and not screen.tags
+    assert r.end - r.start <= stream.REPLAY_MAX_S + 1e-6  # a long gap plays faster
+    screen.tick(now + stream.REPLAY_HOLD_S + 0.01)
+    assert len(screen.tags) == 1 and screen.animating(now + 2)  # the first one has landed
+    assert screen.compose(now + 2).size == (stream.SW, stream.SH)  # with its banner
+    t = now
+    while screen.replay and t < now + 30:
+        t += 0.1
+        screen.tick(t)
+    assert screen.replay is None and screen.snap is new and len(screen.tags) == len(new.new)
+    assert np.array_equal(r.u.grid, new.u.grid)  # it ends on the live board
+    # an update in the middle of a replay finishes it first
+    screen = stream.Screen(old)
+    screen.swap(new, now, state_dir)
+    screen.swap(stream.load(state_dir, after_seq=new.seq, now=now), now + 1, state_dir)
+    assert screen.replay is None and len(screen.tags) == len(new.new)
