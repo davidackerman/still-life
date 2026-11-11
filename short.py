@@ -127,6 +127,13 @@ def board(f) -> Image.Image:
     img[:] = GRID
     img[_tile] = BG
     img[big] = color.astype(np.uint8)
+    paint = getattr(f, "paint", None)
+    if paint is not None and f.grey < 1 and paint.any():  # paint fades to grey with the rest when it dies
+        for k, name in enumerate(commands.COLORS, 1):
+            mine = (f.grid & (paint == k)).repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
+            if mine.any():
+                img[mine] = (np.array(render.PAINT[name], float) * (1 - f.grey)
+                             + np.array(PHASE_COLOR[DIED], float) * f.grey).astype(np.uint8)
     if f.highlight is not None:
         lit = (f.grid & f.highlight).repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
         img[lit] = HIGHLIGHT
@@ -204,9 +211,9 @@ def ring(cells, alpha: float, caption: str | None = None, dashed: bool = False):
 # The daily Short's last beat: what you can comment, each move a little looping
 # film of what it does (render.demo), in two rows across the band, clear of the
 # Shorts buttons on the right.
-FILMS = [("glider_se", "glider {at} se", "flies off"), ("block", "block {at}", "just sits"),
-         ("blinker", "blinker {at}", "blinks"), ("rpent", "rpent {at}", "5 cells of chaos"),
-         ("acorn", "acorn {at}", "grows for ages"), ("random", "anything else", "a random patch")]
+FILMS = [("glider_se", "glider {at} se blue", "flies off", "blue"), ("block", "block {at}", "just sits", None),
+         ("blinker", "blinker {at} cyan", "blinks", "cyan"), ("rpent", "rpent {at} yellow", "5 cells of chaos", "yellow"),
+         ("acorn", "acorn {at} red", "grows for ages", "red"), ("random", "anything else", "a random patch", None)]
 FILM_BOX, FILM_CELL, FILM_EVERY = 11, 16, 4  # 11 x 11 cells of 16 px; a generation every 4 frames
 FILMS_W, FILMS_Y, FILMS_ROW = 960, BAND_Y + 34, 290
 
@@ -217,22 +224,60 @@ def films(i: int, alpha: float, at: str):
         a = int(255 * alpha)
         size = FILM_BOX * FILM_CELL
         color = tuple(PHASE_COLOR["ALIVE"]) + (a,)
-        for k, (pattern, say, does) in enumerate(FILMS):
+        for k, (pattern, say, does, paint) in enumerate(FILMS):
             cx = FILMS_W / 3 * (k % 3 + 0.5)
             top = FILMS_Y + (k // 3) * FILMS_ROW
             x0 = int(cx - size / 2)
             d.rounded_rectangle((x0 - 8, top - 8, x0 + size + 8, top + size + 8), radius=12,
                                 fill=(16, 18, 24, int(235 * alpha)), outline=(70, 76, 92, a), width=2)
             film = render.demo(pattern, FILM_BOX)
+            fill = tuple(render.PAINT[paint]) + (a,) if paint else color
             for y, x in np.argwhere(film[(i // FILM_EVERY) % len(film)]):
                 px, py = x0 + x * FILM_CELL, top + y * FILM_CELL
-                d.rectangle((px + 1, py + 1, px + FILM_CELL - 2, py + FILM_CELL - 2), fill=color)
+                d.rectangle((px + 1, py + 1, px + FILM_CELL - 2, py + FILM_CELL - 2), fill=fill)
             label = say.format(at=at)
             size_b = 38
             while d.textlength(label, font=ex.font("bold", size_b)) > FILMS_W / 3 - 16 and size_b > 26:
                 size_b -= 2
             ex.text(d, (cx, top + size + 36), label, "bold", size_b, alpha, anchor="mm")
             ex.text(d, (cx, top + size + 76), does, "demi", 32, alpha, fill=(200, 204, 214), anchor="mm")
+    return draw
+
+
+# Wherever the Short says "comment", a comment bubble below the board shows one
+# you could write and, beside it, a little film of exactly what it adds. They
+# take turns; each film starts as its comment appears.
+EXAMPLES = [("hi!", "random", None, "adds a random patch"), ("glider {at} se blue", "glider_se", "blue", "adds a blue glider"),
+            ("acorn {at} red", "acorn", "red", "adds a red acorn"), ("rpent {at} yellow", "rpent", "yellow", "adds a yellow rpent")]
+EXAMPLE_S, CHIP_Y, CHIP_BOX, CHIP_CELL, CHIP_EVERY = 2.6, 1516, 9, 10, 3  # the bubble's centre, below the captions
+
+
+def comment_chip(i: int, alpha: float, at: str):
+    """Frame i (counted from the first bubble) of the comment bubbles."""
+    def draw(d, to_canvas):
+        if alpha <= 0:
+            return
+        a = int(255 * alpha)
+        per = int(EXAMPLE_S * FPS)
+        say, pattern, paint, adds = EXAMPLES[(i // per) % len(EXAMPLES)]
+        say = "\u201c" + say.format(at=at) + "\u201d"
+        fq, fs = ex.font("demi", 46), ex.font("demi", 30)
+        box = CHIP_BOX * CHIP_CELL
+        tw = max(d.textlength(say, font=fq), d.textlength(adds, font=fs))
+        w = 26 + 44 + 18 + tw + 26 + box + 14
+        x0, y0 = int(CX - w / 2), CHIP_Y - 56
+        d.rounded_rectangle((x0, y0, x0 + w, y0 + 112), radius=26, fill=(245, 246, 250, int(238 * alpha)))
+        d.ellipse((x0 + 26, CHIP_Y - 22, x0 + 70, CHIP_Y + 22), fill=(150, 156, 170, a))  # a commenter
+        tx = x0 + 26 + 44 + 18
+        ex.text(d, (tx, CHIP_Y - 18), say, "demi", 46, alpha, fill=(12, 14, 18), anchor="lm", outline=False)
+        ex.text(d, (tx, CHIP_Y + 28), adds, "demi", 30, alpha, fill=(90, 96, 110), anchor="lm", outline=False)
+        bx, by = int(x0 + w - 14 - box), CHIP_Y - box // 2
+        d.rounded_rectangle((bx - 4, by - 4, bx + box + 4, by + box + 4), radius=10, fill=(16, 18, 24, a))
+        film = render.demo(pattern, CHIP_BOX)
+        fill = tuple(render.PAINT[paint] if paint else PHASE_COLOR["ALIVE"]) + (a,)
+        for y, x in np.argwhere(film[min(len(film) - 1, (i % per) // CHIP_EVERY)]):
+            px, py = bx + x * CHIP_CELL, by + y * CHIP_CELL
+            d.rectangle((px + 1, py + 1, px + CHIP_CELL - 2, py + CHIP_CELL - 2), fill=fill)
     return draw
 
 
@@ -360,7 +405,26 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     def add(u, texts=(), zoom=1.0, focus=whole, extras=(), **kw):
         f = ex.Frame(u, texts=texts, hud=False, zoom=zoom, dim=kw.pop("dim", 0.0), extras=extras, **kw)
         f.focus = focus
+        paint = getattr(u, "paint", None)
+        f.paint = paint.copy() if paint is not None and paint.any() else None
         frames.append(f)
+
+    # the daily recap's comment bubbles (see comment_chip): from the first frame
+    # until its moves have played, fading out as the stakes come in
+    chipped: list = []
+    chip_at: list = []  # the example spot: a quiet corner of the board as it is now
+
+    def add_chip(u, texts=(), extras=(), **kw):
+        if not chip_at:
+            chip_at.append("{},{}".format(*render.quiet_spot(now.grid)))
+        k = len(chipped)
+        add(u, texts, extras=list(extras) + [comment_chip(k, min(1.0, (k + 1) / FADE), chip_at[0])], **kw)
+        chipped.append(frames[-1])
+
+    def end_chips():
+        n = len(chipped)
+        for k in range(max(0, n - FADE), n):
+            chipped[k].extras[-1] = comment_chip(k, min(1.0, (k + 1) / FADE, (n - k - 1) / FADE), chip_at[0])
 
     # where things stand now, and the forecasts
     now = h.fresh()
@@ -382,20 +446,21 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     if Z > 1:
         u, prev, churn = copy.deepcopy(now), now.grid.copy(), np.zeros(now.grid.shape, np.int64)
         for _ in range(n):
-            u.advance_to(u.generation + 1)
+            History.advance(u, u.generation + 1)
             churn += u.grid != prev
             prev = u.grid.copy()
         busy = busiest(churn, Z)
     u = copy.deepcopy(now)
     for i in range(n):
-        u.advance_to(u.generation + 1)
+        History.advance(u, u.generation + 1)
         a = 1.0 if i < n - FADE else fade(i, n)
         zoom = Z if i < hold else 1 + (Z - 1) * (1 - ease((i - hold) / (n - 1 - hold)))
-        add(u, block([("THIS SHORT", "bold", 112), ("DIES", "bold", 196)], TOP_Y, a)
+        (add_chip if since_gen is not None else add)(
+            u, block([("THIS SHORT", "bold", 112), ("DIES", "bold", 196)], TOP_Y, a)
             + block([("if nobody comments", "demi", 80)], BOTTOM_Y, a), zoom=zoom, focus=busy)
 
     if since_gen is not None:  # the daily recap: day N, the day's moves, how its death moved
-        _recap(h, now, since_gen, add, stuck_now)
+        _recap(h, now, since_gen, add, stuck_now, add_chip, end_chips)
     else:
         # 2. the acorn, up close
         u = h.fresh()
@@ -467,16 +532,16 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
         for i in range(n):
             p = min(1.0, (i + 1) / (n * 0.55))
             if fut.generation < stuck_now:  # ease out into the loop, then one generation per 2 frames
-                fut.advance_to(start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
+                History.advance(fut, start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
             elif i % 2 == 0:
-                fut.advance_to(fut.generation + 1)
+                History.advance(fut, fut.generation + 1)
             add(fut, block([(text, "bold", 80)], TOP_Y, fade(i, n)))
         top = [("Then it has 24 hours.", "bold", 88)]
         bottom = [("If nobody saves it, this Short goes private. For good.", "demi", 62)]
         n = rf(*[s for s, _, _ in top + bottom])
         for i in range(n):
             if i % 2 == 0:
-                fut.advance_to(fut.generation + 1)
+                History.advance(fut, fut.generation + 1)
             add(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
                 grey=max(0.0, (i - n * 0.55) / (n * 0.3)))
 
@@ -499,7 +564,7 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
         extras = lambda a, i: [ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)]  # noqa: E731
     for i in range(n):
         if i % 6 == 0:
-            u.advance_to(u.generation + 1)
+            History.advance(u, u.generation + 1)
         a = min(1.0, (i + 1) / FADE)
         add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a), extras=extras(a, i), dim=dim * a)
     return frames
@@ -572,7 +637,7 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
     return u
 
 
-def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
+def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=None, end_chips=None) -> list:
     """The daily Short after its hook. Most of its viewers have never seen this
     universe, so it says what it is as it goes: what a comment does (the day's
     two biggest moves, in plain words), then what "dies" means, shown on its
@@ -599,7 +664,9 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
         return "\n" + effect_words(effs[0]["before"], effs[-1]["after"], G) if effs else ""
     shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:2])
-    _moves(h, u, shown, head, add, h.now_gen, effect_text)
+    _moves(h, u, shown, head, add_chip or add, h.now_gen, effect_text)
+    if end_chips:
+        end_chips()
 
     # the stakes: where its death stands now
     def death_day(stuck):
@@ -612,9 +679,9 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now) -> list:
         for i in range(n):
             p = min(1.0, (i + 1) / (n * 0.55))
             if fut.generation < stuck_now:
-                fut.advance_to(start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
+                History.advance(fut, start + round((stuck_now - start) * (1 - (1 - p) ** 2)))
             elif i % 2 == 0:
-                fut.advance_to(fut.generation + 1)
+                History.advance(fut, fut.generation + 1)
             add(fut, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)),
                 grey=max(0.0, (i - n * 0.6) / (n * 0.3)))
         return

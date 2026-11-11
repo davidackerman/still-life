@@ -106,3 +106,34 @@ def test_effect_words_are_plain():
     assert short.effect_words(5000, None, g) == "gave it weeks more to live"
     assert short.effect_words(None, 5000, g) == "took weeks off its life"
     assert short.effect_words(5000, 5005, g) == "barely changed its fate"
+
+
+def test_where_the_daily_short_says_comment_a_bubble_shows_one_and_what_it_adds(state_dir, monkeypatch):
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    frames = short.build(state_dir, since_gen=0)
+    hook = int(2.7 * short.FPS)
+    assert all(f.extras for f in frames[:hook])  # from the first frame, under "if nobody comments"
+    per = int(short.EXAMPLE_S * short.FPS)
+    bubbles = [f for f in frames if f.extras and not f.dim]  # the opening and the recap (the ending has its films)
+    assert len(bubbles) > per  # long enough for more than one example
+    assert len(short.compose(frames[0])) == short.PW * short.PH * 3
+    stakes = [f for f in frames if f.grey > 0]
+    assert stakes and not any(f.extras for f in stakes)  # gone by the time it says how it dies
+    full = short.build(state_dir)  # the original Short is unchanged: no bubbles
+    assert not any(f.extras for f in full[:hook])
+
+
+def test_the_short_shows_paint(tmp_path, monkeypatch):
+    import numpy as np
+    for k in ("SEED", "GEN_SECONDS", "FLATLINE_HOURS"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("LAUNCH_TIME", str(int(LAUNCH)))
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    yt = FakeYT([Comment("c1", "u1", iso(LAUNCH + 900), "glider 20,20 se blue")])
+    for t in range(0, 3600, 600):
+        tick.run(str(tmp_path), LAUNCH + t, lambda w: yt, b"test-state-key-0123456789", thumb_path=None)
+    frames = short.build(str(tmp_path), since_gen=0)
+    painted = [f for f in frames if f.paint is not None and (f.paint == 4).any() and f.grey == 0]
+    assert painted
+    img = np.asarray(short.board(painted[-1]))
+    assert (img.reshape(-1, 3) == np.array(short.render.PAINT["blue"])).all(axis=1).any()
