@@ -37,6 +37,11 @@ jobs:
       DAILY_SHORT: ${{ vars.DAILY_SHORT || 'off' }}  # off | dry | live: a recap Short each evening (daily.py)
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The branch as it is when this job starts, not the commit it was queued
+          # with: a run that waited (concurrency) for another must start from that
+          # run's saved state, or its own save conflicts with it.
+          ref: main
 
       - uses: actions/setup-python@v7
         with:
@@ -92,6 +97,7 @@ jobs:
           git commit -q -m "tick: $(python -c "import json; s=json.load(open('state/state.json')); u=s['universe']; print(f\"universe {s['config'].get('universe', 1)} gen {u['generation']} {u['phase']}\")")"
           for attempt in 1 2 3; do
             git pull -q --rebase && git push -q && exit 0
+            git rebase --abort 2>/dev/null || true
             sleep $((attempt * 5))
           done
           echo "push failed" && exit 1
