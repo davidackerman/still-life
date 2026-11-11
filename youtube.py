@@ -196,7 +196,8 @@ def _comment(c: dict, video_channel: str | None, video: int, reply: bool):
     author = channel or "name:" + sn.get("authorDisplayName", "")
     owner = bool(channel) and channel == video_channel  # the video's own channel
     return Comment(id=c["id"], author=author, published_at=sn["publishedAt"],
-                   text=sn.get("textDisplay", ""), by_owner=owner, reply=reply, video=video)
+                   text=sn.get("textDisplay", ""), by_owner=owner, reply=reply, video=video,
+                   name=sn.get("authorDisplayName", ""))
 
 
 def comment_from_thread(item: dict, video: int = 0):
@@ -227,7 +228,8 @@ def chat_comment(m: dict):
         return None
     text = (sn.get("textMessageDetails") or {}).get("messageText") or sn.get("displayMessage", "")
     author = who.get("channelId") or sn.get("authorChannelId") or "name:" + who.get("displayName", "")
-    return Comment(id="chat:" + m["id"], author=author, published_at=sn["publishedAt"], text=text, video=CHAT)
+    return Comment(id="chat:" + m["id"], author=author, published_at=sn["publishedAt"], text=text, video=CHAT,
+                   name=who.get("displayName", ""))
 
 
 class YouTube:

@@ -45,6 +45,7 @@ class Comment:
     by_owner: bool = False  # posted by the channel that owns the video
     reply: bool = False  # a reply under another comment (plays exactly like a top-level one)
     video: int = 0  # which of the configured videos: 0 = the main one, 1+ = extras (e.g. a Short)
+    name: str = ""  # display name, for the leaderboard in the status comments: in memory only, never stored
 
     @property
     def epoch(self) -> float:

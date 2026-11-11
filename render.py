@@ -375,13 +375,43 @@ INTRO_EXTRA = ("This Short is a replay, but it is alive: every comment here adds
                "video's thumbnail or the live page below. If the universe dies, both videos die.")
 
 
+LEADERS = 3  # names in each line of the leaderboard
+LEADER_MIN_GENS = 30  # an hour of life given or taken, to be on it
+
+
+def leaders(scores: dict, k: int = LEADERS, min_gens: int = LEADER_MIN_GENS) -> tuple[list, list]:
+    """(savers, killers): [(generations, keyed author)], biggest first."""
+    up = sorted(((s[0], a) for a, s in scores.items() if s[0] >= min_gens), key=lambda t: (-t[0], t[1]))[:k]
+    down = sorted(((s[0], a) for a, s in scores.items() if s[0] <= -min_gens), key=lambda t: (t[0], t[1]))[:k]
+    return up, down
+
+
+def leaderboard(up: list, down: list, names: dict, gen_seconds: int) -> list[str]:
+    """'🏆 Top savers: @ann +6d 2h · …' and '💀 Top killers: …', from leaders()."""
+    def who(a):
+        return " ".join((names.get(a) or "").split())[:40] or "someone"
+
+    def entry(g, a):
+        span = short_span(abs(g) * gen_seconds)
+        return f"{who(a)} {'+' if g > 0 else '−'}{span[:-3] if span.endswith(' 0h') else span}"
+    lines = []
+    if up:
+        lines.append("🏆 Top savers: " + " · ".join(entry(g, a) for g, a in up))
+    if down:
+        lines.append("💀 Top killers: " + " · ".join(entry(g, a) for g, a in down))
+    return lines
+
+
 def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,
-                main: bool = True, stamp: str | None = None) -> str:
+                main: bool = True, stamp: str | None = None, board: list[str] | None = None) -> str:
     """The self-updating status comment. `main` is the video whose title and
     thumbnail show the universe; other videos (a Short) only feed it comments.
     `stamp` (when it was written) shows readers that it updates itself."""
     first = f"{status} · updated {stamp}" if stamp else status
-    lines = [first, INTRO_MAIN if main else INTRO_EXTRA, "", "Latest moves (time it had left: before → after):"]
+    lines = [first, INTRO_MAIN if main else INTRO_EXTRA, ""]
+    if board:  # who gave it the most life, and who took the most (every video and the live chat)
+        lines += board + [""]
+    lines.append("Latest moves (time it had left: before → after):")
     lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
     lines.append("")
     if suggest:

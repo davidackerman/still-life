@@ -449,3 +449,96 @@ def test_live_chat_messages_play_and_a_chat_failure_does_not_stop_comments():
     events = engine.tick(w2, t, ChatYT(comments=[comment("c1")], chat_fails=True))
     assert [e["command"] for e in events if e["type"] == "injection"] == ["glider 10,10 se"]
     assert any(e["type"] == "youtube_error" and e["op"] == "fetch_chat" for e in events)
+
+
+# ---------------------------------------------------------------- the leaderboard
+def at(t):
+    import datetime as dt
+    return dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def player(cid, author, text, t, video=0, name=""):
+    return Comment(cid, author, at(t), text, video=video, name=name)
+
+
+def keyed(author):
+    import admission
+    return admission.keyed(b"k" * 16, "author", author)
+
+
+def test_every_move_scores_for_its_author_on_any_video_or_the_chat():
+    import youtube
+    w = world()
+    cs = [player("a", "u1", "glider 10,10", LAUNCH + 60), player("b", "u2", "rpent 90,20", LAUNCH + 60, video=1),
+          player("chat:c", "u1", "block 40,40", LAUNCH + 60, video=youtube.CHAT)]
+    ev = engine.tick(w, LAUNCH + 600, PinYT(cs))
+    effs = [e for e in ev if e["type"] == "effect"]
+    assert len(effs) == 3
+    assert w.scores[keyed("u1")][1] == 2 and w.scores[keyed("u2")][1] == 1
+    assert sum(s[0] for s in w.scores.values()) == sum(engine.effect_gens(e) for e in effs)
+    w2 = engine.World.from_state(*w.to_state(), key=b"k" * 16)
+    assert w2.scores == w.scores
+
+
+def test_a_move_with_no_loop_in_sight_counts_up_to_the_forecast_horizon():
+    assert engine.effect_gens({"gen": 100, "before": 3000, "after": 3500, "horizon": 30000}) == 500
+    assert engine.effect_gens({"gen": 100, "before": 3000, "after": None, "horizon": 30000}) == 30100 - 3000
+    assert engine.effect_gens({"gen": 100, "before": None, "after": 900, "horizon": 30000}) == 900 - 30100
+
+
+def test_the_backfill_credits_old_moves_as_if_they_had_been_scored_live():
+    cs = [player("a", "u1", "glider 10,10", LAUNCH + 60), player("b", "u2", "rpent 90,20", LAUNCH + 1300),
+          player("c", "u1", "hello there", LAUNCH + 4000), player("d", "u3", "glider 10,10", LAUNCH + 4100)]
+    live, log = world(), []
+    for t in (700, 1900, 4600):
+        log += engine.tick(live, LAUNCH + t, FakeYT([c for c in cs if c.epoch <= LAUNCH + t]))
+    later = world()
+    assert engine.backfill_scores(later, cs, log, later.universe.grid.shape) == 4
+    assert later.scores == live.scores
+
+
+def test_the_backfill_runs_once_before_new_moves_are_scored():
+    cs = [player("a", "u1", "glider 10,10", LAUNCH + 60)]
+    old, log = world(), []
+    log += engine.tick(old, LAUNCH + 700, FakeYT(cs))
+    old.scores = {}  # as if scores weren't kept yet
+    new = cs + [player("b", "u2", "rpent 90,20", LAUNCH + 1300)]
+    ev = engine.tick(old, LAUNCH + 1900, FakeYT(new), log_entries=log)
+    assert [e["moves"] for e in ev if e["type"] == "scores_backfilled"] == [1]
+    assert old.scores[keyed("u1")][1] == 1 and old.scores[keyed("u2")][1] == 1  # the old move once, the new one live
+    assert engine.SCORES in old.migrations
+    assert not [e for e in engine.tick(old, LAUNCH + 2500, FakeYT(new), log_entries=log) if e["type"] == "scores_backfilled"]
+
+
+class NamesYT(PinYT):
+    """Pinned updates, plus a full read of every comment (for names) when asked."""
+
+    def __init__(self, comments=(), everyone=()):
+        super().__init__(comments)
+        self.everyone, self.reads = list(everyone), []
+
+    def fetch_comments(self, since, watch=(), now=None):
+        self.reads.append(since)
+        return self.comments + (self.everyone if since == LAUNCH else [])  # the read since launch
+
+
+def test_the_status_comment_names_the_top_savers_and_killers():
+    w = world()
+    w.scores = {keyed("u1"): [4320, 3], keyed("u2"): [-6000, 1], keyed("u3"): [10, 1], keyed("u4"): [-90, 2],
+                keyed("u5"): [100, 1]}
+    yt = NamesYT([owner_status(), player("x", "u1", "glider 10,10", LAUNCH + 60, name="@ann")],
+                 everyone=[player("y", "u2", "block 5,5", LAUNCH + 30, name="@bob")])
+    engine.tick(w, LAUNCH + 600, yt)
+    text = yt.updates[-1][1]
+    saver, killer = [ln for ln in text.splitlines() if ln.startswith(("🏆", "💀"))]
+    assert saver.startswith("🏆 Top savers: @ann +") and saver.endswith(" · someone +3h")  # u3's 20 min: too little
+    assert killer.startswith("💀 Top killers: @bob −8d 8h · someone −3h")
+    assert LAUNCH in yt.reads  # names it hadn't seen this run: one read of every comment since launch
+    assert "@ann" not in str(w.to_state()[0]) and "@bob" not in str(w.to_state()[0])  # names are never stored
+
+
+def test_no_leaderboard_until_someone_has_moved_it_an_hour():
+    w, yt = world(), PinYT([owner_status()])
+    w.scores = {keyed("u1"): [29, 1]}
+    engine.tick(w, LAUNCH + 600, yt)
+    assert "Top savers" not in yt.updates[-1][1] and "Top killers" not in yt.updates[-1][1]

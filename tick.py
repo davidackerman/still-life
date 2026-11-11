@@ -131,8 +131,9 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
     if engine.READMIT not in world.migrations:  # see engine.readmit_dropped
         from collections import Counter
         logged = Counter(e["command"] for e in read_log(store.path(LOG)) if e["type"] == "injection")
+    log_entries = read_log(store.path(LOG)) if engine.SCORES not in world.migrations else None  # engine.backfill_scores
     events = engine.tick(world, now, yt, thumb_path, force_thumbnail, pinned_link=env_flag("PINNED_LINK", "true"),
-                         force_pinned=force_pinned, logged=logged)
+                         force_pinned=force_pinned, logged=logged, log_entries=log_entries)
     store.save(world, events)
     if was_dead:
         import death

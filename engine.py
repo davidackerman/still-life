@@ -63,7 +63,7 @@ class World:
     forecast: dict | None = None  # display only: {"key", "stuck_gen", "horizon"}
     recent: list | None = None  # latest event lines for the pinned comment (game data only)
     # The owner's own status comment on each video, by video index ("0" = main):
-    # {"id": comment id, "text": last text set, "at": when}
+    # {"id": comment id, "text": HMAC of the last text set (it can name players), "at": when}
     pinned: dict = field(default_factory=dict)
     pinned_core: str | None = None  # the comment without the suggestion; a change re-picks the suggestion
     pinned_suggest: str | None = None
@@ -77,6 +77,9 @@ class World:
     quota: dict = field(default_factory=dict)  # owned by youtube.Quota
     reply_counts: dict = field(default_factory=dict)  # owned by youtube.YouTube (keyed thread -> [n, t])
     chat: dict = field(default_factory=dict)  # owned by youtube.YouTube: the live stream's chat and where we are in it
+    # The leaderboard: keyed author -> [generations of life their moves gave (+) or
+    # took (-), moves counted]. HMAC'd ids only; names are looked up when shown.
+    scores: dict = field(default_factory=dict)
     # Succession (death.py): which universe this is, the video hosting it (None =
     # the VIDEO_ID secret, universe #1), videos of dead universes never to be
     # driven again, the death sequence's progress, and videos still to make private.
@@ -113,6 +116,7 @@ class World:
             "quota": self.quota,
             "reply_counts": dict(sorted(self.reply_counts.items())),
             "chat": self.chat,
+            "scores": dict(sorted(self.scores.items())),
             "death": self.death,
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
@@ -137,6 +141,7 @@ class World:
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
             forecast=disp.get("forecast"), recent=disp.get("recent"), pinned=pinned,
             reply_counts=dict(d.get("reply_counts", {})), chat=dict(d.get("chat") or {}),
+            scores={a: list(s) for a, s in (d.get("scores") or {}).items()},
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
@@ -213,6 +218,8 @@ def effects_from_log(entries: list[dict]) -> list[dict]:
 
 
 READMIT = "readmit-dropped-2026-11-09"
+SCORES = "scores-backfilled-2026-11-10"
+SCORE_MATCH_GENS = 60  # backfill: a move lands at most this long after its comment was posted (2 h)
 
 
 def readmit_dropped(world: World, comments: list, logged: Counter, shape) -> int:
@@ -239,6 +246,68 @@ def readmit_dropped(world: World, comments: list, logged: Counter, shape) -> int
     return len(forget)
 
 
+def effect_gens(eff: dict) -> int:
+    """Generations of life one move gave (+) or took (-), if nobody else commented.
+    No loop within the forecast counts as one at the forecast's horizon."""
+    def end(stuck):
+        return stuck if stuck is not None else eff["gen"] + eff.get("horizon", FORECAST_GENS)
+    return end(eff["after"]) - end(eff["before"])
+
+
+def credit(world: World, author: str, eff: dict) -> None:
+    s = world.scores.setdefault(author, [0, 0])
+    s[0] += effect_gens(eff)
+    s[1] += 1
+
+
+def backfill_scores(world: World, comments: list, entries: list[dict], shape) -> int:
+    """Once: credit the moves made before scores were kept. The log has no authors
+    (by design), so each comment is matched to its move: the same command, landing
+    at or soon after the generation it was posted in, earliest first. Returns the
+    number of moves credited. Live-chat moves from before can't be matched (the
+    chat's history is not kept), so they start counting from now."""
+    effects: dict = {}
+    landed: dict = {}
+    for e in entries:
+        if e["type"] == "effect":
+            effects.setdefault((e["gen"], e["command"]), e)
+        elif e["type"] == "injection":
+            landed.setdefault(e["command"], []).append(e["gen"])
+    n = 0
+    for c in sorted(comments, key=lambda c: (c.epoch, c.id)):
+        desc = commands.parse(c.id, c.text, shape).desc
+        posted = target_generation(c.epoch, world.launch_time, world.gen_seconds)
+        gens = landed.get(desc, [])
+        hit = next((g for g in gens if posted <= g <= posted + SCORE_MATCH_GENS), None)
+        if hit is None:
+            continue
+        gens.remove(hit)
+        if (hit, desc) in effects:
+            credit(world, admission.keyed(world.key, "author", c.author), effects[(hit, desc)])
+            n += 1
+    return n
+
+
+def leaderboard_lines(world: World, yt, comments: list, now: float, events: list[dict]) -> list[str]:
+    """The status comments' leaderboard. Names are looked up now and never stored:
+    from this run's comments and chat, else from one read of every comment since
+    launch. Someone known only from an earlier live chat shows as "someone"."""
+    up, down = render.leaders(world.scores)
+    names: dict = {}
+
+    def learn(cs):
+        for c in cs:
+            if c.name:
+                names[admission.keyed(world.key, "author", c.author)] = c.name
+    learn(comments)
+    if any(a not in names for _, a in up + down):
+        try:
+            learn(yt.fetch_comments(world.launch_time, watch=[p["id"] for p in world.pinned.values()], now=now))
+        except Exception as e:  # noqa: BLE001 - "someone" for now
+            events.append({"type": "youtube_error", "op": "leaderboard_names", "error": repr(e)[:500]})
+    return render.leaderboard(up, down, names, world.gen_seconds)
+
+
 def _display(world: World, op: str, now: float, call, events: list[dict]) -> bool:
     """Run one display call with backoff. Returns True on success."""
     b = world.backoff.get(op)
@@ -260,7 +329,8 @@ def _display(world: World, op: str, now: float, call, events: list[dict]) -> boo
 
 
 def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thumbnail: bool = False,
-         pinned_link: bool = True, force_pinned: bool = False, logged: Counter | None = None) -> list[dict]:
+         pinned_link: bool = True, force_pinned: bool = False, logged: Counter | None = None,
+         log_entries: list[dict] | None = None) -> list[dict]:
     """Advance the world to wall-clock `now`. Returns the run's log events.
 
     Order: fetch + admit comments -> apply up to MAX_PER_RUN injections at the
@@ -306,6 +376,15 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         world.migrations.append(READMIT)
         if n:
             events.append({"type": "readmitted", "count": n, "reason": "every comment counts now"})
+    if fetched and log_entries is not None and SCORES not in world.migrations:  # see backfill_scores
+        try:
+            every = yt.fetch_comments(world.launch_time, watch=[p["id"] for p in world.pinned.values()], now=now)
+        except Exception as e:  # noqa: BLE001 - try again next run
+            events.append({"type": "youtube_error", "op": "backfill_scores", "error": repr(e)[:500]})
+        else:
+            n = backfill_scores(world, [c for c in every if not is_status(c)], log_entries, u.grid.shape)
+            world.migrations.append(SCORES)
+            events.append({"type": "scores_backfilled", "moves": n})
     counts = admission.admit(world.admission, comments, now, world.key, dead=(u.phase == DIED),
                              shape=u.grid.shape)
     sim_from = len(events)
@@ -337,6 +416,9 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             f = world.forecast
             known = f["stuck_gen"] if f and f["key"] == [u.history_base, u.phase] else False
             effects = comment_effects(u, items, known)
+            for q, eff in zip(group, effects):  # the leaderboard
+                if eff:
+                    credit(world, q["author"], eff)
             inj_events = u.inject(items)
             for q, ev in zip(group, [e for e in inj_events if e["type"] == "injection"]):
                 if ev["changed"]:
@@ -421,20 +503,27 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         world.pinned_core = core
         world.pinned_suggest = render.suggestion(u) if u.phase != DIED else None
     newest = set(sorted((k for k in world.pinned if k != "0"), key=int)[-2:])
+
+    def due(v, slot):
+        gap = (PINNED_MIN_INTERVAL_S if v == "0" else PINNED_EXTRA_MIN_INTERVAL_S if v in newest
+               else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
+        return force_pinned or slot.get("at") is None or now - slot["at"] >= gap
+    board = None
+    if world.scores and hasattr(yt, "update_comment") and any(due(v, s) for v, s in world.pinned.items()):
+        board = leaderboard_lines(world, yt, comments, now, events)
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
         main = v == "0"
         # slot["text"] is the text without its "updated <time>" stamp: the stamp
         # alone never triggers a rewrite, except that the main video's comment is
-        # re-stamped every few hours so it never looks abandoned.
-        text = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main)
-        gap = (PINNED_MIN_INTERVAL_S if main else PINNED_EXTRA_MIN_INTERVAL_S if v in newest
-               else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
-        due = force_pinned or slot.get("at") is None or now - slot["at"] >= gap
+        # re-stamped every few hours so it never looks abandoned. Only its HMAC is
+        # kept: the leaderboard names people, and names never go in the repo.
+        text = admission.keyed(world.key, "pinned", render.pinned_text(
+            status_line, world.recent, world.pinned_suggest, pinned_link, main=main, board=board))
         stale = main and (slot.get("at") is None or now - slot["at"] >= PINNED_RESTAMP_S)
-        if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due:
+        if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot):
             op = "update_pinned" if main else f"update_pinned_{v}"
             stamped = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main,
-                                         stamp=render.clock(now, date=False))
+                                         stamp=render.clock(now, date=False), board=board)
             if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
                 slot["text"], slot["at"] = text, now
                 events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
