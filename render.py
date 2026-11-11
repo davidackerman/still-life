@@ -8,6 +8,7 @@ import re
 
 import numpy as np
 
+import commands
 import life
 from universe import ALIVE, CONTESTED, DIED, FLATLINING, GEN_SECONDS, Universe
 
@@ -18,6 +19,10 @@ THUMB_W, THUMB_H = 1280, 720  # YouTube's recommended thumbnail size; bigger boa
 BG = (10, 12, 16)
 GRID = (22, 25, 32)
 HIGHLIGHT = (255, 255, 255)  # cells injected since the last render
+# Paint a move can ask for (commands.COLORS, in that order: paint 1..7). Unpainted
+# cells take the phase colour (green while it's alive).
+PAINT = {"red": (242, 72, 72), "orange": (255, 150, 50), "yellow": (250, 225, 60), "blue": (70, 140, 255),
+         "purple": (170, 105, 255), "pink": (255, 110, 200), "cyan": (60, 220, 235)}
 PHASE_COLOR = {
     ALIVE: (120, 230, 160),
     FLATLINING: (240, 90, 90),
@@ -257,10 +262,15 @@ def coarse_left(secs: float) -> str:
     return "under 2 hours"
 
 
+def move_text(e: dict) -> str:
+    """A logged move as you'd type it: 'glider 10,20 se', 'glider 10,20 se blue'."""
+    return e["command"] + (f" {e['color']}" if e.get("color") else "")
+
+
 def event_line(ev: dict) -> str | None:
     """One line of the pinned comment for a logged event (game data only)."""
     if ev["type"] == "injection":
-        return f"gen {ev['gen']:,}: {ev['command']}" + ("" if ev["changed"] else " (changed nothing)")
+        return f"gen {ev['gen']:,}: {move_text(ev)}" + ("" if ev["changed"] else " (changed nothing)")
     if ev["type"] == "phase":
         return f"gen {ev['gen']:,}: {PHASE_WORDS.get(ev['reason'], ev['to'].lower())}"
     return None
@@ -400,7 +410,8 @@ def quiet_spot(grid, win_w: int = 24, win_h: int = 14) -> tuple[int, int]:
 def suggestion(u: Universe) -> str:
     x, y = quiet_spot(u.grid)
     pattern = ("acorn", "rpent", "glider")[(u.generation // 180) % 3]
-    return f"{pattern} {x},{y}"
+    colour = commands.COLORS[(u.generation // 540) % len(commands.COLORS)]  # so people see they can paint
+    return f"{pattern} {x},{y} {colour}"
 
 
 # Leads with the distinction viewers miss: the video is a fixed recording, the

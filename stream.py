@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+import commands
 import explainer as ex
 import life
 import render
@@ -66,7 +67,6 @@ SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
 LEGEND = [("glider_se", "glider", "x,y ne|nw|se|sw"), ("block", "block", "x,y"), ("blinker", "blinker", "x,y"),
           ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), (None, "cells", "x,y x,y …")]  # (pattern, what to type)
-LEGEND_CELLS = ((0, 2), (1, 0), (3, 1))  # 'cells': any you like
 DEMO_BOX, DEMO_CELL, DEMO_RATE = 9, 5, 4  # the legend's little films: 9 x 9 cells of 5 px, 4 generations a second
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"
@@ -148,6 +148,7 @@ class Snapshot:
     effects: dict = field(default_factory=dict)  # (gen, command) -> effect event
     checked: float | None = None  # when the tick last read the comments
     deaths: list = field(default_factory=list)  # (gen, the gen it would die at, or None: beyond the forecast)
+    paint: np.ndarray | None = None  # the cells' colours (life.paint_step); None while no move has asked for one
 
 
 def load(state_dir: str, after_seq: int | None = None, now: float | None = None) -> Snapshot:
@@ -173,8 +174,29 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
                     snap.effects.setdefault((e["gen"], e["command"]), e)
     snap.checked = last_check(state_dir)
     snap.deaths = death_history(state_dir, u.flatline_gens)
+    snap.paint = live_paint(state_dir, u)
     step(snap, now if now is not None else time.time())
     return snap
+
+
+def live_paint(state_dir: str, u: Universe) -> np.ndarray | None:
+    """The colours on the live board, replayed from the log (the bot keeps no
+    paint: it is only how cells look). None while no move has asked for one."""
+    with open(os.path.join(state_dir, "log.jsonl"), encoding="utf-8") as f:
+        if '"color"' not in f.read():
+            return None
+    import short
+    t0 = time.monotonic()
+    h = short.History(state_dir)
+    r = h.fresh()
+    h.goto(r, u.generation)
+    if not np.array_equal(r.grid, u.grid):  # the log and the state disagree: show no paint rather than wrong paint
+        log(f"paint: the replayed board differs from the state at gen {u.generation:,}")
+        return None
+    took = time.monotonic() - t0
+    if took > 1.0:  # it replays every painted generation: if this grows, keep a checkpoint instead
+        log(f"paint: replaying the log took {took:.1f} s")
+    return r.paint
 
 
 def death_history(state_dir: str, flatline: int) -> list[tuple[int, int | None]]:
@@ -304,7 +326,13 @@ def step(snap: Snapshot, now: float) -> bool:
     target = target_generation(now, snap.launch, snap.gen_seconds)
     if snap.u.phase == DIED or target <= snap.u.generation:
         return False
-    snap.u.advance_to(target)
+    if snap.paint is not None and snap.paint.any():  # a generation at a time, so the paint follows the cells
+        while snap.u.generation < target and snap.u.phase != DIED:
+            before = snap.u.grid
+            snap.u.advance_to(snap.u.generation + 1)
+            snap.paint = life.paint_step(before, snap.u.grid, snap.paint)
+    else:
+        snap.u.advance_to(target)
     return True
 
 
@@ -326,7 +354,7 @@ def geometry(shape) -> tuple[int, int, int]:
     return cell, BOARD_X + (BOARD_W - w * cell) // 2, BOARD_Y + (BOARD_H - h * cell) // 2
 
 
-def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None) -> np.ndarray:
+def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.ndarray | None = None) -> np.ndarray:
     h, w = grid.shape
     cell = geometry(grid.shape)[0]
     if (h, w) not in _tiles:  # the empty board, and where each cell's inside is
@@ -342,7 +370,13 @@ def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None) -> np.ndarra
 
     def big(m):  # a cell mask, scaled up to pixels (insides only)
         return m.astype(bool).repeat(cell, 0).repeat(cell, 1) & tile
-    img[big(grid)] = PHASE_COLOR[phase]
+    if paint is None or phase == DIED or not paint.any():  # a dead universe is grey, paint and all
+        img[big(grid)] = PHASE_COLOR[phase]
+    else:  # 1: unpainted (the phase colour); 2..: the paint
+        lut = np.array([BG, PHASE_COLOR[phase]] + [render.PAINT[c] for c in commands.COLORS], np.uint8)
+        idx = np.where(grid == 1, paint.astype(np.uint8) + 1, 0).repeat(cell, 0).repeat(cell, 1)
+        inside = (idx > 0) & tile
+        img[inside] = lut[idx[inside]]
     if lit is not None and lit.any():
         img[big(grid & lit)] = HIGHLIGHT
     return img
@@ -412,7 +446,7 @@ class Rewind:
             for e in self.h.batches[g]:
                 eff = self.big.get((g, e["command"]))
                 if eff and e["cells"]:
-                    text = e["command"] + render.effect_suffix(eff, self.u.flatline_gens, self.h.gen_seconds)
+                    text = render.move_text(e) + render.effect_suffix(eff, self.u.flatline_gens, self.h.gen_seconds)
                     self.tags.append(Tag(text, [tuple(c) for c in e["cells"]], now))
         self.tags = [t for t in self.tags if now - t.t0 < REWIND_TAG_S]
         if sound and now - self.pool_at >= 0.3:
@@ -541,7 +575,7 @@ class Screen:
     def _tag(snap: Snapshot, e: dict, t0: float) -> Tag:
         eff = snap.effects.get((e["gen"], e["command"]))
         suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
-        return Tag(e["command"] + suffix, [tuple(c) for c in e["cells"]], t0)
+        return Tag(render.move_text(e) + suffix, [tuple(c) for c in e["cells"]], t0)
 
     def _end_replay(self, now: float) -> None:
         self.replay = None
@@ -604,7 +638,7 @@ class Screen:
         playing = self.rewind or self.replay
         if playing:
             r = playing.u
-            self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask()), None
+            self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None)), None
             return self.cur
         u = self.snap.u
         self.tags = [t for t in self.tags if now - t.t0 < max(TAG_S, GLOW_S)]
@@ -616,7 +650,7 @@ class Screen:
                 lit[y % u.grid.shape[0], x % u.grid.shape[1]] = 1
         k = (id(self.snap), u.generation, u.phase, len(glowing))
         if k != self.cur_key or self.cur is None:
-            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit), k
+            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint), k
         a = (now - self.changed_at) / FADE_S
         if self.prev is not None and self.prev.shape == self.cur.shape and 0 <= a < 1:
             return (self.prev * (1 - a) + self.cur * a).astype(np.uint8)
@@ -637,7 +671,10 @@ class Screen:
             img[:] = SCREEN
             im = Image.fromarray(img)
             d = ImageDraw.Draw(im, "RGBA")
-            d.rectangle((left - 1, top - 1, left + shape[1] * cell, top + shape[0] * cell), outline=(42, 46, 58))
+            alarm = u.phase in (FLATLINING, CONTESTED)  # the edge says it's in trouble, whatever the paint
+            d.rectangle((left - 3 if alarm else left - 1, top - 3 if alarm else top - 1,
+                         left + shape[1] * cell + (2 if alarm else 0), top + shape[0] * cell + (2 if alarm else 0)),
+                        outline=PHASE_COLOR[u.phase] if alarm else (42, 46, 58), width=3 if alarm else 1)
             self._axes(d, shape)
             self._column(d, now)
             self._bottom(d)
@@ -846,8 +883,15 @@ class Screen:
             x += d.textlength(name + " ", font=fb)
             d.text((x, mid), args, font=fr, fill=MUTED, anchor="lm")
             x += d.textlength(args, font=fr) + 30
-        d.text((x0, mid + 40), f"one move per message (the first command in it)   ·   every move so far: {render.LIVE_ADDRESS}",
-               font=font("regular", 18), fill=MUTED, anchor="lm")
+        f18 = font("regular", 18)
+        for first in ("one move per message (the first command in it)", "one move per message"):
+            parts = [(first + "   ·   add a colour: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
+            parts += [(f"  ·   every move so far: {render.LIVE_ADDRESS}", MUTED)]
+            if sum(d.textlength(s, font=f18) for s, _ in parts) <= width:
+                break
+        for s, colour in parts:
+            d.text((x0, mid + 40), s, font=f18, fill=colour, anchor="lm")
+            x0 += d.textlength(s, font=f18)
 
     def _films(self, d, now: float) -> None:
         """The legend's films, a frame each 1/DEMO_RATE s: so something always moves."""

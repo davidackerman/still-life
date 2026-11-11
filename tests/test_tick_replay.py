@@ -173,3 +173,22 @@ def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
     tick.run(d, LAUNCH + 3600, lambda w: FakeYT(), KEY, thumb_path=None)
     recent = json.load(open(p))["display"]["recent"]
     assert len(recent) == 1 and recent[0].startswith("gen 4: block 5,5 · ")  # posted at 570 s: gen 4
+
+
+def test_painted_moves_are_logged_with_their_colour_and_replay(tmp_path, env):
+    d = str(tmp_path / "state")
+    yt = FakeYT()
+    live(d, yt, 2 * 3600, comments_at=[(600, "glider 10,10 BLUE my secret words"), (1200, "hi pink")])
+    replay.verify(d)  # the colour rides along; the game is the same
+    inj = [e for e in log_entries(d) if e["type"] == "injection"]
+    assert [e.get("color") for e in inj] == ["blue", "pink"]
+    assert inj[0]["command"] == "glider 10,10 se"  # the move itself, unchanged
+    blob = open(os.path.join(d, "log.jsonl")).read()
+    assert "secret words" not in blob and "hi pink" not in blob  # only the parsed colour, never the text
+    import numpy as np
+    import short
+    h = short.History(d)
+    u = h.fresh()
+    h.goto(u, h.now_gen)
+    assert {int(v) for v in np.unique(u.paint) if v} <= {4, 6}  # blue and pink (whatever survived)
+    assert not (u.paint > 0)[u.grid == 0].any()  # paint only on live cells

@@ -424,7 +424,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             if u.phase == DIED:  # it died before these were posted
                 counts["rejected"]["universe_dead"] = counts["rejected"].get("universe_dead", 0) + len(group)
                 continue
-            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at} for q in group]
+            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at,
+                      **({"color": q["color"]} if q.get("color") else {})} for q in group]  # paint: only its look
             f = world.forecast
             known = f["stuck_gen"] if f and f["key"] == [u.history_base, u.phase] else False
             effects = comment_effects(u, items, known)

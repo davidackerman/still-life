@@ -110,3 +110,16 @@ def test_random_patch_fits_in_5x5_window():
         x0, y0 = map(int, c.desc.rsplit(" ", 1)[1].split(","))
         for x, y in c.cells:
             assert (x - x0) % 128 < 5 and (y - y0) % 72 < 5
+
+
+def test_a_colour_word_anywhere_paints_the_move_and_changes_nothing_else():
+    plain, blue = commands.parse("c1", "glider 10,20 ne"), commands.parse("c1", "glider 10,20 ne BLUE please")
+    assert plain.color is None and blue.color == "blue"
+    assert blue.cells == plain.cells and blue.desc == plain.desc  # the same move, only painted
+    assert commands.parse("c1", "red then pink: block 3,4").color == "red"  # the first colour word
+    hi = commands.parse("c9", "hi pink")  # no command: its random patch is painted
+    assert hi.kind == "random" and hi.color == "pink"
+    assert hi.cells == commands.parse("c9", "hi pink").cells
+    for text in ("Fred's redo", "bluebird", "green block 3,4", "black block 3,4"):  # whole words, and only the paints
+        assert commands.parse("c1", text).color is None
+    assert set(commands.COLORS) == {"red", "orange", "yellow", "blue", "purple", "pink", "cyan"}

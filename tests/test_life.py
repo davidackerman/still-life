@@ -76,3 +76,29 @@ def test_random_soup_median_transient():
     rng = np.random.default_rng(12345)
     mus = [life.find_cycle((rng.random((life.H, life.W)) < 0.3).astype(np.uint8))[0] for _ in range(25)]
     assert 1000 <= statistics.median(mus) <= 3000  # prototype: ~1900
+
+
+def test_paint_only_colours_cells_and_follows_them():
+    import numpy as np
+    g = life.mask(life.place(life.PATTERNS["glider_se"], 5, 5, (20, 20)), (20, 20))
+    paint = g * 4  # a blue glider
+    for _ in range(12):
+        nxt = life.step(g)
+        paint = life.paint_step(g, nxt, paint)
+        g = nxt
+        assert np.array_equal(paint > 0, g == 1)  # every live cell painted, no dead one
+    assert set(np.unique(paint[g == 1])) == {4}  # still blue as it flies
+    # a birth takes the majority of its three parents...
+    b = np.zeros((5, 5), np.uint8)
+    b[1, 1] = b[1, 2] = b[1, 3] = 1  # a blinker: births above and below the middle
+    p = np.zeros((5, 5), np.uint8)
+    p[1, 1], p[1, 2], p[1, 3] = 1, 2, 2
+    out = life.paint_step(b, life.step(b), p)
+    assert out[0, 2] == 2 and out[2, 2] == 2 and out[1, 2] == 2  # majority, and the survivor keeps its own
+    assert out[1, 1] == 0 and out[1, 3] == 0  # the dead have none
+    # ...or, if all three differ, the first one's (read from the top left)
+    p[1, 1], p[1, 2], p[1, 3] = 3, 1, 2
+    out = life.paint_step(b, life.step(b), p)
+    assert out[0, 2] == 3 and out[2, 2] == 3
+    # unpainted boards stay unpainted
+    assert not life.paint_step(b, life.step(b), np.zeros((5, 5), np.uint8)).any()

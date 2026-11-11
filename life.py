@@ -60,6 +60,31 @@ def step(grid: np.ndarray) -> np.ndarray:
     return ((s == 3) | ((s == 4) & (grid == 1))).astype(np.uint8)
 
 
+_DY = np.array([-1, -1, -1, 0, 0, 1, 1, 1])  # the 8 neighbours, read from the top left
+_DX = np.array([-1, 0, 1, -1, 1, -1, 0, 1])
+
+
+def paint_step(before: np.ndarray, after: np.ndarray, paint: np.ndarray) -> np.ndarray:
+    """The paint on the cells one generation on, from `before` to `after` =
+    step(before). Paint (0: none, 1.. a colour) is only how cells look: it
+    never changes which live. A cell that lives on keeps its paint; a cell
+    born takes the paint of its three parents: the majority's, or if all three
+    differ, the first one's (reading its neighbours from the top left). Dead
+    cells have none."""
+    out = np.where(after == 1, paint, 0).astype(np.uint8)
+    if not out.any() and not paint.any():
+        return out
+    ys, xs = np.nonzero((after == 1) & (before == 0))
+    if len(ys) == 0:
+        return out
+    h, w = before.shape
+    ny, nx = (ys[:, None] + _DY) % h, (xs[:, None] + _DX) % w
+    parents = paint[ny, nx][before[ny, nx] == 1].reshape(-1, 3)  # a birth has exactly 3 live neighbours
+    a, b, c = parents.T
+    out[ys, xs] = np.where((a == b) | (a == c), a, np.where(b == c, b, a))
+    return out
+
+
 def state_hash(grid: np.ndarray) -> bytes:
     """BLAKE2b-256 of np.packbits(grid) (row-major, 1 bit per cell)."""
     return hashlib.blake2b(np.packbits(grid).tobytes(), digest_size=32).digest()

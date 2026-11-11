@@ -18,13 +18,18 @@ ignored. A comment with no valid command injects a 5x5 random patch:
     cell (i % 5, i // 5) of the patch is alive iff bit i of `bits` is 1, i = 0..24
 
 `text` is the comment text exactly as the API returned it (textFormat=plainText).
+
+A colour word anywhere in the text (red orange yellow blue purple pink cyan;
+the first one wins) paints the move's cells. Paint is only how cells look: it
+never changes which cells live (see life.paint_step). Unpainted cells are
+green; dead ones are the dark background.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import life
 
@@ -36,6 +41,8 @@ _PATTERN_RE = re.compile(
 )
 _CELLS_RE = re.compile(rf"\bcells((?:\s+{_COORD})+)", re.IGNORECASE | re.ASCII)
 _PAIR_RE = re.compile(_COORD, re.ASCII)
+COLORS = ("red", "orange", "yellow", "blue", "purple", "pink", "cyan")  # paint 1..7 (0: unpainted)
+_COLOR_RE = re.compile(rf"\b({'|'.join(COLORS)})\b", re.IGNORECASE | re.ASCII)
 
 
 @dataclass(frozen=True)
@@ -43,6 +50,7 @@ class Command:
     kind: str  # glider | block | blinker | rpent | acorn | cells | random
     cells: tuple[tuple[int, int], ...]  # absolute, wrapped, sorted, unique
     desc: str  # canonical text, e.g. "glider 10,20 se" or "random 5x5 at 3,4"
+    color: str | None = None  # a word from COLORS, or None (unpainted)
 
 
 def _in_range(x: int, y: int, shape) -> bool:
@@ -90,6 +98,6 @@ def random_patch(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
 def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
     """The command a comment injects. Never fails: falls back to a random patch."""
     valid = [(pos, cmd) for pos, cmd in _candidates(text, shape) if cmd is not None]
-    if valid:
-        return min(valid, key=lambda pc: pc[0])[1]
-    return random_patch(comment_id, text, shape)
+    cmd = min(valid, key=lambda pc: pc[0])[1] if valid else random_patch(comment_id, text, shape)
+    m = _COLOR_RE.search(text)
+    return replace(cmd, color=m.group(1).lower()) if m else cmd

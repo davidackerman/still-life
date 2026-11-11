@@ -300,9 +300,25 @@ class History:
         self.applied: set[int] = set()
 
     def fresh(self) -> Universe:
+        """The universe at its first generation. It carries `paint`: the
+        colours its cells have been given (see life.paint_step), kept up by goto."""
         self.applied = set()
         shape = tuple(self.genesis["shape"])
-        return Universe(life.mask(life.centered(self.genesis["seed"], shape), shape), self.genesis["flatline_gens"])
+        u = Universe(life.mask(life.centered(self.genesis["seed"], shape), shape), self.genesis["flatline_gens"])
+        u.paint = np.zeros(shape, np.uint8)
+        return u
+
+    @staticmethod
+    def advance(u: Universe, target: int) -> None:
+        """u.advance_to(target), keeping its paint up (one generation at a time, while it has any)."""
+        paint = getattr(u, "paint", None)
+        if paint is None or not paint.any():
+            u.advance_to(target)
+            return
+        while u.generation < target and u.phase != DIED:
+            before = u.grid
+            u.advance_to(u.generation + 1)
+            u.paint = life.paint_step(before, u.grid, u.paint)
 
     def goto(self, u: Universe, target: int):
         """Step to `target`, applying every logged injection at its generation.
@@ -313,12 +329,18 @@ class History:
             if not due:
                 break
             g = min(due)
-            u.advance_to(g)
+            self.advance(u, g)
             batch = self.batches[g]
             u.inject([{"command": e["command"], "cells": e["cells"], "run_at": e["run_at"]} for e in batch])
+            paint = getattr(u, "paint", None)
+            for e in batch:
+                if paint is not None and e.get("color") in commands.COLORS:
+                    k = commands.COLORS.index(e["color"]) + 1
+                    for x, y in e["cells"]:
+                        paint[y % paint.shape[0], x % paint.shape[1]] = k
             self.applied.add(g)
             cells += [tuple(c) for e in batch for c in e["cells"]]
-        u.advance_to(target)
+        self.advance(u, target)
         return cells
 
 

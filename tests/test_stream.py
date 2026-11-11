@@ -376,3 +376,42 @@ def test_the_legend_films_move_and_redraw_the_frame(state_dir):
     loop = len(screen._demos[0][2])
     pics = {screen.compose(t + j / stream.DEMO_RATE).tobytes() for j in range(0, loop, 4)}
     assert len(pics) > 3  # the films move
+
+
+def test_the_stream_paints_the_cells_and_keeps_the_paint_as_they_move(tmp_path, monkeypatch):
+    import numpy as np
+    import short
+    for k in ("SEED", "GEN_SECONDS", "FLATLINE_HOURS"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("LAUNCH_TIME", str(int(LAUNCH)))
+    d = str(tmp_path)
+    yt = FakeYT([Comment("c1", "u1", iso(LAUNCH + 900), "glider 64,60 nw red"),
+                 Comment("c2", "u2", iso(LAUNCH + 1000), "no colour here")])
+    for t in range(0, 3600, 600):
+        tick.run(d, LAUNCH + t, lambda w: yt, KEY, thumb_path=None)
+    snap = stream.load(d, now=LAUNCH + 3600 + 1200)  # ten generations past the last tick
+    assert snap.paint is not None and (snap.paint == 1).any()  # red
+    h = short.History(d)
+    u = h.fresh()
+    h.goto(u, snap.u.generation)
+    assert np.array_equal(u.grid, snap.u.grid) and np.array_equal(u.paint, snap.paint)  # stepped like the log says
+    img = stream.board_rgb(snap.u.grid, snap.u.phase, None, snap.paint)
+    cell, _, _ = stream.geometry(snap.u.grid.shape)
+    y, x = np.argwhere(snap.paint == 1)[0]
+    assert tuple(img[y * cell + cell // 2, x * cell + cell // 2]) == render_paint("red")
+    assert stream.Screen(snap).compose(LAUNCH + 3600 + 1200).size == (stream.SW, stream.SH)
+    plain = stream.load(state_dir_copy_without_colour(tmp_path, d), now=LAUNCH + 3600)
+    assert plain.paint is None  # nothing painted: nothing replayed
+
+
+def render_paint(name):
+    import render
+    return render.PAINT[name]
+
+
+def state_dir_copy_without_colour(tmp_path, d):
+    out = tmp_path / "plain"
+    shutil.copytree(d, out)
+    log = (out / "log.jsonl").read_text().replace('"color": "red", ', "").replace(', "color": "red"', "")
+    (out / "log.jsonl").write_text(log)
+    return str(out)
