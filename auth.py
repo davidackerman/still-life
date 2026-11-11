@@ -19,9 +19,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 from youtube import SCOPES, TOKEN_URI, build_service, my_channel
+
+READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 
 
 def load_client_config(path: str | None) -> dict:
@@ -75,7 +78,13 @@ def main() -> None:
     ap.add_argument("--client-secrets", help="Desktop-app client JSON from Cloud Console")
     ap.add_argument("--no-browser", action="store_true",
                     help="copy the sign-in link to the clipboard instead of opening a browser")
+    ap.add_argument("--readonly", action="store_true",
+                    help="ask only to read (youtube.readonly): for the stream VM's live chat, which must not be able "
+                         "to change the channel")
+    ap.add_argument("--keychain", metavar="SERVICE",
+                    help="store the refresh token in the macOS Keychain under this name instead of printing it")
     args = ap.parse_args()
+    scopes = [READONLY_SCOPE] if args.readonly else SCOPES
 
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
@@ -83,7 +92,7 @@ def main() -> None:
         sys.exit("auth.py needs google-auth-oauthlib:  pip install google-auth-oauthlib")
 
     cfg = load_client_config(args.client_secrets)
-    flow = InstalledAppFlow.from_client_config(cfg, scopes=SCOPES)  # PKCE S256 on by default
+    flow = InstalledAppFlow.from_client_config(cfg, scopes=scopes)  # PKCE S256 on by default
     # The sign-in link is ~400 characters. Copying it out of a terminal can pick
     # up a stray character where the line wraps, which corrupts redirect_uri and
     # makes Google answer "Access blocked ... Error 400: invalid_request".
@@ -112,7 +121,7 @@ def main() -> None:
     granted = creds.granted_scopes or creds.scopes or []
     if isinstance(granted, str):
         granted = granted.split()
-    if SCOPES[0] not in granted:
+    if scopes[0] not in granted:
         sys.exit(f"The YouTube scope was not granted (got: {granted}). "
                  "Run again and tick the YouTube permission on the consent screen.")
 
@@ -123,6 +132,11 @@ def main() -> None:
         print(f"\nWARNING: could not look up the YouTube channel ({e}).")
         print("If this account has no channel yet, create one at "
               "https://www.youtube.com/create_channel. The token below still works.")
+    if args.keychain:
+        subprocess.run(["security", "add-generic-password", "-U", "-a", "still-life", "-s", args.keychain,
+                        "-w", creds.refresh_token], check=True, capture_output=True)
+        print(f"\nThe refresh token is in the Keychain as {args.keychain!r} (not printed).")
+        return
     print("\nREFRESH_TOKEN (store as a secret; do not commit):\n")
     print(creds.refresh_token)
     print(
