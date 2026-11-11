@@ -806,7 +806,8 @@ class Screen:
             d.line((X(g), Y(a), X(g), Y(b)), fill=PHASE_COLOR[ALIVE] if b > a else (240, 90, 90), width=2)
         cx, cy = xy[-1]
         d.ellipse((cx - 4, cy - 4, cx + 4, cy + 4), fill=WHITE)
-        d.text((px0, py1 + 6), "launch", font=f, fill=MUTED, anchor="lt")
+        launched = render._at(snap.launch, 0, snap.gen_seconds, "%a %b %d")  # 'Sun Nov 8'
+        d.text((px0, py1 + 6), f"launched {launched}", font=f, fill=MUTED, anchor="lt")
         d.text((px1, py1 + 6), "now", font=f, fill=MUTED, anchor="rt")
 
 
