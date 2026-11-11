@@ -372,6 +372,7 @@ def test_the_legend_films_move_and_redraw_the_frame(state_dir):
     a = screen.compose(t)
     assert len(screen._demos) == len(stream.LEGEND)
     k = screen.key(t)
-    b = screen.compose(t + 1 / stream.DEMO_RATE)
     assert screen.key(t + 1 / stream.DEMO_RATE) != k  # the loop draws a new frame for each film frame
-    assert a.tobytes() != b.tobytes()  # the glider moved
+    loop = len(screen._demos[0][2])
+    pics = {screen.compose(t + j / stream.DEMO_RATE).tobytes() for j in range(0, loop, 4)}
+    assert len(pics) > 3  # the films move

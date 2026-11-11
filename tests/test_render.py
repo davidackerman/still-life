@@ -131,15 +131,18 @@ def test_thumbnail_headlines_use_dates_not_countdowns():
     assert render.headline(u, 120, None, None, L) == ("DIED", "stuck in a loop · died Nov 11, gen 2,575")
 
 
-def test_each_move_has_a_little_looping_film_of_what_it_does():
+def test_each_move_has_a_little_film_and_they_all_start_again_together():
     import numpy as np
-    glider = render.demo("glider_se", 9)
-    assert len(glider) == 36 and np.array_equal(life.step(glider[-1]), glider[0])  # round its torus, for ever
-    assert all(f.sum() == 5 for f in glider) and all(f.shape == (9, 9) for f in glider)
-    assert len(render.demo("block")) == 1 and len(render.demo("blinker")) == 2 and len(render.demo("cells")) == 1
-    for burst in ("rpent", "acorn", "random"):  # it holds its first cells, grows, holds, starts again
-        film = render.demo(burst, 9, gens=28)
-        assert len(film) == 28 + 2 * render.DEMO_HOLD
-        assert np.array_equal(film[0], film[render.DEMO_HOLD - 1]) and not np.array_equal(film[0], film[-1])
-        assert film[-1].sum() > 0  # still going when it starts again
+    names = ("glider_se", "block", "blinker", "rpent", "acorn", "random", "cells")
+    films = {n: render.demo(n, 9, gens=28) for n in names}
+    assert {len(f) for f in films.values()} == {28 + 2 * render.DEMO_HOLD}  # in step: they restart together
+    for n, film in films.items():
+        assert all(f.shape == (9, 9) for f in film)
+        assert np.array_equal(film[0], film[render.DEMO_HOLD - 1])  # it shows its first cells for a moment
+        assert np.array_equal(film[-1], film[-render.DEMO_HOLD])  # and its last
+    glider = films["glider_se"]
+    assert all(f.sum() == 5 for f in glider) and not np.array_equal(glider[0], glider[-1])  # it flew (and wrapped)
+    assert len({f.tobytes() for f in films["blinker"]}) == 2 and len({f.tobytes() for f in films["block"]}) == 1
+    for burst in ("rpent", "acorn", "random", "cells"):
+        assert films[burst][-1].sum() > 0  # still going when it starts again
     assert render.demo("rpent") is render.demo("rpent")  # made once
