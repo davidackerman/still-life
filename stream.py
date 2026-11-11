@@ -36,6 +36,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 import explainer as ex
+import life
 import render
 import stream_audio
 from engine import FORECAST_GENS
@@ -58,6 +59,9 @@ FADE_S = 0.6  # crossfade between generations
 RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
 SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
+LEGEND = [("glider_se", "glider", "x,y ne|nw|se|sw"), ("block", "block", "x,y"), ("blinker", "blinker", "x,y"),
+          ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), (None, "cells", "x,y x,y …")]  # (pattern, what to type)
+LEGEND_CELLS = ((0, 2), (1, 0), (3, 1))  # 'cells': any you like
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"
 CODE = ("stream.py", "stream_audio.py", "short.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
@@ -612,10 +616,32 @@ class Screen:
         line = f"Type it in the chat (or comment on youtu.be/{snap.video})   ·   {try_one}or just say anything"
         size = fit(d, line, "regular", 27, width, 18)
         d.text((x, y + 54), line, font=font("regular", size), fill=LIGHT, anchor="lt")
-        cmds = (f"glider x,y [ne|nw|se|sw] · block x,y · blinker x,y · rpent x,y · acorn x,y · cells x,y x,y …"
-                f"   ·   every move so far: {render.LIVE_ADDRESS}")
-        size = fit(d, cmds, "regular", 22, width, 15)
-        d.text((x, y + 98), cmds, font=font("regular", size), fill=MUTED, anchor="lt")
+        self._legend(d, x, y + 98, width)
+
+    def _legend(self, d, x, y, width) -> None:
+        """What each move looks like: its cells, drawn small, beside what to type."""
+        for size, c in ((22, 8), (21, 7), (19, 6), (17, 5), (15, 4)):  # the largest that fits
+            fb, fr = font("bold", size), font("regular", size)
+            items, total = [], 0.0
+            for pattern, name, args in LEGEND:
+                cells = life.PATTERNS[pattern] if pattern else LEGEND_CELLS
+                iw = (max(cx for cx, _ in cells) + 1) * c
+                items.append((cells, iw, name + " ", args))
+                total += iw + 9 + d.textlength(name + " ", font=fb) + d.textlength(args, font=fr) + 30
+            if total <= width:
+                break
+        mid, x0 = y + 14, x
+        for cells, iw, name, args in items:
+            top = mid - (max(cy for _, cy in cells) + 1) * c / 2
+            for cx, cy in cells:
+                d.rectangle((x + cx * c, top + cy * c, x + cx * c + c - 2, top + cy * c + c - 2), fill=PHASE_COLOR[ALIVE])
+            x += iw + 9
+            d.text((x, mid), name, font=fb, fill=LIGHT, anchor="lm")
+            x += d.textlength(name, font=fb)
+            d.text((x, mid), args, font=fr, fill=MUTED, anchor="lm")
+            x += d.textlength(args, font=fr) + 30
+        d.text((x0, mid + 34), f"one move per message (the first command in it)   ·   every move so far: {render.LIVE_ADDRESS}",
+               font=font("regular", 18), fill=MUTED, anchor="lm")
 
 
     def _graph(self, d) -> None:
