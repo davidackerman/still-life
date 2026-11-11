@@ -67,6 +67,7 @@ MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
 LEGEND = [("glider_se", "glider", "x,y ne|nw|se|sw"), ("block", "block", "x,y"), ("blinker", "blinker", "x,y"),
           ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), (None, "cells", "x,y x,y …")]  # (pattern, what to type)
 LEGEND_CELLS = ((0, 2), (1, 0), (3, 1))  # 'cells': any you like
+DEMO_BOX, DEMO_CELL, DEMO_RATE = 9, 5, 4  # the legend's little films: 9 x 9 cells of 5 px, 4 generations a second
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"
 CODE = ("stream.py", "stream_audio.py", "short.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
@@ -504,6 +505,7 @@ class Screen:
         self.after_replay: Snapshot | None = None  # the new snapshot, shown once its moves have played
         self.rewound_at: float | None = None  # the slot of the last rewind (one per slot)
         self._chrome = None  # (key, the frame without the board), see compose
+        self._demos: list[tuple] = []  # (x, y, film) of the legend's little films, placed by _legend
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -596,7 +598,7 @@ class Screen:
         """Changes whenever the picture would: the board, the countdown's second, the labels."""
         u = self.snap.u
         live = tuple(id(t) for t in self.tags if now - t.t0 < TAG_S)
-        return (id(self.snap), u.generation, u.phase, int(now), live)
+        return (id(self.snap), u.generation, u.phase, int(now), live, int(now * DEMO_RATE))
 
     def board(self, now: float) -> np.ndarray:
         playing = self.rewind or self.replay
@@ -647,6 +649,7 @@ class Screen:
         img[top:top + b.shape[0], left:left + b.shape[1]] = b
         im = Image.fromarray(img)
         d = ImageDraw.Draw(im, "RGBA")
+        self._films(d, now)
         if playing:
             self._graph(d)
         if self.rewind:
@@ -823,30 +826,37 @@ class Screen:
         self._legend(d, x, y + 98, width)
 
     def _legend(self, d, x, y, width) -> None:
-        """What each move looks like: its cells, drawn small, beside what to type."""
-        for size, c in ((22, 8), (21, 7), (19, 6), (17, 5), (15, 4)):  # the largest that fits
+        """What each move does: a little film of it (see _films) beside what to type."""
+        iw = DEMO_BOX * DEMO_CELL
+        for size in (22, 21, 19, 17, 15):  # the largest that fits
             fb, fr = font("bold", size), font("regular", size)
-            items, total = [], 0.0
-            for pattern, name, args in LEGEND:
-                cells = life.PATTERNS[pattern] if pattern else LEGEND_CELLS
-                iw = (max(cx for cx, _ in cells) + 1) * c
-                items.append((cells, iw, name + " ", args))
-                total += iw + 9 + d.textlength(name + " ", font=fb) + d.textlength(args, font=fr) + 30
+            total = sum(iw + 9 + d.textlength(name + " ", font=fb) + d.textlength(args, font=fr) + 30
+                        for _, name, args in LEGEND)
             if total <= width:
                 break
         mid, x0 = y + 14, x
-        for cells, iw, name, args in items:
-            top = mid - (max(cy for _, cy in cells) + 1) * c / 2
-            for cx, cy in cells:
-                d.rectangle((x + cx * c, top + cy * c, x + cx * c + c - 2, top + cy * c + c - 2), fill=PHASE_COLOR[ALIVE])
+        self._demos = []
+        for pattern, name, args in LEGEND:
+            top = int(mid - iw / 2)
+            d.rounded_rectangle((x - 2, top - 2, x + iw + 1, top + iw + 1), radius=4, fill=(16, 18, 24),
+                                outline=(42, 46, 58))
+            self._demos.append((x, top, render.demo(pattern or "cells", DEMO_BOX)))
             x += iw + 9
-            d.text((x, mid), name, font=fb, fill=LIGHT, anchor="lm")
-            x += d.textlength(name, font=fb)
+            d.text((x, mid), name + " ", font=fb, fill=LIGHT, anchor="lm")
+            x += d.textlength(name + " ", font=fb)
             d.text((x, mid), args, font=fr, fill=MUTED, anchor="lm")
             x += d.textlength(args, font=fr) + 30
-        d.text((x0, mid + 34), f"one move per message (the first command in it)   ·   every move so far: {render.LIVE_ADDRESS}",
+        d.text((x0, mid + 40), f"one move per message (the first command in it)   ·   every move so far: {render.LIVE_ADDRESS}",
                font=font("regular", 18), fill=MUTED, anchor="lm")
 
+    def _films(self, d, now: float) -> None:
+        """The legend's films, a frame each 1/DEMO_RATE s: so something always moves."""
+        k = int(now * DEMO_RATE)
+        colour = PHASE_COLOR[ALIVE]
+        for x, top, film in self._demos:
+            for cy, cx in np.argwhere(film[k % len(film)]):
+                px, py = x + cx * DEMO_CELL, top + cy * DEMO_CELL
+                d.rectangle((px, py, px + DEMO_CELL - 2, py + DEMO_CELL - 2), fill=colour)
 
     def _graph(self, d) -> None:
         """Time left, from launch to now: falling steadily, jumping at each move

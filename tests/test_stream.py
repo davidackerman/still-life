@@ -363,3 +363,15 @@ def test_the_panel_shows_a_replays_moves_as_they_land(state_dir):
     assert r.landed() and screen.panel() is new and screen.snap is old  # the countdown jumps now
     assert r.shown == max(r.new)
     assert screen.compose(last + 0.5).size == (stream.SW, stream.SH)
+
+
+def test_the_legend_films_move_and_redraw_the_frame(state_dir):
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    screen = stream.Screen(snap)
+    t = LAUNCH + 3700.0
+    a = screen.compose(t)
+    assert len(screen._demos) == len(stream.LEGEND)
+    k = screen.key(t)
+    b = screen.compose(t + 1 / stream.DEMO_RATE)
+    assert screen.key(t + 1 / stream.DEMO_RATE) != k  # the loop draws a new frame for each film frame
+    assert a.tobytes() != b.tobytes()  # the glider moved

@@ -201,6 +201,41 @@ def ring(cells, alpha: float, caption: str | None = None, dashed: bool = False):
     return draw
 
 
+# The daily Short's last beat: what you can comment, each move a little looping
+# film of what it does (render.demo), in two rows across the band, clear of the
+# Shorts buttons on the right.
+FILMS = [("glider_se", "glider {at} se", "flies off"), ("block", "block {at}", "just sits"),
+         ("blinker", "blinker {at}", "blinks"), ("rpent", "rpent {at}", "5 cells of chaos"),
+         ("acorn", "acorn {at}", "grows for ages"), ("random", "anything else", "a random patch")]
+FILM_BOX, FILM_CELL, FILM_EVERY = 11, 16, 4  # 11 x 11 cells of 16 px; a generation every 4 frames
+FILMS_W, FILMS_Y, FILMS_ROW = 960, BAND_Y + 34, 290
+
+
+def films(i: int, alpha: float, at: str):
+    """Frame i of the films, with `at` ('52,30') as the example spot."""
+    def draw(d, to_canvas):
+        a = int(255 * alpha)
+        size = FILM_BOX * FILM_CELL
+        colour = tuple(PHASE_COLOR["ALIVE"]) + (a,)
+        for k, (pattern, say, does) in enumerate(FILMS):
+            cx = FILMS_W / 3 * (k % 3 + 0.5)
+            top = FILMS_Y + (k // 3) * FILMS_ROW
+            x0 = int(cx - size / 2)
+            d.rounded_rectangle((x0 - 8, top - 8, x0 + size + 8, top + size + 8), radius=12,
+                                fill=(16, 18, 24, int(235 * alpha)), outline=(70, 76, 92, a), width=2)
+            film = render.demo(pattern, FILM_BOX)
+            for y, x in np.argwhere(film[(i // FILM_EVERY) % len(film)]):
+                px, py = x0 + x * FILM_CELL, top + y * FILM_CELL
+                d.rectangle((px + 1, py + 1, px + FILM_CELL - 2, py + FILM_CELL - 2), fill=colour)
+            label = say.format(at=at)
+            size_b = 38
+            while d.textlength(label, font=ex.font("bold", size_b)) > FILMS_W / 3 - 16 and size_b > 26:
+                size_b -= 2
+            ex.text(d, (cx, top + size + 36), label, "bold", size_b, alpha, anchor="mm")
+            ex.text(d, (cx, top + size + 76), does, "demi", 32, alpha, fill=(200, 204, 214), anchor="mm")
+    return draw
+
+
 def arrow_down(x: int, y: int, alpha: float):
     def draw(d, to_canvas):
         a = int(255 * alpha)
@@ -426,22 +461,25 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     # 7. the call to action over the present board. The daily recap keeps it plain
     # (no coordinates) and short, so it loops sooner; the full Short marks a spot to aim at.
     u = copy.deepcopy(now)
-    if since_gen is not None:
-        top = [("Comment anything.", "bold", 96)]
+    dim = 0.0
+    if since_gen is not None:  # and what you can comment, each move shown doing its thing
+        top = [("Comment anything.", "bold", 96), ("Or one of these:", "demi", 60)]
         bottom = [("Your cells could save it. Or kill it.", "demi", 62)]
-        n, extras = rf(*[s for s, _, _ in top + bottom]), lambda a: []
+        n, dim = max(rf(*[s for s, _, _ in top + bottom]), 6 * FPS), 0.82
+        x, y = render.quiet_spot(u.grid)
+        extras = lambda a, i: [films(i, a, f"{x},{y}")]  # noqa: E731
     else:
         pick = render.suggestion(u)
         spot = main_piece([tuple(c) for c in commands.parse("suggestion", pick).cells])
         top = [("Comment anything to add cells.", "bold", 84)]
         bottom = [(f"or aim one: {pick}", "demi", 62), ("Live countdown: the main video on this channel", "demi", 50)]
         n = max(rf(*[s for s, _, _ in top + bottom]), 5 * FPS)
-        extras = lambda a: [ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)]  # noqa: E731
+        extras = lambda a, i: [ring(spot, a * 0.8, dashed=True), arrow_down(CX, 1470, a)]  # noqa: E731
     for i in range(n):
         if i % 6 == 0:
             u.advance_to(u.generation + 1)
         a = min(1.0, (i + 1) / FADE)
-        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a), extras=extras(a))
+        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y - 20, a), extras=extras(a, i), dim=dim * a)
     return frames
 
 

@@ -129,3 +129,17 @@ def test_thumbnail_headlines_use_dates_not_countdowns():
     assert render.headline(u, 120, None, None, L) == ("STUCK IN A LOOP", "dies Wed 1:54 PM ET unless a comment breaks it")
     u.advance_to(2575)
     assert render.headline(u, 120, None, None, L) == ("DIED", "stuck in a loop · died Nov 11, gen 2,575")
+
+
+def test_each_move_has_a_little_looping_film_of_what_it_does():
+    import numpy as np
+    glider = render.demo("glider_se", 9)
+    assert len(glider) == 36 and np.array_equal(life.step(glider[-1]), glider[0])  # round its torus, for ever
+    assert all(f.sum() == 5 for f in glider) and all(f.shape == (9, 9) for f in glider)
+    assert len(render.demo("block")) == 1 and len(render.demo("blinker")) == 2 and len(render.demo("cells")) == 1
+    for burst in ("rpent", "acorn", "random"):  # it holds its first cells, grows, holds, starts again
+        film = render.demo(burst, 9, gens=28)
+        assert len(film) == 28 + 2 * render.DEMO_HOLD
+        assert np.array_equal(film[0], film[render.DEMO_HOLD - 1]) and not np.array_equal(film[0], film[-1])
+        assert film[-1].sum() > 0  # still going when it starts again
+    assert render.demo("rpent") is render.demo("rpent")  # made once

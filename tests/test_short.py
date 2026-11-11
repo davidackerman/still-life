@@ -77,6 +77,10 @@ def test_the_daily_recap_is_short_and_opens_on_the_whole_board(state_dir, monkey
     assert 1 <= sum(1 for f in frames if f.cue and f.cue[0] == "inject") <= 2  # the day's biggest moves
     assert any(f.grey > 0 for f in frames)  # its future: stuck, then dead
     assert len(short.compose(frames[0])) == short.PW * short.PH * 3
+    end = frames[-1]  # it ends on what you can comment, each move a film, over the dimmed board
+    assert end.extras and end.dim > 0.5 and any("one of these" in t[0] for t in end.texts)
+    assert len(short.compose(end)) == short.PW * short.PH * 3
+    assert len([f for f in frames if f.extras and f.dim]) >= 6 * short.FPS  # long enough to watch them
 
 
 def test_a_close_up_opening_can_come_back(state_dir, monkeypatch):

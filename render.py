@@ -349,6 +349,43 @@ def pinned_status(u: Universe, gen_seconds: int = GEN_SECONDS, stuck_gen: int | 
     return f"{EMOJI[ALIVE]} ALIVE · this video dies in {when} if nobody comments"
 
 
+DEMO_HOLD = 6  # generations a burst's film holds its first cells, and its last, so the loop reads
+DEMO_RANDOM_SEED = 2  # a random 5x5 patch ("say anything") that is still busy after 28 generations
+_DEMOS: dict = {}
+
+
+def demo(name: str, box: int = 9, gens: int = 28) -> list:
+    """What a move does, as a little looping film of box x box grids. A glider
+    crosses its own little torus for ever, a block sits, a blinker blinks; the
+    bursts (rpent, acorn, and "random": the patch a message without a command
+    adds) grow out of their box for `gens` generations, then start again.
+    "cells" stands for any cells you like: three, which die at once."""
+    key = (name, box, gens)
+    if key in _DEMOS:
+        return _DEMOS[key]
+    if name == "random":
+        rng = np.random.default_rng(DEMO_RANDOM_SEED)
+        cells = [(x, y) for y in range(5) for x in range(5) if rng.random() < 0.5]
+    elif name == "cells":
+        cells = [(0, 2), (1, 0), (3, 1)]
+    else:
+        cells = life.PATTERNS[name]
+    loops = name.startswith("glider") or name in ("block", "blinker", "cells")
+    world = box if loops else 4 * box  # a burst grows out of its box, into a bigger world
+    pw, ph = max(x for x, _ in cells) + 1, max(y for _, y in cells) + 1
+    g = life.mask(life.place(cells, (world - pw) // 2, (world - ph) // 2, (world, world)), (world, world))
+    n = {"block": 1, "blinker": 2, "cells": 1}.get(name, 4 * box if loops else gens)  # a glider: back where it began
+    o = (world - box) // 2
+    frames = []
+    for _ in range(n):
+        frames.append(g[o:o + box, o:o + box].copy())
+        g = life.step(g)
+    if not loops:
+        frames = [frames[0]] * DEMO_HOLD + frames + [frames[-1]] * DEMO_HOLD
+    _DEMOS[key] = frames
+    return frames
+
+
 def quiet_spot(grid, win_w: int = 24, win_h: int = 14) -> tuple[int, int]:
     """Top-left (x, y) of the emptiest win_w x win_h window (wrapping), for suggestions."""
     h, w = grid.shape
