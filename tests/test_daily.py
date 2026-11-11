@@ -153,4 +153,4 @@ def test_older_shorts_status_comments_update_rarely():
     assert sorted(yt.updates) == ["pin0", "pin1", "pin2", "pin3"]
     yt.updates, yt.extra = [], [Comment("m", "u", "2027-01-15T12:10:00Z", "block 5,5")]
     engine.tick(w, LAUNCH + 3700, yt)  # an hour later, something changed
-    assert sorted(yt.updates) == ["pin0", "pin2", "pin3"]  # the oldest Short waits 12 h
+    assert sorted(yt.updates) == ["pin0", "pin3"]  # the newest Short too; the next waits 3 h, the oldest 12 h

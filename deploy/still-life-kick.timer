@@ -1,0 +1,10 @@
+[Unit]
+Description=still-life: every minute, check the bot ran in the last 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

@@ -113,7 +113,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
         cmd = commands.parse(c.id, c.text, shape)
         state.last_accepted[author] = max(c.epoch, last or c.epoch)
         state.queue.append({"comment": kid, "author": author, "published_at": c.epoch,
-                            "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells]})
+                            "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells], "chat": c.video < 0})
         counts["accepted"] += 1
     return counts
 

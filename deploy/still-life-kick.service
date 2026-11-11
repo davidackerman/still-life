@@ -1,0 +1,11 @@
+[Unit]
+Description=still-life: start the bot's GitHub run if GitHub's schedule is late
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+# GITHUB_TOKEN (Actions: read and write on this repo only). Root-only; optional.
+EnvironmentFile=-/etc/still-life/github.env
+ExecStart=/usr/bin/python3 /home/ubuntu/still-life/deploy/kick.py

@@ -82,7 +82,7 @@ def test_fetch_failure_skips_input_but_still_steps():
     assert not w.admission.seen  # picked up on a later run
 
 
-def test_title_at_most_every_15_minutes_and_only_when_changed():
+def test_title_at_most_every_45_minutes_while_alive_and_only_when_changed():
     w, yt = world(), FakeYT()
     stamps = []
     real = yt.set_title
@@ -92,9 +92,9 @@ def test_title_at_most_every_15_minutes_and_only_when_changed():
         w_now[0] = t
         engine.tick(w, LAUNCH + t, yt)
     gaps = [b - a for a, b in zip(stamps, stamps[1:])]
-    assert stamps and min(gaps) >= 15 * 60
+    assert stamps and min(gaps) >= 45 * 60  # writes are 50 units: paced by the clock, not by the runs
     assert all(a != b for a, b in zip(yt.titles, yt.titles[1:]))  # never re-sent unchanged
-    assert len(yt.titles) >= 40  # the quarter-hour clock changes at nearly every allowed slot
+    assert len(yt.titles) >= 14  # the quarter-hour clock changes at nearly every allowed slot
 
 
 def test_thumbnail_every_4_hours_and_on_phase_change():
@@ -210,16 +210,16 @@ def test_owner_comments_without_the_marker_still_play():
     assert [e["command"] for e in ev if e["type"] == "injection"] == ["block 5,5"] and w.pinned_id is None
 
 
-def test_pinned_comment_updates_only_when_changed_and_at_most_every_30_minutes():
+def test_pinned_comment_updates_only_when_changed_and_at_most_every_45_minutes():
     w, yt = world(), PinYT([owner_status()])
     engine.tick(w, LAUNCH, yt)
     assert len(yt.updates) == 1 and "none yet" in yt.updates[0][1]
     engine.tick(w, LAUNCH + 300, yt)
     assert len(yt.updates) == 1  # nothing new
     yt.comments.append(comment("b", "u2", "rpent 90,20"))
-    engine.tick(w, LAUNCH + 600, yt)
-    assert len(yt.updates) == 1  # new event, but too soon
     engine.tick(w, LAUNCH + 1800, yt)
+    assert len(yt.updates) == 1  # new event, but too soon
+    engine.tick(w, LAUNCH + 2700, yt)
     assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]
 
 
@@ -305,12 +305,12 @@ def test_each_video_keeps_its_own_status_comment():
     texts = dict(yt.updates)
     assert "The video is the explainer" in texts["Ugpin"] and "This Short is a replay" in texts["Ugshort"]
     assert texts["Ugpin"].splitlines()[0] == texts["Ugshort"].splitlines()[0]  # same status line
-    # the Short's comment is refreshed at most hourly, the main one every 30 min
+    # the main comment and the newest Short's are refreshed at most every 45 min
     yt.comments.append(comment("b", "u2", "rpent 90,20"))
     engine.tick(w, LAUNCH + 600 + 1800, yt)
-    assert [cid for cid, _ in yt.updates[2:]] == ["Ugpin"]
-    engine.tick(w, LAUNCH + 600 + 3600, yt)
-    assert [cid for cid, _ in yt.updates[3:]] == ["Ugshort"]
+    assert yt.updates[2:] == []
+    engine.tick(w, LAUNCH + 600 + 2700, yt)
+    assert [cid for cid, _ in yt.updates[2:]] == ["Ugpin", "Ugshort"]
 
 
 def test_status_comments_are_watched_so_old_threads_still_count():
@@ -543,3 +543,23 @@ def test_no_leaderboard_until_someone_has_moved_it_an_hour():
     w.scores = {keyed("u1"): [29, 1]}
     engine.tick(w, LAUNCH + 600, yt)
     assert "Top savers" not in yt.updates[-1][1] and "Top killers" not in yt.updates[-1][1]
+
+
+def test_latest_moves_name_who_made_them_and_the_names_are_never_stored():
+    import youtube
+    w = world()
+    cs = [owner_status(), player("a", "u1", "glider 10,10", LAUNCH + 60, name="@ann"),
+          player("chat:c", "u2", "block 40,40", LAUNCH + 60, video=youtube.CHAT, name="Viv")]
+    yt = PinYT(cs)
+    engine.tick(w, LAUNCH + 600, yt)
+    text = yt.updates[-1][1]
+    assert "• gen 0 · @ann: glider 10,10 se" in text and "• gen 0 · live chat: block 40,40" in text
+    assert w.recent_by[:2] and set(w.recent_by[:2]) == {keyed("u1"), "chat"}
+    state = str(engine.World.from_state(*w.to_state(), key=b"k" * 16).to_state()[0])
+    assert "@ann" not in state and "Viv" not in state
+
+
+def test_a_mover_with_no_name_found_is_just_not_named():
+    assert render.with_author("gen 5: glider 1,1 se · 3d → 2d", "abc", {}) == "gen 5: glider 1,1 se · 3d → 2d"
+    assert render.with_author("gen 5: glider 1,1 se", None, {"abc": "@x"}) == "gen 5: glider 1,1 se"
+    assert render.with_author("gen 5: glider 1,1 se", "abc", {"abc": "@x"}) == "gen 5 · @x: glider 1,1 se"

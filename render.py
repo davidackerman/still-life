@@ -402,6 +402,16 @@ def leaderboard(up: list, down: list, names: dict, gen_seconds: int) -> list[str
     return lines
 
 
+def with_author(line: str, author: str | None, names: dict) -> str:
+    """'gen 2,051 · @kyle: random 5x5 at 28,71 · …': who made a move, when known.
+    `author` is a keyed author (looked up in `names`), "chat" or None."""
+    if not author:
+        return line
+    tag = "live chat" if author == "chat" else " ".join((names.get(author) or "").split())[:40]
+    head, sep, rest = line.partition(": ")
+    return f"{head} · {tag}: {rest}" if tag and sep else line
+
+
 def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,
                 main: bool = True, stamp: str | None = None, board: list[str] | None = None) -> str:
     """The self-updating status comment. `main` is the video whose title and

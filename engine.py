@@ -29,9 +29,12 @@ import commands
 import render
 from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
-TITLE_MIN_INTERVAL_S = 15 * 60
-PINNED_MIN_INTERVAL_S = 30 * 60  # the main video's status comment
-PINNED_EXTRA_MIN_INTERVAL_S = 60 * 60  # status comments on the two newest extra videos (quota)
+# Writes cost 50 units each and are most of the daily quota, so they are paced by
+# the clock, not by how often the bot runs.
+TITLE_MIN_INTERVAL_S = 45 * 60  # while ALIVE (the countdown is days long)
+TITLE_CRISIS_INTERVAL_S = 15 * 60  # stuck in a loop or contested: hours matter
+PINNED_MIN_INTERVAL_S = 45 * 60  # the main video's status comment, and the newest Short's
+PINNED_EXTRA_MIN_INTERVAL_S = 3 * 3600  # the second-newest Short's
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
 PINNED_RESTAMP_S = 3 * 3600  # the main comment's "updated <time>" is refreshed this often (8 x 50 units/day)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
@@ -62,6 +65,7 @@ class World:
     highlight: set = field(default_factory=set)  # cells injected since the last thumbnail
     forecast: dict | None = None  # display only: {"key", "stuck_gen", "horizon"}
     recent: list | None = None  # latest event lines for the pinned comment (game data only)
+    recent_by: list = field(default_factory=list)  # who made each recent line: keyed author, "chat", or None
     # The owner's own status comment on each video, by video index ("0" = main):
     # {"id": comment id, "text": HMAC of the last text set (it can name players), "at": when}
     pinned: dict = field(default_factory=dict)
@@ -107,7 +111,7 @@ class World:
             "display": {"last_title": self.last_title, "last_title_at": self.last_title_at,
                         "last_thumb_at": self.last_thumb_at, "last_thumb_phase": self.last_thumb_phase,
                         "highlight": sorted(list(c) for c in self.highlight), "backoff": self.backoff,
-                        "forecast": self.forecast, "recent": self.recent, "pinned": self.pinned,
+                        "forecast": self.forecast, "recent": self.recent, "recent_by": self.recent_by, "pinned": self.pinned,
                         "pinned_core": self.pinned_core, "pinned_suggest": self.pinned_suggest,
                         "contest_by": self.contest_by, "last_thumb_headline": self.last_thumb_headline,
                         "saves": self.saves, "effects_backfilled": self.effects_backfilled,
@@ -139,7 +143,8 @@ class World:
             last_thumb_at=disp["last_thumb_at"], last_thumb_phase=disp["last_thumb_phase"],
             highlight={tuple(c) for c in disp["highlight"]}, backoff=dict(disp["backoff"]),
             last_changer=d.get("last_changer"), quota=dict(d.get("quota", {})),
-            forecast=disp.get("forecast"), recent=disp.get("recent"), pinned=pinned,
+            forecast=disp.get("forecast"), recent=disp.get("recent"), recent_by=list(disp.get("recent_by") or []),
+            pinned=pinned,
             reply_counts=dict(d.get("reply_counts", {})), chat=dict(d.get("chat") or {}),
             scores={a: list(s) for a, s in (d.get("scores") or {}).items()},
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
@@ -288,11 +293,11 @@ def backfill_scores(world: World, comments: list, entries: list[dict], shape) ->
     return n
 
 
-def leaderboard_lines(world: World, yt, comments: list, now: float, events: list[dict]) -> list[str]:
-    """The status comments' leaderboard. Names are looked up now and never stored:
-    from this run's comments and chat, else from one read of every comment since
-    launch. Someone known only from an earlier live chat shows as "someone"."""
-    up, down = render.leaders(world.scores)
+def lookup_names(world: World, yt, comments: list, now: float, events: list[dict], wanted: set) -> dict:
+    """Display names for the keyed authors in `wanted`, looked up now and never
+    stored: from this run's comments and chat, else from one read of every comment
+    since launch (~4 units). Someone known only from an earlier live chat stays
+    unnamed."""
     names: dict = {}
 
     def learn(cs):
@@ -300,12 +305,12 @@ def leaderboard_lines(world: World, yt, comments: list, now: float, events: list
             if c.name:
                 names[admission.keyed(world.key, "author", c.author)] = c.name
     learn(comments)
-    if any(a not in names for _, a in up + down):
+    if any(a not in names for a in wanted):
         try:
             learn(yt.fetch_comments(world.launch_time, watch=[p["id"] for p in world.pinned.values()], now=now))
-        except Exception as e:  # noqa: BLE001 - "someone" for now
-            events.append({"type": "youtube_error", "op": "leaderboard_names", "error": repr(e)[:500]})
-    return render.leaderboard(up, down, names, world.gen_seconds)
+        except Exception as e:  # noqa: BLE001 - unnamed for now
+            events.append({"type": "youtube_error", "op": "lookup_names", "error": repr(e)[:500]})
+    return names
 
 
 def _display(world: World, op: str, now: float, call, events: list[dict]) -> bool:
@@ -390,6 +395,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     sim_from = len(events)
 
     # 2. simulation (authoritative)
+    who: dict = {}  # id(injection event) -> its keyed author, or "chat"
     if u.phase == DIED:
         dropped = admission.take_batch(world.admission, limit=len(world.admission.queue))
         if dropped:
@@ -421,6 +427,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
                     credit(world, q["author"], eff)
             inj_events = u.inject(items)
             for q, ev in zip(group, [e for e in inj_events if e["type"] == "injection"]):
+                who[id(ev)] = "chat" if q.get("chat") else q["author"]
                 if ev["changed"]:
                     world.last_changer = {"comment": q["comment"], "author": q["author"],
                                           "gen": ev["gen"], "command": q["command"]}
@@ -440,6 +447,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
 
     if world.recent is None:
         world.recent = []
+    world.recent_by = (world.recent_by + [None] * len(world.recent))[:len(world.recent)]
     last_cmd = None
     sim = events[sim_from:]
     injs = [e for e in sim if e["type"] == "injection"]
@@ -470,11 +478,14 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             world.contest_by = None
         if line:
             world.recent = ([line] + world.recent)[:RECENT_MAX]
+            mover = who.get(id(ev)) if ev["type"] == "injection" and not burst else None
+            world.recent_by = ([mover] + world.recent_by)[:RECENT_MAX]
 
     # 3. display (best effort)
     f = refresh_forecast(world)
     title = render.title(u, world.gen_seconds, f and f["stuck_gen"], f and FORECAST_GENS, world.saves)
-    title_due = world.last_title_at is None or now - world.last_title_at >= TITLE_MIN_INTERVAL_S
+    title_gap = TITLE_MIN_INTERVAL_S if u.phase == ALIVE else TITLE_CRISIS_INTERVAL_S
+    title_due = world.last_title_at is None or now - world.last_title_at >= title_gap
     if title != world.last_title and title_due:
         if _display(world, "set_title", now, lambda: yt.set_title(title, render.braille(u.grid)), events):
             world.last_title, world.last_title_at = title, now
@@ -502,15 +513,22 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     if core != world.pinned_core:  # something real changed: re-pick the suggested move too
         world.pinned_core = core
         world.pinned_suggest = render.suggestion(u) if u.phase != DIED else None
-    newest = set(sorted((k for k in world.pinned if k != "0"), key=int)[-2:])
+    extras = sorted((k for k in world.pinned if k != "0"), key=int)
+    newest, second = extras[-1:], extras[-2:-1]
 
     def due(v, slot):
-        gap = (PINNED_MIN_INTERVAL_S if v == "0" else PINNED_EXTRA_MIN_INTERVAL_S if v in newest
+        gap = (PINNED_MIN_INTERVAL_S if v == "0" or v in newest else PINNED_EXTRA_MIN_INTERVAL_S if v in second
                else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
         return force_pinned or slot.get("at") is None or now - slot["at"] >= gap
-    board = None
-    if world.scores and hasattr(yt, "update_comment") and any(due(v, s) for v, s in world.pinned.items()):
-        board = leaderboard_lines(world, yt, comments, now, events)
+    board, recent = None, world.recent
+    if hasattr(yt, "update_comment") and any(due(v, s) for v, s in world.pinned.items()):
+        # who made each move, and the leaderboard: names looked up now, never stored
+        by = (world.recent_by + [None] * len(world.recent))[:len(world.recent)]
+        up, down = render.leaders(world.scores)
+        wanted = {a for _, a in up + down} | {a for a in by if a and a != "chat"}
+        names = lookup_names(world, yt, comments, now, events, wanted) if wanted else {}
+        board = render.leaderboard(up, down, names, world.gen_seconds) or None
+        recent = [render.with_author(line, a, names) for line, a in zip(world.recent, by)]
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
         main = v == "0"
         # slot["text"] is the text without its "updated <time>" stamp: the stamp
@@ -518,11 +536,11 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         # re-stamped every few hours so it never looks abandoned. Only its HMAC is
         # kept: the leaderboard names people, and names never go in the repo.
         text = admission.keyed(world.key, "pinned", render.pinned_text(
-            status_line, world.recent, world.pinned_suggest, pinned_link, main=main, board=board))
+            status_line, recent, world.pinned_suggest, pinned_link, main=main, board=board))
         stale = main and (slot.get("at") is None or now - slot["at"] >= PINNED_RESTAMP_S)
         if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot):
             op = "update_pinned" if main else f"update_pinned_{v}"
-            stamped = render.pinned_text(status_line, world.recent, world.pinned_suggest, pinned_link, main=main,
+            stamped = render.pinned_text(status_line, recent, world.pinned_suggest, pinned_link, main=main,
                                          stamp=render.clock(now, date=False), board=board)
             if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
                 slot["text"], slot["at"] = text, now
