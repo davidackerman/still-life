@@ -86,6 +86,7 @@ def test_the_daily_recap_is_short_and_opens_on_the_whole_board(state_dir, monkey
 def test_a_close_up_opening_can_come_back(state_dir, monkeypatch):
     monkeypatch.setattr(explainer, "SCALE", 1)
     monkeypatch.setattr(short, "HOOK_ZOOM", 4.0)
+    monkeypatch.setattr(short, "opening_move", lambda h, since: None)  # (the hook alone)
     frames = short.build(state_dir, since_gen=0)
     assert frames[0].zoom == 4.0 and frames[int(2.6 * short.FPS)].zoom < 1.1  # close up, then the whole board
 
@@ -170,3 +171,21 @@ def test_the_shorts_tails_start_afresh_on_a_cut_back_in_time():
     first = [F(b, 11)]
     short.add_trails(first, primer=[(a, None, 10)])
     assert first[0].trail is not None  # the primer gives even the first frame its tails
+
+
+
+def test_the_daily_short_opens_on_what_one_real_comment_did(state_dir, monkeypatch):
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    h = short.History(state_dir)
+    move = short.opening_move(h, 0)
+    assert move is not None
+    g, e, f = move
+    frames = short.build(state_dir, since_gen=0)
+    top = " ".join(t[0] for t in frames[0].texts)
+    assert top.startswith("One comment ") and short.effect_words(f["before"], f["after"], h.gen_seconds) in top
+    assert frames[0].zoom == 1 and frames[0].extras  # the whole board, with its words in a bubble where it lands
+    landed = [i for i, fr in enumerate(frames) if fr.cue and fr.cue[0] == "inject"]
+    assert landed and landed[0] == int(short.OPEN_LAND_S * short.FPS) and frames[landed[0]].gen == g
+    assert any(fr.zoom > 1.5 for fr in frames[:int(short.OPEN_S * short.FPS)])  # closer as it lands
+    hook = frames[int(short.OPEN_S * short.FPS)]
+    assert any("DIES" in t[0] for t in hook.texts) or any("DIES" in t[0] for t in frames[int(short.OPEN_S * short.FPS) + 8].texts)

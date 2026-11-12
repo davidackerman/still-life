@@ -21,6 +21,7 @@ video. Then add its ID to the EXTRA_VIDEO_IDS secret so its comments play too.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import copy
 import os
 import subprocess
@@ -48,6 +49,7 @@ TEXT_W = 900
 WRAP_DIM = 0.8  # the torus continues above and below the board: shown faintly (0 = off)
 FPS = ex.FPS
 FORECAST_GENS = 30000
+TRAVEL_GENS = 24  # between the recap's moves, it plays at most this many generations (cuts past the rest)
 # Shorts viewers read fast: 17 characters/s (the top of the subtitle guidelines
 # explainer.py cites), less time to look, shorter fades.
 CPS, LOOK_S, MIN_S, FADE = 17, 0.8, 1.8, 8
@@ -416,14 +418,14 @@ def days(gens: int, gen_seconds: int) -> int:
 # ---------------------------------------------------------------- the story
 def add_trails(frames: list, primer=()) -> None:
     """Give each frame its tails (life.Trail, as on the stream). A step is a frame
-    whose board changed, so a hold keeps its tails, and a cut back in time starts
-    them afresh. `primer` is (grid, paint, generation) for the real generations
+    whose board changed, so a hold keeps its tails, and a cut (back in time, or a
+    jump far ahead) starts them afresh. `primer` is (grid, paint, generation) for the real generations
     just before the first frame, so even the first frame (the thumbnail) shows
     where things are moving."""
     trail, prev, t, gen0 = None, None, 0, None
     for grid, paint, gen, f in [*((g, p, n, None) for g, p, n in primer),
                                 *((f.grid, getattr(f, "paint", None), f.gen, f) for f in frames)]:
-        if trail is None or grid.shape != trail.last.shape or (gen0 is not None and gen < gen0):
+        if trail is None or grid.shape != trail.last.shape or (gen0 is not None and not 0 <= gen - gen0 <= 30):
             trail, prev = life.Trail(grid.shape), None
         gen0 = gen
         if prev is not None and not np.array_equal(grid, prev):
@@ -473,11 +475,13 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     h.goto(now, h.now_gen)
     if h.now_hash and now.hash.hex() != h.now_hash:
         raise SystemExit("replaying the log did not reproduce the current board; run replay.py")
-    primer, pu = [], h.fresh()  # the real generations just before now: tails on the first frame
-    h.goto(pu, max(0, h.now_gen - life.TRAIL_GENS))
+    opening = opening_move(h, since_gen) if since_gen is not None else None
+    first = max(0, opening[0] - 1) if opening else h.now_gen  # the first frame's generation
+    primer, pu = [], h.fresh()  # the real generations just before it: tails on the first frame
+    h.goto(pu, max(0, first - life.TRAIL_GENS))
     while True:
         primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
-        if pu.generation >= h.now_gen:
+        if pu.generation >= first:
             break
         h.goto(pu, pu.generation + 1)
     F = now.flatline_gens
@@ -489,7 +493,9 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     # HOOK_ZOOM > 1 it opens close up on the patch that changes most, then pulls back.
     # Measured: the teaser (whole board) kept 52.7% of viewers; Day 2 (4x close up)
     # kept 44.5%. So it opens on the whole board again.
-    n = int(2.7 * FPS)  # on screen from the very first frame: it is the thumbnail
+    if opening:  # the daily Short opens on what one real comment did (see _open_on)
+        _open_on(h, opening, add)
+    n = int((2.0 if opening else 2.7) * FPS)  # without an opening, on from the very first frame: the thumbnail
     Z, hold = HOOK_ZOOM, int(1.2 * FPS)
     busy = whole
     if Z > 1:
@@ -501,15 +507,16 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
         busy = busiest(churn, Z)
     u = copy.deepcopy(now)
     for i in range(n):
-        History.advance(u, u.generation + 1)
-        a = 1.0 if i < n - FADE else fade(i, n)
+        if i % 3 == 0:  # ten generations a second: slow enough to see things move
+            History.advance(u, u.generation + 1)
+        a = (1.0 if i < n - FADE else fade(i, n)) * (min(1.0, (i + 1) / FADE) if opening else 1.0)
         zoom = Z if i < hold else 1 + (Z - 1) * (1 - ease((i - hold) / (n - 1 - hold)))
         (add_chip if since_gen is not None else add)(
             u, block([("THIS SHORT", "bold", 112), ("DIES", "bold", 196)], TOP_Y, a)
             + block([("if nobody comments", "demi", 80)], BOTTOM_Y, a), zoom=zoom, focus=busy)
 
     if since_gen is not None:  # the daily recap: day N, the day's moves, how its death moved
-        _recap(h, now, since_gen, add, stuck_now, add_chip, end_chips)
+        _recap(h, now, since_gen, add, stuck_now, add_chip, end_chips, skip=opening[0] if opening else None)
     else:
         # 2. the acorn, up close
         u = h.fresh()
@@ -657,14 +664,74 @@ def _impact(h: History, gen: int) -> float:
     return best
 
 
+OPEN_S, OPEN_LAND_S, OPEN_ZOOM = 3.4, 0.7, 2.2  # the daily Short's opening: its length, when the move lands, how close
+
+
+def opening_move(h: History, since_gen: int):
+    """The day's one comment that moved its death the most, as (generation, the
+    logged move, its effect), or None when nothing moved it much."""
+    best = None
+    for g in sorted(x for x in h.batches if since_gen < x <= h.now_gen):
+        for e in h.batches[g]:
+            f = h.effects.get((g, e["command"]))
+            if not f or not e.get("cells") or (f["before"] is None and f["after"] is None):
+                continue
+            b, a = f["before"], f["after"]
+            swing = abs((a if a is not None else b + FORECAST_GENS) - (b if b is not None else a + FORECAST_GENS))
+            if best is None or swing > best[0]:
+                best = (swing, g, e, f)
+    if best is None or effect_words(best[3]["before"], best[3]["after"], h.gen_seconds) == "barely changed its fate":
+        return None
+    return best[1:]
+
+
+def _open_on(h: History, move, add) -> None:
+    """The daily Short's first beat: what one real comment did. "One comment gave it
+    6 more days to live", on the whole board, with that comment's words in a
+    bubble where it lands, then a gentle zoom as its cells arrive and move."""
+    import render as rd
+    g, e, f = move
+    G, launch = h.gen_seconds, h.genesis["launch_time"]
+    u = h.fresh()
+    h.goto(u, max(0, g - 1))
+    cells = [tuple(c) for c in e["cells"]]
+    piece = main_piece(cells)
+    day = rd._at(launch, g, G, "%Y-%m-%d")
+    days_ago = (dt.date.fromisoformat(rd._at(launch, h.now_gen, G, "%Y-%m-%d")) - dt.date.fromisoformat(day)).days
+    said = {0: "today", 1: "yesterday"}.get(days_ago, rd._at(launch, g, G, "%A"))
+    top = [("One comment", "bold", 104), (effect_words(f["before"], f["after"], G) + ".", "bold", 70),
+           (f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 46)]
+    if e["command"].startswith("random"):  # what they typed isn't kept: say what it became
+        caption = "someone's message\nbecame a random 5\u00d75 patch" + (f", {e['color']}" if e.get("color") else "")
+    else:
+        caption = "\u201c" + render.move_text(e) + "\u201d"
+    n, land, lit = int(OPEN_S * FPS), int(OPEN_LAND_S * FPS), None
+    for i in range(n):
+        cue = None
+        if i == land:  # it lands
+            h.goto(u, g)
+            lit = life.mask(cells, u.grid.shape)
+            cue = ("inject", float(np.mean([c[0] for c in cells])))
+        elif i > land and (i - land) % 5 == 0:  # then moves, slowly enough to follow
+            h.goto(u, u.generation + 1)
+        zoom = 1 + (OPEN_ZOOM - 1) * min(ease(min(1.0, max(0, i - land + 6) / 24)), ease(min(1.0, (n - 1 - i) / 18)))
+        a = 1.0 if i < n - FADE else fade(i, n)  # the first frame is the thumbnail: all of it there
+        add(u, block(top, TOP_Y, a), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
+            extras=[ring(piece, a, caption)])
+
+
 def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, effect_text):
     """Replay up to `until`, zooming in on each generation in `shown`."""
     lit = None
     seg = max(18, int(2.4 * FPS) // (len(shown) + 1))
     for target in shown + [until]:
+        if target - u.generation > TRAVEL_GENS:  # a long way: cut to just before, then play it at a followable pace
+            cells = h.goto(u, target - TRAVEL_GENS)
+            if cells:
+                lit = life.mask(cells, u.grid.shape)
         start = u.generation
         for i in range(seg):
-            cells = h.goto(u, max(u.generation, start + round((target - start) * ((i + 1) / seg) ** 1.4)))
+            cells = h.goto(u, max(u.generation, start + round((target - start) * ((i + 1) / seg))))
             if cells:
                 lit = life.mask(cells, u.grid.shape)
             add(u, block(head, TOP_Y, 1.0), highlight=lit)
@@ -677,11 +744,11 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
         # plain words, not "glider 67,69 ne": most viewers of a daily Short are new
         caption = f"{len(batch)} comments landed here" if len(batch) > 1 else "a comment landed here"
         caption += effect_text(target, batch)
-        hold, z = int(2.0 * FPS), 3.2
+        hold, z = int(2.6 * FPS), 3.2
         for i in range(hold):
-            if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
+            if i > 12 and i % 6 == 0:  # let it be seen where it landed, then let it move, slowly
                 h.goto(u, u.generation + 1)
-            zoom = 1 + (z - 1) * min(ease(i / 14), ease((hold - i) / 14))
+            zoom = 1 + (z - 1) * min(ease(i / 24), ease((hold - i) / 24))
             alpha = min(1.0, (i + 1) / 6, (hold - i) / 6)
             cue = ("inject", float(np.mean([c[0] for c in cells]))) if i == 0 else None
             add(u, block(head, TOP_Y, 1.0), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
@@ -689,7 +756,8 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
     return u
 
 
-def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=None, end_chips=None) -> list:
+def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=None, end_chips=None,
+           skip: int | None = None) -> list:
     """The daily Short after its hook. Most of its viewers have never seen this
     universe, so it says what it is as it goes: what a comment does (the day's
     two biggest moves, in plain words), then what "dies" means, shown on its
@@ -715,7 +783,8 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
     def effect_text(gen, batch):  # "\ngave it 6 more days to live"
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
         return "\n" + effect_words(effs[0]["before"], effs[-1]["after"], G) if effs else ""
-    shown = sorted(sorted(gens, key=lambda g: -_impact(h, g))[:2])
+    # the day's biggest moves (one, when the opening already showed the biggest)
+    shown = sorted(sorted((g for g in gens if g != skip), key=lambda g: -_impact(h, g))[:1 if skip is not None else 2])
     say = add_chip or add  # the comment bubbles carry on under the moves and the stakes
     _moves(h, u, shown, head, say, h.now_gen, effect_text)
 
@@ -723,7 +792,8 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
     def death_day(stuck):
         return rd._at(launch, stuck + F, G, "%a %b %d")
     if now.phase == "ALIVE" and stuck_now is not None:  # its real future: into the loop, then grey
-        top = [("Left alone, it gets stuck in a loop", "bold", 76)]
+        ahead = _span((stuck_now - now.generation) * G)
+        top = [("Left alone, it gets stuck in a loop", "bold", 76), (f"fast-forward: the next {ahead}", "demi", 46)]
         bottom = [(f"and dies {death_day(stuck_now)}.", "bold", 80), ("Then this Short goes private.", "demi", 58)]
         fut = copy.deepcopy(now)
         start, n = fut.generation, rf(*[t for t, _, _ in top + bottom])
