@@ -175,6 +175,18 @@ def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
     assert len(recent) == 1 and recent[0].startswith("gen 4: block 5,5 · ")  # posted at 570 s: gen 4
 
 
+def test_the_moves_so_far_are_counted_once_from_the_log_then_kept_up(tmp_path, env):
+    d = str(tmp_path / "state")
+    live(d, FakeYT(), 3600, comments_at=[(600, "block 5,5"), (900, "hi")])
+    p = os.path.join(d, "state.json")
+    st = json.load(open(p))
+    assert st["moves"]["total"] == 2
+    st.pop("moves")  # as written by the bot before it counted
+    json.dump(st, open(p, "w"))
+    tick.run(d, LAUNCH + 3600, lambda w: FakeYT(), KEY, thumb_path=None)
+    assert json.load(open(p))["moves"] == {"total": 2, "day": 1, "today": 2}
+
+
 def test_painted_moves_are_logged_with_their_color_and_replay(tmp_path, env):
     d = str(tmp_path / "state")
     yt = FakeYT()

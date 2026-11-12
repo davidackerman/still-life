@@ -87,6 +87,8 @@ class World:
     # The same for one game day (Day N, as the daily Shorts count them), and the
     # day before as "prev": {"day", "whole" (counted from the day's start), "scores"}.
     day_scores: dict = field(default_factory=dict)
+    # Moves applied: {"total": n, "day": game day of the latest one, "today": n that day}
+    moves: dict = field(default_factory=dict)
     # Succession (death.py): which universe this is, the video hosting it (None =
     # the VIDEO_ID secret, universe #1), videos of dead universes never to be
     # driven again, the death sequence's progress, and videos still to make private.
@@ -125,6 +127,7 @@ class World:
             "chat": self.chat,
             "scores": dict(sorted(self.scores.items())),
             "day_scores": self.day_scores,
+            "moves": self.moves,
             "death": self.death,
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
@@ -152,6 +155,7 @@ class World:
             reply_counts=dict(d.get("reply_counts", {})), chat=dict(d.get("chat") or {}),
             scores={a: list(s) for a, s in (d.get("scores") or {}).items()},
             day_scores=dict(d.get("day_scores") or {}),
+            moves=dict(d.get("moves") or {}),
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
@@ -283,6 +287,22 @@ def credit(world: World, author: str, eff: dict) -> None:
         t = rec["scores"].setdefault(author, [0, 0])
         t[0] += effect_gens(eff)
         t[1] += 1
+
+
+def count_move(world: World, gen: int) -> None:
+    """One more move applied, landing at `gen`."""
+    m, day = world.moves, game_day(gen, world.gen_seconds)
+    if m.get("day") != day:
+        m["day"], m["today"] = day, 0
+    m["total"], m["today"] = m.get("total", 0) + 1, m["today"] + 1
+
+
+def move_counts(world: World, gen: int) -> tuple[int, int] | None:
+    """(moves so far, moves today) at `gen`, or None if not counted."""
+    m = world.moves
+    if "total" not in m:
+        return None
+    return m["total"], m["today"] if m.get("day") == game_day(gen, world.gen_seconds) else 0
 
 
 def board_scores(world: World, gen: int) -> tuple[list, list, str]:
@@ -468,6 +488,9 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
                 if eff:
                     credit(world, q["author"], eff)
             inj_events = u.inject(items)
+            for ev in inj_events:
+                if ev["type"] == "injection":
+                    count_move(world, ev["gen"])
             for q, ev in zip(group, [e for e in inj_events if e["type"] == "injection"]):
                 who[id(ev)] = ("chat:" if q.get("chat") else "") + q["author"]
                 if ev["changed"]:
@@ -572,6 +595,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         board = render.leaderboard(up, down, names, world.gen_seconds, covers) or None
         recent = [render.with_author(line, a, names) for line, a in zip(world.recent, by)]
     recent = [render.with_time(line, world.launch_time, world.gen_seconds) for line in recent]
+    tally = move_counts(world, u.generation)
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
         main = v == "0"
         # slot["text"] is the text without its "updated <time>" stamp: the stamp
@@ -579,12 +603,12 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         # re-stamped every few hours so it never looks abandoned. Only its HMAC is
         # kept: the leaderboard names people, and names never go in the repo.
         text = admission.keyed(world.key, "pinned", render.pinned_text(
-            status_line, recent, world.pinned_suggest, pinned_link, main=main, board=board))
+            status_line, recent, world.pinned_suggest, pinned_link, main=main, board=board, counts=tally))
         stale = main and (slot.get("at") is None or now - slot["at"] >= PINNED_RESTAMP_S)
         if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot):
             op = "update_pinned" if main else f"update_pinned_{v}"
             stamped = render.pinned_text(status_line, recent, world.pinned_suggest, pinned_link, main=main,
-                                         stamp=render.clock(now, date=False), board=board)
+                                         stamp=render.clock(now, date=False), board=board, counts=tally)
             if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
                 slot["text"], slot["at"] = text, now
                 events.append({"type": "display", "what": "pinned_comment", "video": int(v)})

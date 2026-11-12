@@ -125,6 +125,11 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
     if world.recent is None:  # first run with the pinned comment: backfill from the log
         lines = render.lines_from_log(read_log(store.path(LOG)), world.universe.flatline_gens, world.gen_seconds)
         world.recent = list(reversed(lines))[: engine.RECENT_MAX]
+    if "total" not in world.moves:  # once: count the moves so far from the log
+        gens = [e["gen"] for e in read_log(store.path(LOG)) if e["type"] == "injection"]
+        day = engine.game_day(world.universe.generation, world.gen_seconds)
+        world.moves = {"total": len(gens), "day": day,
+                       "today": sum(engine.game_day(g, world.gen_seconds) == day for g in gens)}
     was_dead = world.universe.phase == DIED
     yt = yt_factory(world)
     logged = None

@@ -359,7 +359,7 @@ def test_each_comment_logs_what_it_did_to_the_lifespan():
     assert eff["type"] == "effect" and eff["before"] == 1855 and eff["command"] == "glider 64,71 nw"
     assert w.forecast["stuck_gen"] == eff["after"]  # reused, not recomputed
     assert " → " in w.recent[0] or "still" in w.recent[0]
-    assert "Latest moves (time it had left: before → after):" in yt.updates[-1][1]
+    assert "Latest moves · 1 so far, 1 today (time it had left: before → after):" in yt.updates[-1][1]
 
 
 def test_a_comment_that_changes_nothing_has_no_effect_line():

@@ -485,7 +485,8 @@ def with_time(line: str, launch_time: float, gen_seconds: int = GEN_SECONDS) -> 
 
 
 def pinned_text(status: str, recent: list[str], suggest: str | None = None, link: bool = True,
-                main: bool = True, stamp: str | None = None, board: list[str] | None = None) -> str:
+                main: bool = True, stamp: str | None = None, board: list[str] | None = None,
+                counts: tuple[int, int] | None = None) -> str:
     """The self-updating status comment. `main` is the video whose title and
     thumbnail show the universe; other videos (a Short) only feed it comments.
     `stamp` (when it was written) shows readers that it updates itself."""
@@ -493,7 +494,8 @@ def pinned_text(status: str, recent: list[str], suggest: str | None = None, link
     lines = [first, INTRO_MAIN if main else INTRO_EXTRA, ""]
     if board:  # who gave it the most life, and who took the most (every video and the live chat)
         lines += board + [""]
-    lines.append("Latest moves (time it had left: before → after):")
+    so_far = f" · {counts[0]:,} so far, {counts[1]:,} today" if counts and counts[0] else ""
+    lines.append(f"Latest moves{so_far} (time it had left: before → after):")
     lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
     lines.append("")
     if suggest:
