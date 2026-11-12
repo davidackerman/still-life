@@ -136,6 +136,20 @@ const History = (() => {
       return grid;
     }
 
+    // The grid at `gen` as if the moves that landed at `g0` never had: what the
+    // page compares with to show what they did. Kept per g0, so following it is cheap.
+    without(g0, gen) {
+      if (!this.cf) this.cf = new Map();  // g0 -> {gen, grid}
+      let c = this.cf.get(g0);
+      if (!c || c.gen > gen) {
+        const before = g0 === 0 ? this.seed0 : LifeCore.step(this.gridAt(g0 - 1), this.h, this.w);
+        c = { gen: g0, grid: before };  // the moves at g0 never landed
+      }
+      while (c.gen < gen) c = { gen: c.gen + 1, grid: this.inject(c.gen + 1, LifeCore.step(c.grid, this.h, this.w), null).grid };
+      this.cf.set(g0, c);
+      return c.grid;
+    }
+
     // The paint at `gen` (index per cell: 0 none, 1.. COLORS), or null if nobody had painted yet.
     paintAt(gen) {
       this.gridAt(gen);

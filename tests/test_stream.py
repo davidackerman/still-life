@@ -424,6 +424,7 @@ if (job.log) {  // the page's replay of the log, then 10 generations stepped on 
     grid = next;
   }
   out.ahead = Array.from(paint);
+  out.without = Array.from(TL.without(job.g0, job.g0 + 10));  // as if the moves at g0 never landed
 }
 if (job.grid) {  // one step of a given board and paint
   const [h, w] = job.shape, g = Uint8Array.from(job.grid);
@@ -446,7 +447,7 @@ def run_page(tmp_path, job):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the live page's JavaScript")
-def test_the_live_page_paints_the_same_cells_as_the_bot(tmp_path, monkeypatch):
+def test_the_live_page_paints_the_same_cells_as_the_bot_and_finds_what_each_move_did(tmp_path, monkeypatch):
     import numpy as np
     import life
     import short
@@ -464,10 +465,16 @@ def test_the_live_page_paints_the_same_cells_as_the_bot(tmp_path, monkeypatch):
     u = h.fresh()
     h.goto(u, h.now_gen)
     assert len(set(u.paint[u.grid == 1].tolist())) >= 3  # several colors, and cells with none
-    got = run_page(tmp_path, {"log": str(d / "log.jsonl"), "gen": h.now_gen})
+    g0 = sorted(h.batches)[1]
+    got = run_page(tmp_path, {"log": str(d / "log.jsonl"), "gen": h.now_gen, "g0": g0})
     assert got["paint"] == u.paint.ravel().tolist()
     h.goto(u, h.now_gen + 10)
     assert got["ahead"] == u.paint.ravel().tolist()
+    h = short.History(str(d))  # what the page shows a move did: the same board without it
+    del h.batches[g0]
+    u = h.fresh()
+    h.goto(u, g0 + 10)
+    assert got["without"] == u.grid.ravel().tolist() and 0 < sum(got["without"]) < u.grid.size
 
     rng = np.random.default_rng(7)  # and the tie-breaks: a busy board, every cell a random color
     g = (rng.random((72, 128)) < 0.35).astype(np.uint8)
