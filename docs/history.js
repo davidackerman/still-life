@@ -67,6 +67,39 @@ const History = (() => {
     glider_ne: [[0, 0], [1, 0], [2, 0], [2, 1], [1, 2]],
     glider_nw: [[0, 0], [1, 0], [2, 0], [0, 1], [1, 2]],
   };
+  // What a move does, as a little film of box x box grids, exactly as render.demo
+  // draws it on the stream: its first cells for FILM_HOLD frames, `gens`
+  // generations, then its last for FILM_HOLD, every film the same length so they
+  // start again together. Gliders, blocks and blinkers wrap on their own box;
+  // the bursts grow out of it into a world 4x the box.
+  const FILM_HOLD = 6;
+  const FILM_SEED = {  // render.demo's "random" (numpy seed 2) and "cells" (a T of four)
+    random: [[0, 0], [1, 0], [3, 0], [1, 1], [2, 1], [3, 1], [1, 2], [2, 2], [4, 2], [3, 3], [4, 3], [0, 4], [4, 4]],
+    cells: [[0, 0], [1, 0], [2, 0], [1, 1]],
+  };
+  const films = new Map();
+  function film(name, box = 9, gens = 28) {
+    const key = `${name}|${box}|${gens}`;
+    if (films.has(key)) return films.get(key);
+    const pts = FILM_SEED[name] || PATTERNS[name];
+    const small = name.startsWith("glider") || name === "block" || name === "blinker";
+    const world = small ? box : 4 * box;
+    const pw = Math.max(...pts.map((p) => p[0])) + 1, ph = Math.max(...pts.map((p) => p[1])) + 1;
+    const x0 = Math.floor((world - pw) / 2), y0 = Math.floor((world - ph) / 2), o = Math.floor((world - box) / 2);
+    let g = new Uint8Array(world * world);
+    for (const [x, y] of pts) g[((y0 + y) % world) * world + ((x0 + x) % world)] = 1;
+    const crop = (grid) => {
+      const c = new Uint8Array(box * box);
+      for (let y = 0; y < box; y++) for (let x = 0; x < box; x++) c[y * box + x] = grid[(o + y) * world + (o + x)];
+      return c;
+    };
+    const frames = [];
+    for (let i = 0; i <= gens; i++) { frames.push(crop(g)); g = LifeCore.step(g, world, world); }
+    const out = [...Array(FILM_HOLD).fill(frames[0]), ...frames.slice(1), ...Array(FILM_HOLD).fill(frames[frames.length - 1])];
+    films.set(key, out);
+    return out;
+  }
+
   function seedGrid(name, h, w) {
     const pts = PATTERNS[name];
     const pw = Math.max(...pts.map((p) => p[0])) + 1, ph = Math.max(...pts.map((p) => p[1])) + 1;
@@ -170,7 +203,7 @@ const History = (() => {
     }
   }
 
-  return { parse, Timeline, seedGrid, paintStep, COLORS };
+  return { parse, Timeline, seedGrid, paintStep, COLORS, film };
 })();
 
 if (typeof module !== "undefined") module.exports = History;

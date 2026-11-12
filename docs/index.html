@@ -715,8 +715,12 @@ function renderTally() {
     const before = f.before ?? Infinity, after = f.after ?? Infinity;
     if (after > before) gave++; else if (after < before) took++;
   }
-  const parts = [...kinds].sort((a, b) => b[1] - a[1])
-    .map(([k, n]) => `${n} ${(KIND[k] || [k, k + "s"])[n === 1 ? 0 : 1]}`);
+  const parts = [...kinds].sort((a, b) => b[1] - a[1]).map(([k, n]) => {  // each with a little film of what it does
+    const span = document.createElement("span");
+    span.className = "kind";
+    span.append(filmChip(k), `${n} ${(KIND[k] || [k, k + "s"])[n === 1 ? 0 : 1]}`);
+    return span;
+  });
   el.textContent = "";
   const b = document.createElement("b");
   const n = comments.length, seen = S && S.seen > n ? S.seen : 0;  // the log has the moves; the bot counts the rest
@@ -726,7 +730,31 @@ function renderTally() {
   const better = document.createElement("span"), worse = document.createElement("span");
   better.className = "better"; better.textContent = `${gave} gave it time`;
   worse.className = "worse"; worse.textContent = `${took} took time`;
-  el.append(b, parts.join(" · "), " · ", better, ", ", worse);
+  el.append(b, ...parts.flatMap((p, i) => (i ? [" · ", p] : [p])), " · ", better, ", ", worse);
+}
+
+// The little films of what each kind of move does (History.film: the stream's
+// legend films), looping together at 4 generations a second.
+const FILM_OF = { random: "random", glider: "glider_se", acorn: "acorn", rpent: "rpent", block: "block", blinker: "blinker",
+  cells: "cells" };
+function filmChip(kind) {
+  const c = document.createElement("canvas"), px = 3 * Math.max(1, Math.round(window.devicePixelRatio || 1));
+  c.className = "film";
+  c.dataset.film = FILM_OF[kind] || "random";
+  c.dataset.px = px;
+  c.width = c.height = 9 * px;
+  c.setAttribute("aria-hidden", "true");
+  drawFilm(c, Math.floor(Date.now() / 250));
+  return c;
+}
+function drawFilm(c, k) {
+  const frames = History.film(c.dataset.film, 9), f = frames[k % frames.length], px = +c.dataset.px, x = c.getContext("2d");
+  x.fillStyle = "#0a0c10"; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = COLOR.ALIVE;
+  for (let i = 0; i < f.length; i++) if (f[i]) x.fillRect((i % 9) * px, Math.floor(i / 9) * px, px - 1, px - 1);
+}
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  setInterval(() => { const k = Math.floor(Date.now() / 250); for (const c of document.querySelectorAll("canvas.film")) drawFilm(c, k); }, 250);
 }
 
 function renderEvents() {

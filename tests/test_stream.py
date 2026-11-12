@@ -522,3 +522,26 @@ def test_the_rewind_says_what_was_new_as_it_passes_it(state_dir):
     assert r.news_shown[0] == "Colors arrive" and r.u.generation >= 5
     assert screen.compose(t).size == (stream.SW, stream.SH)
     assert stream.changes("/nonexistent/state", 120) == []
+
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the live page's JavaScript")
+def test_the_live_pages_little_films_are_the_streams(tmp_path):
+    import json
+    import os
+    import subprocess
+    import render
+    names = ["glider_se", "block", "blinker", "rpent", "acorn", "random", "cells"]
+    script = tmp_path / "films.js"
+    script.write_text("""
+const docs = process.argv[2];
+global.LifeCore = require(docs + "/life.js");
+const History = require(docs + "/history.js");
+const out = {};
+for (const n of %s) out[n] = History.film(n, 9).map((f) => Array.from(f));
+console.log(JSON.stringify(out));
+""" % json.dumps(names))
+    docs = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
+    got = json.loads(subprocess.run(["node", str(script), docs], capture_output=True, text=True, check=True).stdout)
+    for n in names:
+        assert got[n] == [f.ravel().tolist() for f in render.demo(n, 9)], n

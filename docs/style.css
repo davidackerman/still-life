@@ -99,7 +99,7 @@ main.wide { max-width: 68rem; }
 .legend .better { color: var(--ALIVE); font-weight: 600; }
 .legend .worse { color: var(--FLATLINING); font-weight: 600; }
 .statsnote { font-size: .8rem; color: var(--muted); margin-top: 2rem; }
-.tally { font-size: .95rem; margin: 1rem 0 0; }
+.tally { font-size: .95rem; margin: 1rem 0 0; line-height: 2.4; }
 .tally .better { color: var(--ALIVE); font-weight: 600; }
 .tally .worse { color: var(--FLATLINING); font-weight: 600; }
 
@@ -117,3 +117,6 @@ main.wide { max-width: 68rem; }
 .part { border-top: 1px solid var(--rule, rgba(127, 127, 127, .25)); margin-top: 2.2rem; padding-top: .4rem; }
 .part > h2:first-child { margin-top: 1rem; }
 .events li { padding-block: .1rem; }
+.tally .kind { white-space: nowrap; }
+.tally canvas.film { width: 2.1em; height: 2.1em; vertical-align: -.7em; border-radius: 4px; margin-right: .35em;
+  image-rendering: pixelated; }
