@@ -52,7 +52,7 @@
 
 <section class="part">
   <h2>The comments so far</h2>
-  <p id="tally" class="tally"></p>
+  <div id="tally" class="tally"></div>
   <details class="history" open>
     <summary>Every move and event, newest first</summary>
     <ol id="events" class="events"></ol>
@@ -722,15 +722,18 @@ function renderTally() {
     return span;
   });
   el.textContent = "";
-  const b = document.createElement("b");
+  const line = (cls, ...kids) => { const d = document.createElement("div"); d.className = cls; d.append(...kids); return d; };
+  const b = document.createElement("b"), skipped = document.createElement("span");
   const n = comments.length, seen = S && S.seen > n ? S.seen : 0;  // the log has the moves; the bot counts the rest
-  b.textContent = seen
-    ? `${seen} comments so far, ${n} moves (${seen - n} went over 3 per person every 2 minutes): `
-    : `${n} comment${n === 1 ? "" : "s"} so far: `;
+  b.textContent = seen ? `${seen} comments so far, ${n} moves` : `${n} comment${n === 1 ? "" : "s"} so far`;
+  skipped.className = "muted";
+  if (seen) skipped.textContent = ` (${seen - n} went over 3 per person every 2 minutes)`;
   const better = document.createElement("span"), worse = document.createElement("span");
   better.className = "better"; better.textContent = `${gave} gave it time`;
   worse.className = "worse"; worse.textContent = `${took} took time`;
-  el.append(b, ...parts.flatMap((p, i) => (i ? [" · ", p] : [p])), " · ", better, ", ", worse);
+  el.append(line("tally-head", b, skipped),                                     // how many
+            line("tally-kinds", ...parts.flatMap((p, i) => (i ? [" · ", p] : [p]))),  // of what
+            line("tally-effect", better, ", ", worse));                        // and what they did
 }
 
 // The little films of what each kind of move does (History.film: the stream's

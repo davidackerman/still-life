@@ -99,7 +99,9 @@ main.wide { max-width: 68rem; }
 .legend .better { color: var(--ALIVE); font-weight: 600; }
 .legend .worse { color: var(--FLATLINING); font-weight: 600; }
 .statsnote { font-size: .8rem; color: var(--muted); margin-top: 2rem; }
-.tally { font-size: .95rem; margin: 1rem 0 0; line-height: 2.4; }
+.tally { font-size: .95rem; margin: 1rem 0 0; }
+.tally-kinds { line-height: 2.4; margin: .2rem 0; }
+.tally .muted { color: var(--muted); }
 .tally .better { color: var(--ALIVE); font-weight: 600; }
 .tally .worse { color: var(--FLATLINING); font-weight: 600; }
 
