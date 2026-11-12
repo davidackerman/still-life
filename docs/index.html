@@ -262,7 +262,7 @@ function counterfactual(g0, gen) {
     const before = g0 === 0 ? TL.seed0 : LifeCore.step(TL.gridAt(g0 - 1), S.h, S.w);
     c = { gen: g0, grid: before };  // the comments at g0 never landed
   }
-  while (c.gen < gen) c = { gen: c.gen + 1, grid: TL.inject(c.gen + 1, LifeCore.step(c.grid, S.h, S.w)) };
+  while (c.gen < gen) c = { gen: c.gen + 1, grid: TL.inject(c.gen + 1, LifeCore.step(c.grid, S.h, S.w), null).grid };
   cfCache.set(g0, c);
   return c.grid;
 }
