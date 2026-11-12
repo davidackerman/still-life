@@ -704,11 +704,16 @@ def _open_on(h: History, move, add) -> None:
     day = rd._at(launch, g, G, "%Y-%m-%d")
     days_ago = (dt.date.fromisoformat(rd._at(launch, h.now_gen, G, "%Y-%m-%d")) - dt.date.fromisoformat(day)).days
     said = {0: "today", 1: "yesterday"}.get(days_ago, rd._at(launch, g, G, "%A"))
-    words = effect_words(f["before"], f["after"], G)
-    top = [("One comment", "bold", 104), (words + ".", "bold", 70),
-           (f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 46)]
+    words = effect_words(f["before"], f["after"], G)  # "gave it 9 more days to live", "took 9 days off its life"
+    if words.startswith("gave it "):  # split where it reads, naming "it": the Short
+        lines = ["One comment gave this Short", words.removeprefix("gave it ") + "."]
+    else:
+        amount = words.removeprefix("took ").removesuffix(" off its life")
+        lines = [f"One comment took {amount}", "off this Short's life."]
+    top = [(lines[0], "bold", 64), (lines[1], "bold", 82),
+           (f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 44)]
     if words.startswith("took"):  # (a day without a real save) turn it toward the viewer
-        top.insert(2, ("Yours could give them back.", "demi", 56))
+        top.insert(2, ("Yours could give them back.", "demi", 54))
     if e["command"].startswith("random"):  # what they typed isn't kept: say what it became
         caption = "someone's message\nbecame a random 5\u00d75 patch" + (f", {e['color']}" if e.get("color") else "")
     else:

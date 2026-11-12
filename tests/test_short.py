@@ -182,7 +182,9 @@ def test_the_daily_short_opens_on_what_one_real_comment_did(state_dir, monkeypat
     g, e, f = move
     frames = short.build(state_dir, since_gen=0)
     top = " ".join(t[0] for t in frames[0].texts)
-    assert top.startswith("One comment ") and short.effect_words(f["before"], f["after"], h.gen_seconds) in top
+    words = short.effect_words(f["before"], f["after"], h.gen_seconds)
+    amount = words.split()[1 if words.startswith("took") else 2]  # "took 2 days ...", "gave it 9 more days ..."
+    assert top.startswith("One comment ") and "this Short" in top and f" {amount} " in f" {top} "
     assert frames[0].zoom == 1 and frames[0].extras  # the whole board, with its words in a bubble where it lands
     landed = [i for i, fr in enumerate(frames) if fr.cue and fr.cue[0] == "inject"]
     assert landed and landed[0] == int(short.OPEN_LAND_S * short.FPS) and frames[landed[0]].gen == g
