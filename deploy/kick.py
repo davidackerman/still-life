@@ -14,7 +14,9 @@ the repo checkout the stream keeps up to date:
   - any new comment or chat message in the last hour: every 3 minutes
   - quieter than that: every 5 minutes
 and it backs off as the day's YouTube quota fills (the bot's count, in
-state.json): no 1-minute runs past 6,500 units, every 5 minutes past 7,500.
+state.json), so the reads always fit: the bot's writes stop at 9,700 less 120
+units for each hour left in the Pacific day (youtube.Quota.write_limit), and
+within 1,500 units of that there are no 1-minute runs, within 500 every 5.
 
 It needs GITHUB_TOKEN in /etc/still-life/github.env (root-only): a fine-grained
 token for this repository only, with "Actions: read and write" and nothing else.
@@ -37,7 +39,8 @@ WORKFLOW = "tick.yml"
 CHAT_WITHIN_S, CHAT_GAP_S = 10 * 60, 60  # chat lately: a run every minute
 ANY_WITHIN_S, ANY_GAP_S = 60 * 60, 3 * 60  # any comment this hour: every 3
 QUIET_GAP_S = 5 * 60
-BUDGET_GAPS = [(7500, QUIET_GAP_S), (6500, ANY_GAP_S)]  # (quota used today at least, shortest gap)
+HARD_CAP, READ_RESERVE_PER_HOUR = 9700, 120  # as youtube.py
+BUDGET_GAPS = [(500, QUIET_GAP_S), (1500, ANY_GAP_S)]  # (within this of the write limit, shortest gap)
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state")
 LOG = os.path.join(STATE, "log.jsonl")
 API = f"https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW}"
@@ -83,6 +86,14 @@ def last_activity(path: str = LOG, tail: int = 200_000) -> tuple[float | None, f
     return chat, anything
 
 
+def write_limit(now: dt.datetime) -> int:
+    """Where the bot's writes stop at `now` (youtube.Quota.write_limit)."""
+    from zoneinfo import ZoneInfo
+    t = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    midnight = (t + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(HARD_CAP - READ_RESERVE_PER_HOUR * (midnight - t).total_seconds() / 3600)
+
+
 def quota_used(now: dt.datetime, path: str = os.path.join(STATE, "state.json")) -> int:
     """The bot's count of today's (Pacific) YouTube quota units, or 0 if unknown."""
     try:
@@ -100,8 +111,9 @@ def gap(now: dt.datetime, chat: float | None, anything: float | None, used: int 
     t = now.timestamp()
     every = (CHAT_GAP_S if chat is not None and t - chat <= CHAT_WITHIN_S
              else ANY_GAP_S if anything is not None and t - anything <= ANY_WITHIN_S else QUIET_GAP_S)
-    for at_least, shortest in BUDGET_GAPS:
-        if used >= at_least:
+    room = write_limit(now) - used
+    for within, shortest in BUDGET_GAPS:
+        if room <= within:
             return max(every, shortest)
     return every
 

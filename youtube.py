@@ -116,8 +116,13 @@ def http_error_reason(err) -> tuple[int, str, str]:
 
 
 # --------------------------------------------------------------------------- quota
-DAILY_BUDGET = 8000  # self-imposed; Google's default pool is 10,000/day
-HARD_CAP = 9700  # even the reads (critical) stop here, short of Google's 10,000: past it every call fails
+# Google's pool is 10,000 units per Pacific day; past it every call fails until midnight.
+HARD_CAP = 9700  # even the reads (critical) stop here, a little short of Google's limit
+# The reads are the game, so the writes (titles, status comments, thumbnails) give way:
+# they stop where the rest of the day's reads, at their slowest pace (chat every
+# 5 minutes, comments every ~5: ~110 units an hour), would no longer fit.
+READ_RESERVE_PER_HOUR = 120
+DAILY_BUDGET = 8000  # (what the writes' limit was, fixed, until 2026-11-12)
 PACIFIC = ZoneInfo("America/Los_Angeles")
 COST = {"commentThreads.list": 1, "comments.list": 1, "videos.list": 1, "videos.update": 50,
         "thumbnails.set": 50, "comments.update": 50, "commentThreads.insert": 50, "channels.list": 1,
@@ -138,8 +143,9 @@ class QuotaExceeded(RuntimeError):
 class Quota:
     """Estimated units used per Pacific day, kept in a dict owned by the caller."""
 
-    def __init__(self, state: dict, now: float, budget: int = DAILY_BUDGET):
-        self.state, self.budget = state, budget
+    def __init__(self, state: dict, now: float, budget: int | None = None):
+        self.state, self.now = state, now
+        self.budget = budget if budget is not None else self.write_limit()
         day = dt.datetime.fromtimestamp(now, PACIFIC).date().isoformat()
         if state.get("day") != day:
             state.clear()
@@ -149,8 +155,14 @@ class Quota:
     def used(self) -> int:
         return self.state["used"]
 
+    def write_limit(self) -> int:
+        """Where writes stop now: the hard cap, less the rest of the day's reads."""
+        t = dt.datetime.fromtimestamp(self.now, PACIFIC)
+        midnight = (t + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return int(HARD_CAP - READ_RESERVE_PER_HOUR * (midnight - t).total_seconds() / 3600)
+
     def spend(self, units: int, critical: bool = False) -> None:
-        """Record units about to be spent. Non-critical spends over budget raise."""
+        """Record units about to be spent. Non-critical spends past the write limit raise."""
         if not critical and self.state["used"] + units > self.budget:
             raise QuotaExceeded(f"daily budget {self.budget} would be exceeded "
                                 f"({self.state['used']} used, {units} needed)")

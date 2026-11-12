@@ -394,3 +394,20 @@ def test_even_the_reads_stop_short_of_googles_limit():
     q.spend(5, critical=True)  # reads go on past the bot's own budget...
     with pytest.raises(youtube.QuotaExceeded):
         q.spend(1, critical=True)  # ...but not past the hard cap
+
+
+def test_the_writes_stop_where_the_rest_of_the_days_reads_still_fit():
+    import datetime as dt
+    import pytest
+    from zoneinfo import ZoneInfo
+    evening = dt.datetime(2026, 11, 12, 21, 0, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp()
+    q = youtube.Quota({}, evening)
+    assert q.write_limit() == youtube.HARD_CAP - 3 * youtube.READ_RESERVE_PER_HOUR  # 3 hours to midnight
+    q.state["used"] = q.write_limit() - 50
+    q.spend(50)  # a write that just fits
+    with pytest.raises(youtube.QuotaExceeded):
+        q.spend(50)  # the next one gives way
+    for _ in range(3 * 12):  # three more hours of reads at their slowest pace still go through
+        q.spend(5 + 4, critical=True)
+    morning = youtube.Quota({}, dt.datetime(2026, 11, 12, 9, 0, tzinfo=ZoneInfo("America/Los_Angeles")).timestamp())
+    assert morning.write_limit() < q.write_limit()  # more of the day's reads still to come

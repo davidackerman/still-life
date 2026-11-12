@@ -226,9 +226,9 @@ def main(argv=None) -> int:
     if tick:
         print(f"gen {tick['gen_start']:,} -> {tick['gen_end']:,} {tick['phase']} | new comments "
               f"{tick['comments_new']}, accepted {tick['accepted']}, rejected {tick['rejected']}, "
-              f"queued {tick['queued']} | quota {quota['q'].used}/{youtube.DAILY_BUDGET} | dry_run={dry_run}")
+              f"queued {tick['queued']} | quota {quota['q'].used}/{quota['q'].budget} | dry_run={dry_run}")
     else:
-        print(f"nothing to do | quota {quota['q'].used}/{youtube.DAILY_BUDGET}")
+        print(f"nothing to do | quota {quota['q'].used}/{quota['q'].budget}")
     for e in events:
         if e["type"] == "death":
             print({k: v for k, v in e.items() if k != "detail"})

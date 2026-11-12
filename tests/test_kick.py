@@ -62,9 +62,11 @@ def test_runs_come_every_minute_while_the_chat_talks_and_every_five_when_quiet(m
 
 def test_it_backs_off_as_the_days_quota_fills(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_TOKEN", "t")
-    assert starts(tmp_path, 1.2, used=6000, chat_ago=4)
-    assert not starts(tmp_path, 1.2, used=6600, chat_ago=4) and starts(tmp_path, 3.2, used=6600, chat_ago=4)
-    assert not starts(tmp_path, 3.2, used=7600, chat_ago=4) and starts(tmp_path, 5.2, used=7600, chat_ago=4)
+    limit = kick.write_limit(NOW)  # 6:30 PM Pacific: 9,700 less 5.5 hours of reads
+    assert limit == 9700 - 120 * 5.5
+    assert starts(tmp_path, 1.2, used=limit - 2000, chat_ago=4)
+    assert not starts(tmp_path, 1.2, used=limit - 1400, chat_ago=4) and starts(tmp_path, 3.2, used=limit - 1400, chat_ago=4)
+    assert not starts(tmp_path, 3.2, used=limit - 400, chat_ago=4) and starts(tmp_path, 5.2, used=limit - 400, chat_ago=4)
 
 
 def test_it_never_piles_up_runs_and_does_nothing_without_a_token(monkeypatch):
