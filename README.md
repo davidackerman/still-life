@@ -15,7 +15,7 @@
 - ⚫ **If nobody breaks the loop, it dies.** An obituary video replays its life, the video goes private, and a bigger universe is born on the obituary.
 - 🔍 **Nothing to trust.** Every run is in a hash-chained public log; anyone can replay the whole life from the seed and check it.
 
-No server: a Python bot on GitHub Actions wakes every 5 minutes, steps the universe, reads comments and rewrites the video. The [live page](https://davidackerman.github.io/still-life/) computes the same universe in your browser, forecasts when it gets stuck, and rewinds through its whole life (`?gen=1234` links to a moment).
+No server: a Python bot on GitHub Actions wakes every 3 minutes, steps the universe, reads the live chat (and every ~5 minutes the comments) and rewrites the video. The [live page](https://davidackerman.github.io/still-life/) computes the same universe in your browser, forecasts when it gets stuck, and rewinds through its whole life (`?gen=1234` links to a moment).
 
 **Status:** live since November 8, 2026. The death sequence is built and rehearsed, and runs in dry-run mode for now.
 

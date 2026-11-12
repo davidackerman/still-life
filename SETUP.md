@@ -293,7 +293,7 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `rehearse.py` | a scratch death, end to end, in dry-run mode |
 | `store.py` | `state.json`, `history.bin`, and the hash-chained `log.jsonl` |
 | `replay.py` | verifies the log and rebuilds the life from the seed (no secrets needed) |
-| `.github/workflows/tick.yml` | runs `tick.py` every 5 minutes and commits `state/` |
+| `.github/workflows/tick.yml` | runs `tick.py` (every 5 minutes by GitHub's schedule; the VM's kick starts one whenever 3 have passed) and commits `state/` |
 | `docs/` | GitHub Pages: the live view (`index.html`, `life.js`), the rewind slider and history (`history.js`, which replays the public log in the browser), and the privacy policy |
 | `explainer.py` | renders the ~2 min explainer video that hosts the universe (`out/explainer.mp4`) |
 | `short.py` | renders a vertical Short from the real log (`out/short.mp4`) |

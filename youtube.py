@@ -251,8 +251,9 @@ class YouTube:
 
     def __init__(self, service, video_id: str, quota: Quota, description_grid: bool = False,
                  extra_video_ids=(), reply_counts: dict | None = None, key: bytes = b"", skip_video_ids=(),
-                 chat: dict | None = None):
+                 chat: dict | None = None, comments_due: bool = True):
         self.service, self.video_id, self.quota = service, video_id, quota
+        self.comments_due = comments_due  # False: this run reads only the chat (engine.tick)
         self.description_grid = description_grid
         self.videos = [video_id]
         for v in extra_video_ids:

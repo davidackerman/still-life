@@ -82,7 +82,7 @@ def test_fetch_failure_skips_input_but_still_steps():
     assert not w.admission.seen  # picked up on a later run
 
 
-def test_title_at_most_every_45_minutes_while_alive_and_only_when_changed():
+def test_title_at_most_every_hour_while_alive_and_only_when_changed():
     w, yt = world(), FakeYT()
     stamps = []
     real = yt.set_title
@@ -92,9 +92,9 @@ def test_title_at_most_every_45_minutes_while_alive_and_only_when_changed():
         w_now[0] = t
         engine.tick(w, LAUNCH + t, yt)
     gaps = [b - a for a, b in zip(stamps, stamps[1:])]
-    assert stamps and min(gaps) >= 45 * 60  # writes are 50 units: paced by the clock, not by the runs
+    assert stamps and min(gaps) >= 60 * 60  # writes are 50 units: paced by the clock, not by the runs
     assert all(a != b for a, b in zip(yt.titles, yt.titles[1:]))  # never re-sent unchanged
-    assert len(yt.titles) >= 14  # the quarter-hour clock changes at nearly every allowed slot
+    assert len(yt.titles) >= 10  # the quarter-hour clock changes at nearly every allowed slot
 
 
 def test_thumbnail_every_4_hours_and_on_phase_change():
@@ -252,10 +252,9 @@ def test_suggestion_only_changes_when_something_real_changes():
     for t in range(1800, 3 * 3600, 1800):  # board evolves; countdown stays "~3 days"
         engine.tick(w, LAUNCH + t, yt)
     assert w.pinned_suggest == first and len(yt.updates) == 1
-    # every 3 hours it is re-stamped with the time, with the same suggestion
+    # no re-stamping (off since 2026-11-12: its quota reads the chat more often)
     engine.tick(w, LAUNCH + 3 * 3600, yt)
-    assert w.pinned_suggest == first and len(yt.updates) == 2
-    assert yt.updates[0][1].split("\n", 1)[1] == yt.updates[1][1].split("\n", 1)[1]
+    assert w.pinned_suggest == first and len(yt.updates) == 1
 
 
 def test_the_status_comment_says_when_it_was_updated():
@@ -451,6 +450,26 @@ def test_live_chat_messages_play_and_a_chat_failure_does_not_stop_comments():
     events = engine.tick(w2, t, ChatYT(comments=[comment("c1")], chat_fails=True))
     assert [e["command"] for e in events if e["type"] == "injection"] == ["glider 10,10 se"]
     assert any(e["type"] == "youtube_error" and e["op"] == "fetch_chat" for e in events)
+
+
+def test_a_run_between_comment_reads_reads_only_the_chat():
+    import datetime as dt
+    from admission import Comment
+    import tick
+    import youtube
+
+    class Between(ChatYT):
+        comments_due = False  # what tick.py sets on the runs between comment reads
+
+        def fetch_comments(self, *a, **k):
+            raise AssertionError("read the videos' comments")
+    w, t = world(), LAUNCH + 600
+    at = dt.datetime.fromtimestamp(t - 30, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    events = engine.tick(w, t, Between(chat=[Comment("chat:m1", "UCv", at, "block 20,20", video=youtube.CHAT)]))
+    assert [e["command"] for e in events if e["type"] == "injection"] == ["block 20,20"]
+    w.extra_videos = ["S1", "S2", "S3", "S4"]
+    tick.choose_extras(w, [], t, mark=False)
+    assert not w.extra_read  # a run that doesn't read comments doesn't count as having read them
 
 
 # ---------------------------------------------------------------- the leaderboard

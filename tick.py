@@ -44,19 +44,20 @@ ALERTS_PATH = os.path.join("out", "alerts.json")  # posted as GitHub issues by t
 
 
 SLOW_EXTRA_S = 30 * 60  # Shorts older than the newest three: comments read every 30 minutes
+COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come every ~3 for the chat)
 
 
-def choose_extras(world, env_extras: list[str], now: float) -> tuple[list[str], set[str]]:
+def choose_extras(world, env_extras: list[str], now: float, mark: bool = True) -> tuple[list[str], set[str]]:
     """The extra videos (EXTRA_VIDEO_IDS, then the bot's own daily Shorts), and
     which of the older ones to skip reading this run. Order never changes, so
-    status-comment slots stay put. Marks the ones read now."""
+    status-comment slots stay put. Marks the ones read now (if `mark`: comments are read this run)."""
     extras = []
     for v in [*env_extras, *world.extra_videos]:
         if v and v not in extras and v not in world.retired:
             extras.append(v)
     skip = {v for v in extras[:-3] if now - world.extra_read.get(v, 0) < SLOW_EXTRA_S}
     for v in extras:
-        if v not in skip:
+        if v not in skip and mark:
             world.extra_read[v] = now
     return extras, skip
 
@@ -206,10 +207,13 @@ def main(argv=None) -> int:
         seen["world"] = world
         quota["q"] = youtube.Quota(world.quota, now)
         main = world.video_id or video_id  # universe #2 on lives on the obituary video
-        extras, skip = choose_extras(world, extra_ids, now)
+        due = now - world.comments_read_at >= COMMENTS_EVERY_S  # the chat is read every run
+        if due:
+            world.comments_read_at = now
+        extras, skip = choose_extras(world, extra_ids, now, mark=due)
         return youtube.YouTube(service, main, quota["q"], env_flag("DESCRIPTION_GRID", "false"),
                                extra_video_ids=extras, reply_counts=world.reply_counts, key=key,
-                               skip_video_ids=skip, chat=world.chat)
+                               skip_video_ids=skip, chat=world.chat, comments_due=due)
 
     events = run(args.state_dir, now, make_yt, key, force_thumbnail=env_flag("FORCE_THUMBNAIL", "false"),
                  dry_run=dry_run, force_pinned=env_flag("FORCE_PINNED", "false"))

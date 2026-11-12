@@ -23,12 +23,12 @@ def fake(runs):
     return http, calls
 
 
-def test_it_starts_a_run_only_when_the_last_one_is_over_five_minutes_old(monkeypatch):
+def test_it_starts_a_run_only_when_the_last_one_is_over_three_minutes_old(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "t")
-    http, calls = fake([run(4), run(12)])
+    http, calls = fake([run(2), run(12)])
     kick.main(NOW, http)
     assert [c[0] for c in calls] == ["GET"]
-    http, calls = fake([run(6), run(12)])
+    http, calls = fake([run(4), run(12)])
     kick.main(NOW, http)
     assert calls[-1] == ("POST", "dispatches", {"ref": "main"})
 

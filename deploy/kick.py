@@ -3,8 +3,10 @@
 
 GitHub runs the "every 5 minutes" schedule late, often 10-25 minutes apart. The
 stream VM runs this every minute (deploy/still-life-kick.timer): if no tick run
-has started in KICK_AFTER_S and none is queued or running, it starts one
-(workflow_dispatch). GitHub's own schedule stays on, as the backup.
+has started in KICK_AFTER_S (3 minutes, so the live chat is read about that
+often; the videos' comments every ~5, see tick.COMMENTS_EVERY_S) and none is
+queued or running, it starts one (workflow_dispatch). GitHub's own schedule
+stays on, as the backup.
 
 It needs GITHUB_TOKEN in /etc/still-life/github.env (root-only): a fine-grained
 token for this repository only, with "Actions: read and write" and nothing else.
@@ -24,7 +26,7 @@ import urllib.request
 
 REPO = "davidackerman/still-life"
 WORKFLOW = "tick.yml"
-KICK_AFTER_S = 5 * 60
+KICK_AFTER_S = 3 * 60  # was 5 min until 2026-11-12
 API = f"https://api.github.com/repos/{REPO}/actions/workflows/{WORKFLOW}"
 BUSY = {"queued", "in_progress", "waiting", "requested", "pending"}
 

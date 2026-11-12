@@ -31,12 +31,12 @@ from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 
 # Writes cost 50 units each and are most of the daily quota, so they are paced by
 # the clock, not by how often the bot runs.
-TITLE_MIN_INTERVAL_S = 45 * 60  # while ALIVE (the countdown is days long)
+TITLE_MIN_INTERVAL_S = 60 * 60  # while ALIVE (the countdown is days long); 45 min until 2026-11-12
 TITLE_CRISIS_INTERVAL_S = 15 * 60  # stuck in a loop or contested: hours matter
 PINNED_MIN_INTERVAL_S = 45 * 60  # the main video's status comment, and the newest Short's
 PINNED_EXTRA_MIN_INTERVAL_S = 3 * 3600  # the second-newest Short's
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
-PINNED_RESTAMP_S = 3 * 3600  # the main comment's "updated <time>" is refreshed this often (8 x 50 units/day)
+PINNED_RESTAMP_S = 0  # off since 2026-11-12 (was 3 h, 8 x 50 units/day: now spent reading the chat every 3 min)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.
@@ -98,6 +98,7 @@ class World:
     retired: list = field(default_factory=list)
     extra_videos: list = field(default_factory=list)  # Shorts the bot posted (daily.py); comments play
     extra_read: dict = field(default_factory=dict)  # video id -> when its comments were last read
+    comments_read_at: float = 0.0  # when the videos' comments were last read (the chat is read every run)
     daily: dict = field(default_factory=dict)  # the daily Short: {"date", "day", "video"}
     death: dict | None = None
     retire_pending: list = field(default_factory=list)
@@ -132,6 +133,7 @@ class World:
             "death": self.death,
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
+            "comments_read_at": self.comments_read_at,
             "daily": self.daily,
         }, history)
 
@@ -160,6 +162,7 @@ class World:
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
+            comments_read_at=float(d.get("comments_read_at") or 0.0),
             daily=dict(d.get("daily") or {}),
             retire_pending=list(d.get("retire_pending", [])),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
@@ -412,13 +415,14 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     events: list[dict] = []
 
     # 1. comments (input). A fetch failure skips input for this run only.
-    fetched = True
-    try:
-        comments = yt.fetch_comments(now - admission.FETCH_WINDOW_S,
-                                     watch=[p["id"] for p in world.pinned.values()], now=now)
-    except Exception as e:  # noqa: BLE001
-        comments, fetched = [], False
-        events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
+    fetched, comments = True, []
+    if getattr(yt, "comments_due", True):  # (tick.py reads the videos' comments every ~5 min, the chat every run)
+        try:
+            comments = yt.fetch_comments(now - admission.FETCH_WINDOW_S,
+                                         watch=[p["id"] for p in world.pinned.values()], now=now)
+        except Exception as e:  # noqa: BLE001
+            comments, fetched = [], False
+            events.append({"type": "youtube_error", "op": "fetch_comments", "error": repr(e)[:500]})
     if hasattr(yt, "fetch_chat"):  # the live stream's chat plays like comments
         try:
             comments = comments + yt.fetch_chat(now)
@@ -604,7 +608,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         # kept: the leaderboard names people, and names never go in the repo.
         text = admission.keyed(world.key, "pinned", render.pinned_text(
             status_line, recent, world.pinned_suggest, pinned_link, main=main, board=board, counts=tally))
-        stale = main and (slot.get("at") is None or now - slot["at"] >= PINNED_RESTAMP_S)
+        stale = main and (slot.get("at") is None or bool(PINNED_RESTAMP_S) and now - slot["at"] >= PINNED_RESTAMP_S)
         if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot):
             op = "update_pinned" if main else f"update_pinned_{v}"
             stamped = render.pinned_text(status_line, recent, world.pinned_suggest, pinned_link, main=main,
