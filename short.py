@@ -668,21 +668,26 @@ OPEN_S, OPEN_LAND_S, OPEN_ZOOM = 3.4, 0.7, 2.2  # the daily Short's opening: its
 
 
 def opening_move(h: History, since_gen: int):
-    """The day's one comment that moved its death the most, as (generation, the
-    logged move, its effect), or None when nothing moved it much."""
-    best = None
+    """The day's comment for the opening, as (generation, the logged move, its
+    effect): the one that gave it the most life (a save invites the viewer to be
+    the next); on a day without a real save, the one that took the most. None
+    when nothing moved it much."""
+    saves, kills = [], []
     for g in sorted(x for x in h.batches if since_gen < x <= h.now_gen):
         for e in h.batches[g]:
             f = h.effects.get((g, e["command"]))
             if not f or not e.get("cells") or (f["before"] is None and f["after"] is None):
                 continue
             b, a = f["before"], f["after"]
-            swing = abs((a if a is not None else b + FORECAST_GENS) - (b if b is not None else a + FORECAST_GENS))
-            if best is None or swing > best[0]:
-                best = (swing, g, e, f)
-    if best is None or effect_words(best[3]["before"], best[3]["after"], h.gen_seconds) == "barely changed its fate":
-        return None
-    return best[1:]
+            d = (a if a is not None else b + FORECAST_GENS) - (b if b is not None else a + FORECAST_GENS)
+            if effect_words(b, a, h.gen_seconds) != "barely changed its fate":
+                # the biggest first; between near-equals, one with a pattern's name reads better than a random patch
+                key = (round(abs(d) / 30), not e["command"].startswith("random"))
+                (saves if d > 0 else kills).append((key, g, e, f))
+    for pick in (saves, kills):
+        if pick:
+            return max(pick, key=lambda t: t[0])[1:]
+    return None
 
 
 def _open_on(h: History, move, add) -> None:
@@ -699,8 +704,11 @@ def _open_on(h: History, move, add) -> None:
     day = rd._at(launch, g, G, "%Y-%m-%d")
     days_ago = (dt.date.fromisoformat(rd._at(launch, h.now_gen, G, "%Y-%m-%d")) - dt.date.fromisoformat(day)).days
     said = {0: "today", 1: "yesterday"}.get(days_ago, rd._at(launch, g, G, "%A"))
-    top = [("One comment", "bold", 104), (effect_words(f["before"], f["after"], G) + ".", "bold", 70),
+    words = effect_words(f["before"], f["after"], G)
+    top = [("One comment", "bold", 104), (words + ".", "bold", 70),
            (f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 46)]
+    if words.startswith("took"):  # (a day without a real save) turn it toward the viewer
+        top.insert(2, ("Yours could give them back.", "demi", 56))
     if e["command"].startswith("random"):  # what they typed isn't kept: say what it became
         caption = "someone's message\nbecame a random 5\u00d75 patch" + (f", {e['color']}" if e.get("color") else "")
     else:
