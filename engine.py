@@ -99,6 +99,8 @@ class World:
     video_id: str | None = None
     retired: list = field(default_factory=list)
     extra_videos: list = field(default_factory=list)  # Shorts the bot posted (daily.py); comments play
+    # what to call each of our videos where a move came from ("the Day 5 Short"); our own videos, no one's data
+    video_names: dict = field(default_factory=dict)
     extra_read: dict = field(default_factory=dict)  # video id -> when its comments were last read
     comments_read_at: float = 0.0  # when the videos' comments were last read (the chat is read every run)
     views: dict = field(default_factory=dict)  # {"at": when, "counts": {slot: views}}: the last read of view counts
@@ -136,6 +138,7 @@ class World:
             "death": self.death,
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
+            "video_names": dict(sorted(self.video_names.items())),
             "comments_read_at": self.comments_read_at,
             "views": self.views,
             "daily": self.daily,
@@ -166,6 +169,7 @@ class World:
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
+            video_names=dict(d.get("video_names") or {}),
             comments_read_at=float(d.get("comments_read_at") or 0.0), views=dict(d.get("views") or {}),
             daily=dict(d.get("daily") or {}),
             retire_pending=list(d.get("retire_pending", [])),
@@ -495,7 +499,10 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             if u.phase == DIED:  # it died before these were posted
                 counts["rejected"]["universe_dead"] = counts["rejected"].get("universe_dead", 0) + len(group)
                 continue
-            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at,
+            vids = getattr(yt, "videos", None) or []
+            via = lambda q: "chat" if q.get("chat") else (  # noqa: E731 - where the move came from
+                vids[q["video"]] if isinstance(q.get("video"), int) and 0 <= q["video"] < len(vids) else None)
+            items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at, **({"via": via(q)} if via(q) else {}),
                       **({"color": q["color"]} if q.get("color") else {})} for q in group]  # paint: only its look
             f = world.forecast
             known = f["stuck_gen"] if f and f["key"] == [u.history_base, u.phase] else False

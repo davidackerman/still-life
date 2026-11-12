@@ -116,6 +116,7 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None)))
     if vid not in world.extra_videos:
         world.extra_videos.append(vid)
+    world.video_names[vid] = f"the Day {day} Short"  # where its comments' moves came from, on the live page
     world.daily = {"date": today(now), "day": day, "video": vid}
     events = [{"type": "daily_short", "day": day, "video": vid}]
     store.save(world, events)  # recorded before anything else can fail: never posted twice

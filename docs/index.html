@@ -48,14 +48,19 @@
   <p id="forecast" class="forecast"></p>
   <p id="cta" hidden><a id="video" class="button" href="#">Comment on the video to change it</a></p>
   <p id="checked" class="checked"></p>
+</section>
+
+<section class="part">
+  <h2>The comments so far</h2>
   <p id="tally" class="tally"></p>
   <details class="history" open>
-    <summary>What has happened so far</summary>
+    <summary>Every move and event, newest first</summary>
     <ol id="events" class="events"></ol>
   </details>
 </section>
 
-<div class="narrow">
+<div class="narrow part">
+<h2>How it works</h2>
 <p>A YouTube video hosts this universe: Conway's Game of Life on <span id="size">128×72</span> cells with wrapping edges, one generation every two minutes, around the clock. The video's thumbnail shows the grid and its title shows the status. What you see above is the same universe, computed in your browser from the bot's latest state.</p>
 <p>Every comment on the video injects cells. Left alone, a finite universe must eventually return to a state it was in before, and from then on it is stuck in a loop forever. When that happens a 24-hour countdown starts. If no comment breaks the loop in time, the universe dies: an obituary video is uploaded and the original goes private.</p>
 <p class="pitch">Every comment changes this universe. Some save it. Some kill it.</p>
@@ -133,6 +138,7 @@ async function load() {
       launch: d.config.launch_time, genSec: d.config.gen_seconds,
       grid: LifeCore.decode(u.grid, h, w),
       highlight: new Set((d.display.highlight || []).map(([x, y]) => y * w + x)),
+      videoNames: d.video_names || {},  // where a move came from: "the Day 5 Short"
       seen: (d.comments_seen || {}).total || 0,  // every comment the bot has read, skipped ones too
     };
     if (fresh) { ahead = { gen: S.gen, grid: S.grid }; forecastFor = null; }
@@ -662,11 +668,17 @@ function renderMarks() {
   lp.hidden = !seen.size;
 }
 
+// Where a move came from: the live chat or one of our videos (moves logged from Nov 12 on).
+function source(e) {
+  if (!e.via) return "";
+  return " · from " + (e.via === "chat" ? "the live chat" : (S && S.videoNames[e.via]) || "a video");
+}
+
 function describe(e) {
   if (e.kind === "comment") {
-    if (!e.changed) return `a comment changed nothing (${e.command})`;
+    if (!e.changed) return `a comment changed nothing (${e.command})${source(e)}`;
     const eff = effectOf(e, false);
-    return `a comment landed: ${e.command}` + (eff ? ` · time it had left: ${eff.text}` : "");
+    return `a comment landed: ${e.command}` + (eff ? ` · time it had left: ${eff.text}` : "") + source(e);
   }
   return ({
     cycle_detected: "stuck in a loop; the 24-hour countdown started",

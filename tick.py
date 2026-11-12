@@ -207,6 +207,12 @@ def main(argv=None) -> int:
         seen["world"] = world
         quota["q"] = youtube.Quota(world.quota, now)
         main = world.video_id or video_id  # universe #2 on lives on the obituary video
+        names = world.video_names  # what the live page calls each video a move came from
+        names.setdefault(main, "the main video")
+        for v in extra_ids:
+            names.setdefault(v, "the teaser Short")
+        for i, v in enumerate(world.extra_videos):  # (the daily Shorts so far, one a day from Day 2)
+            names.setdefault(v, f"the Day {i + 2} Short")
         due = now - world.comments_read_at >= COMMENTS_EVERY_S  # the chat is read every run
         if due:
             world.comments_read_at = now

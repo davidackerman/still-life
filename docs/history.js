@@ -45,7 +45,7 @@ const History = (() => {
         if (!injections.has(e.gen)) injections.set(e.gen, []);
         const effect = effects.get(`${e.gen}|${e.command}`) || null;
         injections.get(e.gen).push({ ...e, effect });
-        events.push({ gen: e.gen, kind: "comment", command: e.command, changed: e.changed, effect });
+        events.push({ gen: e.gen, kind: "comment", command: e.command, changed: e.changed, effect, via: e.via });
       } else if (e.type === "phase") {
         events.push({ gen: e.gen, kind: "phase", to: e.to, reason: e.reason, deadline: e.deadline_gen });
       } else if (e.type === "tick") {

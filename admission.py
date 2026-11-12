@@ -151,6 +151,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
         mine[str(land)] = mine.get(str(land), 0) + 1
         state.queue.append({"comment": kid, "author": author, "published_at": c.epoch,
                             "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells], "chat": c.video < 0,
+                            "video": c.video,  # which of our videos (an index), for "from the Day 5 Short"
                             **({"color": cmd.color} if cmd.color else {}),
                             **({"land_gen": land} if land != gen_of(c.epoch) else {}),  # scheduled, or waiting its turn
                             **({"scheduled": True} if cmd.delay_s else {})})

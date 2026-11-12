@@ -707,3 +707,16 @@ def test_a_scheduled_move_lands_when_it_said():
     ev = engine.tick(w, LAUNCH + 660, FakeYT())
     landed = [e for e in ev if e["type"] == "injection"]
     assert [e["command"] for e in landed] == ["block 30,30"] and landed[0]["gen"] == 5 and not w.admission.queue
+
+
+def test_each_move_says_where_it_came_from():
+    import youtube
+
+    class VideosYT(ChatYT):
+        videos = ["MAIN", "SHORT1"]
+    at = "2027-01-15T08:00:00Z"
+    yt = VideosYT(comments=[Comment("c1", "u1", at, "block 1,1"), Comment("c2", "u2", at, "block 9,9", video=1)],
+                  chat=[Comment("chat:m", "u3", at, "block 20,20", video=youtube.CHAT)])
+    ev = engine.tick(world(), LAUNCH + 60, yt)
+    via = {e["command"]: e.get("via") for e in ev if e["type"] == "injection"}
+    assert via == {"block 1,1": "MAIN", "block 9,9": "SHORT1", "block 20,20": "chat"}
