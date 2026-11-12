@@ -126,6 +126,7 @@ async function load() {
       launch: d.config.launch_time, genSec: d.config.gen_seconds,
       grid: LifeCore.decode(u.grid, h, w),
       highlight: new Set((d.display.highlight || []).map(([x, y]) => y * w + x)),
+      seen: (d.comments_seen || {}).total || 0,  // every comment the bot has read, skipped ones too
     };
     if (fresh) { ahead = { gen: S.gen, grid: S.grid }; forecastFor = null; }
     if (rl.ok) {
@@ -624,7 +625,10 @@ function renderTally() {
     .map(([k, n]) => `${n} ${(KIND[k] || [k, k + "s"])[n === 1 ? 0 : 1]}`);
   el.textContent = "";
   const b = document.createElement("b");
-  b.textContent = `${comments.length} comment${comments.length === 1 ? "" : "s"} so far: `;
+  const n = comments.length, seen = S && S.seen > n ? S.seen : 0;  // the log has the moves; the bot counts the rest
+  b.textContent = seen
+    ? `${seen} comments so far, ${n} moves (${seen - n} went over 3 per person every 2 minutes): `
+    : `${n} comment${n === 1 ? "" : "s"} so far: `;
   const better = document.createElement("span"), worse = document.createElement("span");
   better.className = "better"; better.textContent = `${gave} gave it time`;
   worse.className = "worse"; worse.textContent = `${took} took time`;
