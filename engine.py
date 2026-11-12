@@ -38,7 +38,7 @@ PINNED_MIN_INTERVAL_S = 45 * 60  # the main video's status comment, and the newe
 PINNED_EXTRA_MIN_INTERVAL_S = 3 * 3600  # the second-newest Short's
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
 VIEWS_EVERY_S = 15 * 60  # the videos' view counts are read at most this often (1 unit), while a rewrite is due
-PINNED_RESTAMP_S = 0  # off since 2026-11-12 (was 3 h, 8 x 50 units/day: now spent reading the chat every 3 min)
+PINNED_RESTAMP_S = 0  # off since 2026-11-12 (was 3 h, 8 x 50 units/day: now spent reading the chat more often)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
 # so no more often than the regular 3-hour refresh. Phase changes stay immediate.

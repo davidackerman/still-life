@@ -857,7 +857,7 @@ class Screen:
         checked = checked_text(snap.checked, now)
         if checked:  # so a viewer knows when their comment will show up
             d.text((x, y), checked, font=font("regular", 22), fill=LIGHT, anchor="lt")
-            d.text((x, y + 28), "(about every 3 min)", font=font("regular", 19), fill=MUTED, anchor="lt")
+            d.text((x, y + 28), "(every minute while people play)", font=font("regular", 19), fill=MUTED, anchor="lt")
             y += 64
         if u.phase != DIED:  # the story so far, every half hour
             text, extra = rewind_text(now), "  (every 30 min)"
