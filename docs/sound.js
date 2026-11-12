@@ -7,22 +7,31 @@
 //   - a soft pulse that follows the phase (ALIVE every 1.5 s, CONTESTED faster,
 //     FLATLINING low and slow); dying is one long fading tone
 //   - a chime when a comment lands, a warm chord when the universe is saved
-//   - a faint airy chord that follows the phase
-// Everything but the pulse goes through a soft reverb.
+//   - underneath, the live stream's bed of low, slow chords (stream_audio.py):
+//     alive, it drifts through a calm progression, a chord every 80 s, each
+//     easing into the next; stuck or contested, it moves within seconds to one
+//     darker chord and holds it; silent once it has died
+// The notes go through a soft reverb; the pulse's monitor and the bed don't.
 "use strict";
 
 const Sound = (() => {
   const NOTES = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24].map((s) => 220 * 2 ** (s / 12));  // A pentatonic, 2 octaves
   const LOW = NOTES.slice(0, 6).map((f) => f / 2);  // for deaths, an octave down
   const PULSE = { ALIVE: [880, 1.5, 0.035], CONTESTED: [880, 0.9, 0.04], FLATLINING: [659.25, 2.2, 0.04] };  // Hz, every s, level
-  const PAD = [440, 493.88, 523.25, 554.37, 659.25];
-  const CHORD = { ALIVE: [440, 554.37, 659.25], FLATLINING: [440, 523.25, 659.25], CONTESTED: [440, 493.88, 659.25] };
+  // The bed: [root, the notes above it], in A like everything else (as stream_audio.py).
+  const PROGRESSION = [  // alive: A maj9, F#m9, D maj9, E sus, and round again
+    [110.00, [164.81, 207.65, 246.94, 277.18]], [92.50, [164.81, 207.65, 220.00, 277.18]],
+    [73.42, [185.00, 220.00, 277.18, 329.63]], [82.41, [185.00, 220.00, 246.94, 277.18]]];
+  const HOLD = { FLATLINING: [110.00, [164.81, 220.00, 261.63]],  // A minor: stuck in a loop
+                 CONTESTED: [110.00, [164.81, 220.00, 246.94]] };  // A sus2: a comment broke the loop; undecided
+  const CHORD_S = 80, BED = { root: 0.0053, note: 0.0034 };  // per voice
+  const EASE_SLOW = 8.3, EASE_FAST = 1.1;  // s: chords blend over ~25 s; a new phase gets its chord in ~2 s
   const LEVEL = 0.8;  // about the Shorts' loudness
   const TICK_S = 0.3, AHEAD_S = 1.1;  // notes pool per tick; the pulse is scheduled this far ahead (background tabs tick slowly)
   const MAX_STEP = 60;  // a jump of more generations than this is a cut, not music
   const PREF = "still-life-sound";
 
-  let ctx = null, master = null, dry = null, music = null, padGains = [];
+  let ctx = null, master = null, dry = null, music = null, bed = new Map(), bedChord = null;
   let on = false, phase = null, nextPulse = 0, nextTick = 0, lastChime = 0;
   let last = null, w = 128, h = 72;
   const born = new Set(), died = new Set();
@@ -65,20 +74,47 @@ const Sound = (() => {
     direct.gain.value = 0.75; send.gain.value = 0.55;
     music.connect(direct).connect(master);
     music.connect(send).connect(reverb()).connect(master);
-    const pad = ctx.createGain(), lfo = ctx.createOscillator(), depth = ctx.createGain();
-    pad.gain.value = 0.0022 * 0.8;  // the airy chord, slowly swelling
-    lfo.frequency.value = 0.07; depth.gain.value = 0.0022 * 0.2;
-    lfo.connect(depth).connect(pad.gain);
-    lfo.start();
-    pad.connect(music);
-    padGains = PAD.map((f) => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.frequency.value = f; g.gain.value = 0;
-      o.connect(g).connect(pad);
-      o.start();
-      return g;
-    });
+    for (const [root, notes] of PROGRESSION.concat(Object.values(HOLD))) {
+      voice("root", root);
+      notes.forEach((f) => voice("note", f));
+    }
     setInterval(schedule, 100);
+  }
+
+  // One voice of the bed, silent until a chord wants it: the note and a slightly
+  // detuned twin (a slow, warm beat), the root with its octave too (so small
+  // speakers carry it), each swelling slowly at its own rate.
+  function voice(kind, f) {
+    const key = `${kind}:${f}`;
+    if (bed.has(key)) return;
+    const g = ctx.createGain(), swell = ctx.createGain(), lfo = ctx.createOscillator(), depth = ctx.createGain();
+    g.gain.value = 0;
+    swell.gain.value = 0.825;  // 0.65 + 0.35 sin^2(...), as a steady part and a wobble
+    lfo.frequency.value = 2 * (0.025 + (f % 7) * 0.007);
+    depth.gain.value = -0.175;
+    lfo.connect(depth).connect(swell.gain);
+    lfo.start();
+    for (const [mult, amp] of [[1, 1], [1.0025, 0.5], ...(kind === "root" ? [[2, 0.35]] : [])]) {
+      const o = ctx.createOscillator(), a = ctx.createGain();
+      o.frequency.value = f * mult; a.gain.value = amp;
+      o.connect(a).connect(swell);
+      o.start();
+    }
+    swell.connect(g).connect(dry);
+    bed.set(key, { g, level: BED[kind] });
+  }
+
+  // The chord the bed is heading for: the phase's, or the progression's (null: silent).
+  function chordNow() {
+    if (phase === "DIED") return null;
+    return HOLD[phase] || PROGRESSION[Math.floor(Date.now() / 1000 / CHORD_S) % PROGRESSION.length];
+  }
+
+  function bedTo(chord, ease) {
+    if (chord === bedChord) return;
+    bedChord = chord;
+    const want = new Set(chord ? [`root:${chord[0]}`, ...chord[1].map((f) => `note:${f}`)] : []);
+    for (const [key, v] of bed) v.g.gain.setTargetAtTime(want.has(key) ? v.level : 0, ctx.currentTime, ease);
   }
 
   // A soft plucked tone (kalimba-like): quick attack, exponential decay.
@@ -118,6 +154,7 @@ const Sound = (() => {
   function schedule() {
     if (!on || ctx.state !== "running") return;
     const now = ctx.currentTime;
+    if (phase) bedTo(chordNow(), EASE_SLOW);  // the progression moves on every CHORD_S
     if (now >= nextTick && (born.size || died.size)) {
       voices([...born], NOTES, 5, 0.035, 0.075, 0.55, 2.0, now + 0.05);
       voices([...died], LOW, 3, 0.03, 0.06, 0.25, 1.0, now + 0.19);  // a beat after the births
@@ -136,9 +173,9 @@ const Sound = (() => {
 
   function setPhase(p) {
     if (p === phase) return;
-    const was = phase, now = ctx.currentTime, chord = CHORD[p] || [];
+    const was = phase, now = ctx.currentTime;
     phase = p;
-    PAD.forEach((f, i) => padGains[i].gain.setTargetAtTime(chord.includes(f) ? 1 : 0, now, 1.0));
+    bedTo(chordNow(), was ? EASE_FAST : EASE_SLOW);  // a new phase: its chord within seconds
     if (p === "DIED" && was) {  // the monitor flatlines: one long tone that fades
       const o = ctx.createOscillator(), g = ctx.createGain();
       o.frequency.value = 880;
@@ -200,6 +237,7 @@ const Sound = (() => {
     } else if (ctx) {
       master.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
       last = null; phase = null; born.clear(); died.clear();
+      bedTo(null, 0.05); bedChord = undefined;  // back on, the bed fades in again
       setTimeout(() => { if (!on) ctx.suspend(); }, 400);
     }
     return on;

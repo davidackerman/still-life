@@ -372,7 +372,10 @@ function draw(gen) {
     : st.phase === "ALIVE" ? `${fmtSpan(left)} left`
     : st.phase === "FLATLINING" ? `dies in ${fmtSpan(left)}` : `decided in ${fmtSpan(left)}`;
   let right = st.phase === "DIED" ? `died at gen ${(st.died ?? gen).toLocaleString()}` : `Gen ${gen.toLocaleString()}`;
-  if (mode !== "live") right += ` · ${fmtTime(genTime(gen))}`;
+  if (mode !== "live") {  // the past: when, and how long ago (press LIVE to come back)
+    const ago = Date.now() / 1000 - genTime(gen);
+    right += ` · ${fmtTime(genTime(gen))}${ago >= 60 ? ` · ${fmtSpan(ago)} ago` : ""}`;
+  }
   $("gen").textContent = right;
 }
 
