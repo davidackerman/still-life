@@ -381,7 +381,7 @@ def test_effects_can_be_rebuilt_from_an_old_log():
 
 
 def test_a_burst_of_comments_shares_one_line():
-    w, yt = world(), PinYT([owner_status()] + [Comment(f"c{i}", "kid", "2027-01-15T08:00:00Z", t)
+    w, yt = world(), PinYT([owner_status()] + [Comment(f"c{i}", f"kid{i}", "2027-01-15T08:00:00Z", t)
                                               for i, t in enumerate("ABCDEFG")])
     engine.tick(w, LAUNCH + 600, yt)
     assert w.recent[0].startswith("gen 0: 7 comments") and len(w.recent) == 1
@@ -393,6 +393,7 @@ def test_comments_dropped_under_the_old_hourly_rule_come_back_once(monkeypatch):
     kid = [Comment(f"k{i}", "kid", "2027-01-15T08:00:00Z", t) for i, t in enumerate("ABCDEFG")]
     w, yt = world(), FakeYT(kid + [comment("g", "u2", "glider 10,10")])
     monkeypatch.setattr(admission, "AUTHOR_COOLDOWN_S", 3600)  # the old rule
+    monkeypatch.setattr(admission, "MOVES_PER_GEN", 0)  # (and before the per-generation limit)
     ev = engine.tick(w, LAUNCH + 600, yt)
     applied = [e for e in ev if e["type"] == "injection"]
     assert len(applied) == 2  # the kid's first letter and the glider

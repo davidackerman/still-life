@@ -81,7 +81,7 @@ def test_comments_outside_the_48h_window_are_ignored():
 def test_global_cap_queues_the_excess():
     s = Admission()
     run(s, [C(f"c{i:02d}", f"u{i}", 0) for i in range(25)])
-    first, second = take_batch(s), take_batch(s)
+    first, second = take_batch(s, 20), take_batch(s, 20)  # (MAX_PER_RUN is 200: a safety net)
     assert len(first) == 20 and len(second) == 5
     assert [q["comment"] for q in first + second] == [k(f"c{i:02d}") for i in range(25)]
 
@@ -126,9 +126,23 @@ def test_a_flood_takes_turns_with_everyone_else():
     s = Admission()
     flood = [C(f"f{i:02d}", "spammer", 0) for i in range(30)]
     others = [C("x", "u2", 1), C("y", "u3", 2)]
-    admit(s, flood + others, T0 + 120 * 60, KEY)
-    first = take_batch(s)
+    admit(s, flood + others, T0 + 120 * 60, KEY, per_gen=0)  # with no per-person limit
+    first = take_batch(s, 20)
     got = [q["comment"] for q in first]
     assert len(first) == 20 and k("x") in got and k("y") in got  # not stuck behind 30 spam comments
     assert [q["comment"] for q in first if q["comment"] not in (k("x"), k("y"))] == [k(f"f{i:02d}") for i in range(18)]
-    assert len(take_batch(s)) == 12 and not s.queue
+    assert len(take_batch(s, 20)) == 12 and not s.queue
+
+
+def test_each_person_gets_three_moves_a_generation_and_the_rest_are_skipped():
+    s = Admission()
+    mine = [C(f"m{i}", "u1", 0) for i in range(5)] + [C("m5", "u1", 1)]  # minutes 0 and 1: generation 0
+    c = admit(s, mine + [C("o", "u2", 1)], T0 + 5 * 60, KEY, launch_time=T0)
+    assert c["accepted"] == 4 and c["rejected"] == {"over_per_generation_limit": 3}
+    assert [q["comment"] for q in s.queue] == [k("m0"), k("m1"), k("m2"), k("o")]  # the first three, and u2
+    s = Admission.from_dict(s.to_dict())  # it holds across runs, and for late arrivals
+    c = admit(s, [C("m6", "u1", 1), C("m7", "u1", 2), C("m8", "u1", 3)], T0 + 10 * 60, KEY, launch_time=T0)
+    assert c["accepted"] == 2 and c["rejected"] == {"over_per_generation_limit": 1}  # generation 1 is new
+    assert len(s.per_gen[keyed(KEY, "author", "u1")]) == 2
+    admit(s, [], T0 + (2 * 60 + 10) * 60, KEY, launch_time=T0)  # two hours on, the counts are gone
+    assert not s.per_gen

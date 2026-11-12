@@ -28,10 +28,11 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of it
 | `glider x,y [ne\|nw\|se\|sw]` | a glider heading that way (default `se`) |
 | `block x,y` · `blinker x,y` · `rpent x,y` · `acorn x,y` | that pattern, its top-left corner at (x, y) |
 | `cells x,y x,y …` | up to 25 single cells |
+| a pattern's name on its own: `block`, `glider ne`, `acorn` | that pattern, at a spot picked from your comment |
 | anything else | a 5×5 random patch made from your comment |
 | add `red`, `orange`, `yellow`, `blue`, `purple`, `pink` or `cyan` | your cells in that color, on the live stream and in the Shorts |
 
-`x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Every comment counts, as many as you like. The bot checks every few minutes and lands each comment at the generation you posted it. Cells are only ever added, and deleting a comment doesn't undo it.
+`x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Comment as often as you like: up to 3 moves per person count each generation (every 2 minutes), and the rest are skipped. The bot checks every few minutes and lands each move at the generation you posted it. Cells are only ever added, and deleting a comment doesn't undo it.
 
 A color is only paint: the game plays out exactly the same with or without it. Painted cells keep their color as they move, and a newborn cell takes the color most of its three parents have, so a colored glider stays colored as it flies.
 

@@ -71,7 +71,7 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"24 hours{so_far}. As of day {day}, {fate}{countdown}\n\n"
             f"This Short is a replay: your comment lands in the live universe within minutes. Watch it happen on "
             f"the 24/7 live stream (type in its chat to play): {render.STREAM_URL}\n\n"
-            f"Every comment adds cells, as many as you like: glider x,y · block x,y · rpent x,y · acorn x,y · "
+            f"Every comment adds cells (up to 3 moves per person every 2 minutes): glider x,y · block x,y · rpent x,y · acorn x,y · "
             f"or just say anything (x 0–{w - 1}, y 0–{h - 1}, from the top-left). If it gets stuck in a loop "
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"

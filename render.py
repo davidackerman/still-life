@@ -418,9 +418,9 @@ def suggestion(u: Universe) -> str:
 # universe is the thumbnail (and the live page).
 INTRO_MAIN = ("The video is the explainer. The universe itself lives in this video's thumbnail, on the 24/7 "
               "live stream and on the live page (links at the bottom), and the title counts down to its death. "
-              "Every comment adds cells (as many as you like; replies count too).")
+              "Every comment adds cells (up to 3 moves per person every 2 minutes; replies count too).")
 INTRO_EXTRA = ("This Short is a replay, but it is alive: every comment here adds cells to the live universe "
-               "within minutes (as many as you like; replies count too). Watch your move land on the 24/7 live "
+               "within minutes (up to 3 moves per person every 2 minutes; replies count too). Watch your move land on the 24/7 live "
                "stream, the linked video's thumbnail or the live page below. If the universe dies, both videos die.")
 
 

@@ -397,7 +397,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             world.migrations.append(SCORES)
             events.append({"type": "scores_backfilled", "moves": n})
     counts = admission.admit(world.admission, comments, now, world.key, dead=(u.phase == DIED),
-                             shape=u.grid.shape)
+                             shape=u.grid.shape, launch_time=world.launch_time, gen_seconds=world.gen_seconds)
     sim_from = len(events)
 
     # 2. simulation (authoritative)

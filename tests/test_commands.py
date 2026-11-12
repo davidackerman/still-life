@@ -123,3 +123,21 @@ def test_a_color_word_anywhere_paints_the_move_and_changes_nothing_else():
     for text in ("Fred's redo", "bluebird", "green block 3,4", "black block 3,4"):  # whole words, and only the paints
         assert commands.parse("c1", text).color is None
     assert set(commands.COLORS) == {"red", "orange", "yellow", "blue", "purple", "pink", "cyan"}
+
+
+def test_a_pattern_named_without_coordinates_is_placed_at_the_comments_spot():
+    r = commands.random_patch("c9", "block")  # the spot a random patch from this comment would use
+    x, y = (int(v) for v in r.desc.split(" at ")[1].split(","))
+    assert commands.parse("c9", "block").desc == f"block {x},{y}"
+    assert commands.parse("c9", "block").cells == cells_at("block", x, y)
+    assert commands.parse("c1", "glider").desc.endswith(" se") and commands.parse("c1", "Glider NE").desc.endswith(" ne")
+    paint = commands.parse("c1", "acorn red")
+    assert paint.kind == "acorn" and paint.color == "red"
+    assert commands.parse("c1", "i love a block, then glider 5,5").desc == "glider 5,5 se"  # coordinates win
+    for text in ("blocks", "myglider", "acorn -1,5", "block ١,٢", "block 128,0", "hello"):
+        assert commands.parse("c1", text).kind == "random", text
+
+
+def cells_at(name, x, y):
+    import life
+    return tuple(sorted(set(life.place(life.PATTERNS[name], x, y, (life.H, life.W)))))

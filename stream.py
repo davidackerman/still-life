@@ -892,7 +892,7 @@ class Screen:
             d.text((x, mid), args, font=fr, fill=MUTED, anchor="lm")
             x += d.textlength(args, font=fr) + 30
         f18 = font("regular", 18)
-        for first in ("one move per message (the first command in it)", "one move per message"):
+        for first in ("one move per message, up to 3 per person every 2 min", "up to 3 moves per person every 2 min"):
             parts = [(first + "   ·   add a color: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
             parts += [(f"  ·   every move so far: {render.LIVE_ADDRESS}", MUTED)]
             if sum(d.textlength(s, font=f18) for s, _ in parts) <= width:

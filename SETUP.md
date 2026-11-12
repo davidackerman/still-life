@@ -132,7 +132,7 @@ from then on rewrites it:
 
 ```
 🟢 ALIVE · this video dies in ~9 days if nobody comments
-The video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (as many as you like; replies count too).
+The video is the explainer. The universe itself lives in this video's thumbnail and on the live page (link at the bottom), and the title counts down to its death. Every comment adds cells (up to 3 moves per person every 2 minutes; replies count too).
 
 Latest moves:
 • gen 220: glider 16,61 sw
@@ -255,7 +255,7 @@ roughly halves that. Try it locally first: `python stream.py --preview out/strea
 YouTube's developer policies allow storing other users' API data for at most
 30 days and require deleting it on request. This repository is public and its
 git history is permanent, so the bot never writes comment text, comment IDs
-or channel IDs to it. Duplicate detection and the one-per-hour limit use
+or channel IDs to it. Duplicate detection and the per-person limit use
 HMAC-SHA256 hashes under `STATE_KEY`, pruned after 72 hours. The log holds
 game data only.
 
@@ -284,7 +284,7 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `life.py` | B3/S23 on a 128×72 torus, patterns, BLAKE2b state hashes |
 | `universe.py` | the state machine (ALIVE / FLATLINING / CONTESTED / DIED), on generation time; `replay()` |
 | `commands.py` | comment → cells parser, including the hashed random patch |
-| `admission.py` | dedupe, one injection per author per hour, 20 per run with a queue |
+| `admission.py` | dedupe, up to 3 moves per person per generation, 200 per run with a queue (taking turns) |
 | `engine.py` | one run: comments in, simulation forward, title/thumbnail out |
 | `tick.py` | the scheduled entry point: load state, run once, save |
 | `death.py` | the death sequence: verify, obituary, upload, next universe, retire |
