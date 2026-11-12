@@ -667,11 +667,18 @@ def _impact(h: History, gen: int) -> float:
 OPEN_S, OPEN_LAND_S, OPEN_ZOOM = 3.4, 0.7, 2.2  # the daily Short's opening: its length, when the move lands, how close
 
 
-def opening_move(h: History, since_gen: int):
+OPENING_LEAD = "alternate"  # the opening's comment: "save", "kill", or "alternate" (kills on even days, saves on odd)
+
+
+def opening_move(h: History, since_gen: int, lead: str | None = None):
     """The day's comment for the opening, as (generation, the logged move, its
-    effect): the one that gave it the most life (a save invites the viewer to be
-    the next); on a day without a real save, the one that took the most. None
-    when nothing moved it much."""
+    effect): the one that took the most life from it ("kill") or gave it the
+    most ("save"), by `lead` (OPENING_LEAD; "alternate" by the day's parity, an
+    experiment: which keeps more viewers). Falls back to the other kind when the
+    day has none; None when nothing moved it much."""
+    lead = lead or OPENING_LEAD
+    if lead == "alternate":
+        lead = "kill" if (int(h.now_gen * h.gen_seconds // 86400) + 1) % 2 == 0 else "save"
     saves, kills = [], []
     for g in sorted(x for x in h.batches if since_gen < x <= h.now_gen):
         for e in h.batches[g]:
@@ -684,7 +691,7 @@ def opening_move(h: History, since_gen: int):
                 # the biggest first; between near-equals, one with a pattern's name reads better than a random patch
                 key = (round(abs(d) / 30), not e["command"].startswith("random"))
                 (saves if d > 0 else kills).append((key, g, e, f))
-    for pick in (saves, kills):
+    for pick in ((kills, saves) if lead == "kill" else (saves, kills)):
         if pick:
             return max(pick, key=lambda t: t[0])[1:]
     return None
@@ -712,8 +719,8 @@ def _open_on(h: History, move, add) -> None:
         lines = [f"One comment took {amount}", "off this Short's life."]
     top = [(lines[0], "bold", 64), (lines[1], "bold", 82),
            (f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 44)]
-    if words.startswith("took"):  # (a day without a real save) turn it toward the viewer
-        top.insert(2, ("Yours could give them back.", "demi", 54))
+    if words.startswith("took"):  # a kill: turn it toward the viewer
+        top.append(("Yours could give them back.", "demi", 54))
     if e["command"].startswith("random"):  # what they typed isn't kept: say what it became
         caption = "someone's message\nbecame a random 5\u00d75 patch" + (f", {e['color']}" if e.get("color") else "")
     else:

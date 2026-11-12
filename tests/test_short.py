@@ -191,3 +191,17 @@ def test_the_daily_short_opens_on_what_one_real_comment_did(state_dir, monkeypat
     assert any(fr.zoom > 1.5 for fr in frames[:int(short.OPEN_S * short.FPS)])  # closer as it lands
     hook = frames[int(short.OPEN_S * short.FPS)]
     assert any("DIES" in t[0] for t in hook.texts) or any("DIES" in t[0] for t in frames[int(short.OPEN_S * short.FPS) + 8].texts)
+
+
+
+def test_the_opening_alternates_between_the_days_biggest_kill_and_save(state_dir):
+    h = short.History(state_dir)
+    kill, save = short.opening_move(h, 0, "kill"), short.opening_move(h, 0, "save")
+    for move, sign in ((kill, -1), (save, 1)):
+        if move:
+            f = move[2]
+            b, a = f["before"], f["after"]
+            d = (a if a is not None else b + short.FORECAST_GENS) - (b if b is not None else a + short.FORECAST_GENS)
+            assert d * sign > 0 or move == (save if sign < 0 else kill)  # its kind, or the other when the day had none
+    day = int(h.now_gen * h.gen_seconds // 86400) + 1
+    assert short.opening_move(h, 0, "alternate") == (kill if day % 2 == 0 else save)
