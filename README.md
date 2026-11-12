@@ -32,7 +32,7 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of it
 | anything else | a 5×5 random patch made from your comment |
 | add `red`, `orange`, `yellow`, `blue`, `purple`, `pink` or `cyan` | your cells in that color, on the live stream and in the Shorts |
 
-`x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Comment as often as you like: up to 3 moves per person count each generation (every 2 minutes), and the rest are skipped. The bot checks every few minutes and lands each move at the generation you posted it. Cells are only ever added, and deleting a comment doesn't undo it.
+`x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Comment as often as you like: up to 3 moves per person land each generation (every 2 minutes), the next 9 wait their turn over the following few minutes, and the rest are skipped. The bot checks every few minutes and lands each move at the generation you posted it. Cells are only ever added, and deleting a comment doesn't undo it.
 
 A color is only paint: the game plays out exactly the same with or without it. Painted cells keep their color as they move, and a newborn cell takes the color most of its three parents have, so a colored glider stays colored as it flies.
 

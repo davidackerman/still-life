@@ -686,3 +686,13 @@ def test_latest_moves_say_when_each_one_came_in():
     line = render.with_author("gen 30: block 1,1", "abc", {"abc": "@x"})
     assert render.with_time(line, LAUNCH, 120) == "Fri 4:00 AM ET · gen 30 · @x: block 1,1"
     assert render.with_time("none yet", LAUNCH, 120) == "none yet"
+
+
+
+def test_a_move_waiting_its_turn_lands_at_its_generation_on_a_later_run():
+    w, yt = world(), FakeYT([Comment(f"c{i}", "kid", "2027-01-15T08:00:00Z", f"block {i},{i}") for i in range(5)])
+    ev = engine.tick(w, LAUNCH + 60, yt)  # still generation 0: its three land, two wait for generation 1
+    first = [e for e in ev if e["type"] == "injection"]
+    assert [e["gen"] for e in first] == [0, 0, 0] and len(w.admission.queue) == 2
+    ev = engine.tick(w, LAUNCH + 130, FakeYT())  # generation 1 has come
+    assert [e["gen"] for e in ev if e["type"] == "injection"] == [1, 1] and not w.admission.queue

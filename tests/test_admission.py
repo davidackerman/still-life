@@ -134,15 +134,17 @@ def test_a_flood_takes_turns_with_everyone_else():
     assert len(take_batch(s, 20)) == 12 and not s.queue
 
 
-def test_each_person_gets_three_moves_a_generation_and_the_rest_are_skipped():
+def test_each_person_gets_three_moves_a_generation_the_next_nine_wait_and_the_rest_are_skipped():
     s = Admission()
-    mine = [C(f"m{i}", "u1", 0) for i in range(5)] + [C("m5", "u1", 1)]  # minutes 0 and 1: generation 0
+    mine = [C(f"m{i:02d}", "u1", 0) for i in range(14)]  # a burst in generation 0
     c = admit(s, mine + [C("o", "u2", 1)], T0 + 5 * 60, KEY, launch_time=T0)
-    assert c["accepted"] == 4 and c["rejected"] == {"over_per_generation_limit": 3}
-    assert [q["comment"] for q in s.queue] == [k("m0"), k("m1"), k("m2"), k("o")]  # the first three, and u2
+    assert c["accepted"] == 13 and c["rejected"] == {"over_per_generation_limit": 2}
+    lands = [q.get("land_gen", 0) for q in s.queue if q["author"] == keyed(KEY, "author", "u1")]
+    assert lands == [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]  # three a generation, nine waiting their turn
+    assert "land_gen" not in [q for q in s.queue if q["comment"] == k("o")][0]  # u2 has room in its own
     s = Admission.from_dict(s.to_dict())  # it holds across runs, and for late arrivals
-    c = admit(s, [C("m6", "u1", 1), C("m7", "u1", 2), C("m8", "u1", 3)], T0 + 10 * 60, KEY, launch_time=T0)
-    assert c["accepted"] == 2 and c["rejected"] == {"over_per_generation_limit": 1}  # generation 1 is new
-    assert len(s.per_gen[keyed(KEY, "author", "u1")]) == 2
+    c = admit(s, [C("m20", "u1", 1), C("m21", "u1", 9)], T0 + 10 * 60, KEY, launch_time=T0)
+    assert c["accepted"] == 1 and c["rejected"] == {"over_per_generation_limit": 1}  # gens 0-3 full; gen 4 has room
+    assert s.queue[-1].get("land_gen") is None and s.queue[-1]["comment"] == k("m21")
     admit(s, [], T0 + (2 * 60 + 10) * 60, KEY, launch_time=T0)  # two hours on, the counts are gone
     assert not s.per_gen

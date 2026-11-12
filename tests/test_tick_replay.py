@@ -178,6 +178,7 @@ def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
 def test_every_comment_read_is_counted_once_from_the_log_then_kept_up(tmp_path, env, monkeypatch):
     import admission
     monkeypatch.setattr(admission, "MOVES_PER_GEN", 1)  # so one of the two is skipped: it still counts
+    monkeypatch.setattr(admission, "WAIT_GENS", 0)  # (no waiting its turn)
     d = str(tmp_path / "state")
     live(d, FakeYT(), 3600, comments_at=[(600, "block 5,5"), (607, "hi")])  # one person, one generation
     p = os.path.join(d, "state.json")

@@ -4,11 +4,12 @@ Rules:
 - Only comments published within the last FETCH_WINDOW_S (48 h) are considered.
 - Each comment is processed at most once (dedupe).
 - Comments are processed in (publishedAt, comment ID) order.
-- Comment as often as you like, but each person's moves count at most
-  MOVES_PER_GEN times per generation (by the generation each comment was
-  posted in); the rest are dropped and counted (since 2026-11-11, after one
-  person sent 86 messages in five minutes; before that, from 2026-11-09, every
-  comment counted). The older per-author cooldown still exists, off by
+- Comment as often as you like: each person's moves land at most
+  MOVES_PER_GEN to a generation. Past that, a move waits its turn and lands in
+  one of the next WAIT_GENS generations ("land_gen" in the queue), so a burst
+  of ideas still plays out; beyond those it is dropped and counted (limit since
+  2026-11-11, after one person sent 86 messages in five minutes; the wait since
+  2026-11-12; before 2026-11-11, from 2026-11-09, every comment counted). The older per-author cooldown still exists, off by
   default: with AUTHOR_COOLDOWN_S > 0, a comment inside that window after the
   same author's last accepted one (by publishedAt) is dropped and counted.
 - After the universe has died, comments are dropped and counted.
@@ -36,7 +37,8 @@ import commands
 import life
 
 AUTHOR_COOLDOWN_S = 0  # 0 = off; was 3600 (one per author per hour) until 2026-11-09
-MOVES_PER_GEN = 3  # each person's moves that count per generation (2 minutes); 0 = no limit
+MOVES_PER_GEN = 3  # each person's moves that land per generation (2 minutes); 0 = no limit
+WAIT_GENS = 3  # past that, a move may wait this many generations for its turn (up to 9 more)
 KEEP_GENS = 60  # how long (in generations: 2 hours) each person's per-generation counts are kept
 MAX_PER_RUN = 200  # was 20 until 2026-11-11, when a flood made moves wait and land late
 FETCH_WINDOW_S = 48 * 3600  # comments older than this are ignored
@@ -128,18 +130,24 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
             reason = "universe_dead"
         elif cooldown and last is not None and abs(c.epoch - last) < cooldown:  # also late arrivals
             reason = "author_rate_limit"
-        elif limit and state.per_gen.get(author, {}).get(str(gen_of(c.epoch)), 0) >= limit:
-            reason = "over_per_generation_limit"
+        land = gen_of(c.epoch)  # its own generation, or the next one with room for this person
+        if not reason and limit:
+            mine = state.per_gen.get(author, {})
+            while mine.get(str(land), 0) >= limit and land < gen_of(c.epoch) + WAIT_GENS:
+                land += 1
+            if mine.get(str(land), 0) >= limit:
+                reason = "over_per_generation_limit"
         if reason:
             counts["rejected"][reason] = counts["rejected"].get(reason, 0) + 1
             continue
         cmd = commands.parse(c.id, c.text, shape)
         state.last_accepted[author] = max(c.epoch, last or c.epoch)
         mine = state.per_gen.setdefault(author, {})
-        mine[str(gen_of(c.epoch))] = mine.get(str(gen_of(c.epoch)), 0) + 1
+        mine[str(land)] = mine.get(str(land), 0) + 1
         state.queue.append({"comment": kid, "author": author, "published_at": c.epoch,
                             "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells], "chat": c.video < 0,
-                            **({"color": cmd.color} if cmd.color else {})})
+                            **({"color": cmd.color} if cmd.color else {}),
+                            **({"land_gen": land} if land != gen_of(c.epoch) else {})})  # waiting its turn
         counts["accepted"] += 1
     return counts
 

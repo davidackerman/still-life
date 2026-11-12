@@ -284,7 +284,7 @@ before launch. It still verifies: `python replay.py --state-dir archive/test-202
 | `life.py` | B3/S23 on a 128×72 torus, patterns, BLAKE2b state hashes |
 | `universe.py` | the state machine (ALIVE / FLATLINING / CONTESTED / DIED), on generation time; `replay()` |
 | `commands.py` | comment → cells parser, including the hashed random patch |
-| `admission.py` | dedupe, up to 3 moves per person per generation, 200 per run with a queue (taking turns) |
+| `admission.py` | dedupe, up to 3 moves per person per generation (9 more wait their turn), 200 per run with a queue (taking turns) |
 | `engine.py` | one run: comments in, simulation forward, title/thumbnail out |
 | `tick.py` | the scheduled entry point: load state, run once, save |
 | `death.py` | the death sequence: verify, obituary, upload, next universe, retire |
