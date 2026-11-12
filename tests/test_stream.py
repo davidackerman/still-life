@@ -363,6 +363,12 @@ def test_the_panel_shows_a_replays_moves_as_they_land(state_dir):
     assert r.landed() and screen.panel() is new and screen.snap is old  # the countdown jumps now
     assert r.shown == max(r.new)
     assert screen.compose(last + 0.5).size == (stream.SW, stream.SH)
+    order = []  # the banner is drawn last, over the move labels, and the labels steer clear of it
+    moves, banner = screen._moves, screen._replay_banner
+    screen._moves = lambda *a, **k: (order.append(("moves", k.get("avoid"))), moves(*a, **k))[1]
+    screen._replay_banner = lambda *a, **k: (order.append(("banner", None)), banner(*a, **k))[1]
+    screen.compose(last + 0.6)
+    assert [o for o, _ in order] == ["moves", "banner"] and order[0][1]
 
 
 def test_the_legend_films_move_and_redraw_the_frame(state_dir):

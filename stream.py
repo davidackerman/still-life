@@ -691,25 +691,31 @@ class Screen:
         self._films(d, now)
         if playing:
             self._graph(d)
+        # the banner goes last, over the move labels (which also steer clear of it)
         if self.rewind:
-            self._rewind_banner(d, now, shape)
             self._moves(d, now, shape, self.rewind.tags, REWIND_TAG_S, avoid=self._banner_rows(shape, top + 18))
+            self._rewind_banner(d, now, shape)
+        elif self.replay:
+            y0 = self._replay_y0(shape)
+            self._moves(d, now, shape, avoid=self._banner_rows(shape, y0))
+            self._replay_banner(d, now, shape, y0)
         else:
-            if self.replay:
-                self._replay_banner(d, now, shape)
             self._moves(d, now, shape)
         return im
 
-    def _replay_banner(self, d, now: float, shape) -> None:
-        """'REPLAY · 3 new moves': at the top of the board, or the bottom if a move landed up there."""
-        r, snap = self.replay, self.snap
+    def _replay_y0(self, shape) -> int:
+        """The replay banner's top: at the top of the board, or the bottom if a move landed up there."""
         cell, left, top = geometry(shape)
+        high = any(centre_px(e["cells"], shape)[1] < top + 150 for v in self.replay.new.values() for e in v)
+        return top + shape[0] * cell - 114 if high else top + 18
+
+    def _replay_banner(self, d, now: float, shape, y0: int) -> None:
+        """'REPLAY · 3 new moves', and when, and how long until it's live again."""
+        r, snap = self.replay, self.snap
         n = sum(len(v) for v in r.new.values())
         line1 = f"REPLAY · {'a new move' if n == 1 else f'{n} new moves'}"
         when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%I:%M %p").lstrip("0")
         line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, math.ceil(r.end - now))} s"
-        high = any(centre_px(e["cells"], shape)[1] < top + 150 for v in r.new.values() for e in v)
-        y0 = top + shape[0] * cell - 114 if high else top + 18
         self._banner(d, shape, y0, line1, line2, (now - r.start) / max(0.1, r.end - r.start))
 
     def _rewind_banner(self, d, now: float, shape) -> None:
