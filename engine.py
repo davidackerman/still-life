@@ -21,6 +21,7 @@ Logged events hold game data only (see admission.py for the data policy).
 from __future__ import annotations
 
 import copy
+import json
 from collections import Counter
 from dataclasses import dataclass, field
 
@@ -592,10 +593,25 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         gap = (PINNED_MIN_INTERVAL_S if v == "0" or v in newest else PINNED_EXTRA_MIN_INTERVAL_S if v in second
                else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
         return force_pinned or slot.get("at") is None or now - slot["at"] >= gap
+    # What the status comments would say, before any names: where that hasn't
+    # changed since a comment was written, there is nothing to rewrite there, and
+    # no names to look up (that read of every comment and the chat costs ~10 units).
+    up, down, covers = board_scores(world, u.generation)
+    tally = comment_counts(world, u.generation)
+    basis = admission.keyed(world.key, "pinned-basis", json.dumps(
+        [status_line, world.recent, world.recent_by, up, down, covers, tally, world.pinned_suggest, pinned_link]))
+
+    def stale(v, slot):  # the main comment's "updated" stamp, when re-stamping is on
+        return v == "0" and (slot.get("at") is None or bool(PINNED_RESTAMP_S) and now - slot["at"] >= PINNED_RESTAMP_S)
+
+    def changed(v, slot):
+        return force_pinned or stale(v, slot) or slot.get("basis") != basis
+
     # Only where people have watched since the comment was last written: one read of
-    # every video's view count (1 unit) when a rewrite is due. Unknown counts count as watched.
+    # every video's view count (1 unit, at most every VIEWS_EVERY_S). Unknown counts count as watched.
     views: dict = {}
-    if hasattr(yt, "update_comment") and hasattr(yt, "view_counts") and any(due(v, s) for v, s in world.pinned.items()):
+    if hasattr(yt, "update_comment") and hasattr(yt, "view_counts") and any(
+            due(v, s) and changed(v, s) for v, s in world.pinned.items()):
         if now - world.views.get("at", 0) < VIEWS_EVERY_S:
             views = dict(world.views.get("counts") or {})  # read recently: wait for the next read
         else:
@@ -608,35 +624,39 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     def watched(v, slot):
         n = views.get(v)
         return n is None or slot.get("at") is None or force_pinned or n > slot.get("views", -1)
+
+    def wanted_now(v, slot):
+        return due(v, slot) and changed(v, slot) and watched(v, slot)
     board, recent = None, world.recent
-    if hasattr(yt, "update_comment") and any(due(v, s) and watched(v, s) for v, s in world.pinned.items()):
+    todo = hasattr(yt, "update_comment") and any(wanted_now(v, s) for v, s in world.pinned.items())
+    if todo:
         # who made each move, and the leaderboard: names looked up now, never stored
         by = (world.recent_by + [None] * len(world.recent))[:len(world.recent)]
-        up, down, covers = board_scores(world, u.generation)
         wanted = {a for _, a in up + down} | {a.removeprefix("chat:") for a in by if a and a != "chat"}
         names = lookup_names(world, yt, comments, now, events, wanted) if wanted else {}
         board = render.leaderboard(up, down, names, world.gen_seconds, covers) or None
         recent = [render.with_author(line, a, names) for line, a in zip(world.recent, by)]
     recent = [render.with_time(line, world.launch_time, world.gen_seconds) for line in recent]
-    tally = comment_counts(world, u.generation)
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):
+        if not (todo and wanted_now(v, slot)):
+            continue
         main = v == "0"
         # slot["text"] is the text without its "updated <time>" stamp: the stamp
-        # alone never triggers a rewrite, except that the main video's comment is
-        # re-stamped every few hours so it never looks abandoned. Only its HMAC is
+        # alone never triggers a rewrite (unless re-stamping is on). Only HMACs are
         # kept: the leaderboard names people, and names never go in the repo.
         text = admission.keyed(world.key, "pinned", render.pinned_text(
             status_line, recent, world.pinned_suggest, pinned_link, main=main, board=board, counts=tally))
-        stale = main and (slot.get("at") is None or bool(PINNED_RESTAMP_S) and now - slot["at"] >= PINNED_RESTAMP_S)
-        if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot) and watched(v, slot):
-            op = "update_pinned" if main else f"update_pinned_{v}"
-            stamped = render.pinned_text(status_line, recent, world.pinned_suggest, pinned_link, main=main,
-                                         stamp=render.clock(now, date=False), board=board, counts=tally)
-            if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
-                slot["text"], slot["at"] = text, now
-                if v in views:  # the views it had when written: the next rewrite waits for more
-                    slot["views"] = views[v]
-                events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
+        if text == slot.get("text") and not stale(v, slot):
+            slot["basis"] = basis  # the same words after all (only a name could differ): nothing to write
+            continue
+        op = "update_pinned" if main else f"update_pinned_{v}"
+        stamped = render.pinned_text(status_line, recent, world.pinned_suggest, pinned_link, main=main,
+                                     stamp=render.clock(now, date=False), board=board, counts=tally)
+        if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
+            slot["text"], slot["at"], slot["basis"] = text, now, basis
+            if v in views:  # the views it had when written: the next rewrite waits for more
+                slot["views"] = views[v]
+            events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
 
     if events or u.generation != gen_start or counts["new"]:
         events.append({"type": "tick", "now": run_at, "gen_start": gen_start, "gen_end": u.generation,

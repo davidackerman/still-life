@@ -223,6 +223,20 @@ def test_pinned_comment_updates_only_when_changed_and_at_most_every_45_minutes()
     assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]
 
 
+def test_names_are_only_looked_up_when_the_status_comment_would_change():
+    w = world()
+    w.scores = {keyed("u1"): [4320, 3]}  # on the leaderboard; their name only in the full read
+    yt = NamesYT([owner_status()], everyone=[player("y", "u1", "block 5,5", LAUNCH + 30, name="@ann")])
+    engine.tick(w, LAUNCH + 600, yt)
+    assert yt.reads.count(LAUNCH) == 1 and "@ann" in yt.updates[-1][1]
+    for t in range(1, 6):  # quiet hours: each rewrite due, nothing new to say
+        engine.tick(w, LAUNCH + 600 + 3600 * t, yt)
+    assert yt.reads.count(LAUNCH) == 1 and len(yt.updates) == 1  # no read of every comment for nothing
+    yt.comments.append(player("z", "u2", "rpent 90,20", LAUNCH + 6 * 3600))
+    engine.tick(w, LAUNCH + 600 + 6 * 3600, yt)
+    assert yt.reads.count(LAUNCH) == 2 and "rpent 90,20" in yt.updates[-1][1]  # something new: names, then a rewrite
+
+
 def test_a_status_comment_is_only_rewritten_where_people_have_watched_since():
     class ViewsYT(PinYT):
         views = {"0": 100}
@@ -366,7 +380,8 @@ def test_old_state_with_a_single_pinned_id_still_loads():
     disp.update({"pinned_id": p["id"], "pinned_text": p["text"], "pinned_at": p["at"]})
     d.pop("reply_counts")
     w2 = engine.World.from_state(json.loads(json.dumps(d)), hist, w.key)
-    assert w2.pinned == w.pinned and w2.pinned_id == "Ugpin" and w2.reply_counts == {}
+    old = {v: {k: slot[k] for k in ("id", "text", "at")} for v, slot in w.pinned.items()}  # (no "basis" yet: one lookup)
+    assert w2.pinned == old and w2.pinned_id == "Ugpin" and w2.reply_counts == {}
 
 
 def test_a_bigger_universe_runs_the_same_way():
