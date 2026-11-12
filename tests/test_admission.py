@@ -42,7 +42,7 @@ def test_one_injection_per_author_per_hour():
     s = Admission()
     c = run(s, [C("a", "u1", 0), C("b", "u1", 30), C("c", "u1", 59), C("d", "u1", 60)])
     assert queued(s) == [k("a"), k("d")]
-    assert c == {"new": 4, "accepted": 2, "rejected": {"author_rate_limit": 2}}
+    assert c == {"new": 4, "new_chat": 0, "accepted": 2, "rejected": {"author_rate_limit": 2}}
 
 
 def test_cooldown_counts_from_the_last_accepted_comment():

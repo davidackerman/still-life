@@ -385,3 +385,12 @@ def test_the_chats_history_gives_names_without_moving_our_place():
     assert [(c.id, c.name) for c in got] == [("chat:m1", "Viv")] and chat["token"] == "T5"
     assert "pageToken" not in svc.calls[-1] and yt.quota.used == 5
     assert chat_yt(ChatService(), {}).chat_history() == []
+
+
+def test_even_the_reads_stop_short_of_googles_limit():
+    import pytest
+    q = youtube.Quota({}, 1_800_000_000)
+    q.state["used"] = youtube.HARD_CAP - 5
+    q.spend(5, critical=True)  # reads go on past the bot's own budget...
+    with pytest.raises(youtube.QuotaExceeded):
+        q.spend(1, critical=True)  # ...but not past the hard cap

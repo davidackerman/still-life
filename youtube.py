@@ -117,6 +117,7 @@ def http_error_reason(err) -> tuple[int, str, str]:
 
 # --------------------------------------------------------------------------- quota
 DAILY_BUDGET = 8000  # self-imposed; Google's default pool is 10,000/day
+HARD_CAP = 9700  # even the reads (critical) stop here, short of Google's 10,000: past it every call fails
 PACIFIC = ZoneInfo("America/Los_Angeles")
 COST = {"commentThreads.list": 1, "comments.list": 1, "videos.list": 1, "videos.update": 50,
         "thumbnails.set": 50, "comments.update": 50, "commentThreads.insert": 50, "channels.list": 1,
@@ -153,6 +154,8 @@ class Quota:
         if not critical and self.state["used"] + units > self.budget:
             raise QuotaExceeded(f"daily budget {self.budget} would be exceeded "
                                 f"({self.state['used']} used, {units} needed)")
+        if self.state["used"] + units > HARD_CAP:  # the chat keeps its page token: nothing is skipped, only late
+            raise QuotaExceeded(f"hard cap {HARD_CAP} would be exceeded ({self.state['used']} used, {units} needed)")
         self.state["used"] += units
 
 

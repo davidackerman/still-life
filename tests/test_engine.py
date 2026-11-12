@@ -210,16 +210,16 @@ def test_owner_comments_without_the_marker_still_play():
     assert [e["command"] for e in ev if e["type"] == "injection"] == ["block 5,5"] and w.pinned_id is None
 
 
-def test_pinned_comment_updates_only_when_changed_and_at_most_every_45_minutes():
+def test_pinned_comment_updates_only_when_changed_and_at_most_every_hour():
     w, yt = world(), PinYT([owner_status()])
     engine.tick(w, LAUNCH, yt)
     assert len(yt.updates) == 1 and "none yet" in yt.updates[0][1]
     engine.tick(w, LAUNCH + 300, yt)
     assert len(yt.updates) == 1  # nothing new
     yt.comments.append(comment("b", "u2", "rpent 90,20"))
-    engine.tick(w, LAUNCH + 1800, yt)
-    assert len(yt.updates) == 1  # new event, but too soon
     engine.tick(w, LAUNCH + 2700, yt)
+    assert len(yt.updates) == 1  # new event, but too soon
+    engine.tick(w, LAUNCH + 3600, yt)
     assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]
 
 
@@ -348,11 +348,11 @@ def test_each_video_keeps_its_own_status_comment():
     texts = dict(yt.updates)
     assert "The video is the explainer" in texts["Ugpin"] and "This Short is a replay" in texts["Ugshort"]
     assert texts["Ugpin"].splitlines()[0] == texts["Ugshort"].splitlines()[0]  # same status line
-    # the main comment and the newest Short's are refreshed at most every 45 min
+    # the main comment and the newest Short's are refreshed at most every hour
     yt.comments.append(comment("b", "u2", "rpent 90,20"))
-    engine.tick(w, LAUNCH + 600 + 1800, yt)
-    assert yt.updates[2:] == []
     engine.tick(w, LAUNCH + 600 + 2700, yt)
+    assert yt.updates[2:] == []
+    engine.tick(w, LAUNCH + 600 + 3600, yt)
     assert [cid for cid, _ in yt.updates[2:]] == ["Ugpin", "Ugshort"]
 
 
@@ -669,7 +669,7 @@ def test_an_earlier_chat_mover_is_named_from_the_chats_history():
     first = PinYT([owner_status(), player("chat:c", "u2", "block 40,40", LAUNCH + 60, video=youtube.CHAT, name="Viv")])
     engine.tick(w, LAUNCH + 600, first)
     later = ChatNamesYT([owner_status(), player("b", "u3", "rpent 90,20", LAUNCH + 3000, name="@cy")])
-    engine.tick(w, LAUNCH + 600 + 2700, later)  # the chat message is not in this run's reads
+    engine.tick(w, LAUNCH + 600 + 3600, later)  # the chat message is not in this run's reads
     text = later.updates[-1][1]
     assert "· Viv (live chat): block 40,40" in text and "· @cy: rpent 90,20" in text and later.history_reads == 1
     assert render.with_author("gen 1: block 1,1", "chat", {}) == "gen 1 · live chat: block 1,1"  # old state

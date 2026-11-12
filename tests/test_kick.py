@@ -23,32 +23,54 @@ def fake(runs):
     return http, calls
 
 
-def log_with_comment(tmp_path, minutes_ago):
+def write_log(tmp_path, comment_ago=None, chat_ago=None):
     import json
+    ticks = [{"type": "tick", "now": (NOW - dt.timedelta(minutes=m)).timestamp(), "comments_new": n, "chat_new": c}
+             for m, n, c in ((comment_ago, 2, 0), (chat_ago, 1, 1)) if m is not None]
+    ticks.sort(key=lambda e: e["now"])
+    ticks.append({"type": "tick", "now": (NOW - dt.timedelta(minutes=1)).timestamp(), "comments_new": 0, "chat_new": 0})
     p = tmp_path / "log.jsonl"
-    lines = [{"type": "tick", "now": (NOW - dt.timedelta(minutes=m)).timestamp(), "comments_new": n}
-             for m, n in ((minutes_ago, 2), (1, 0))]  # the newest run read nothing new
-    p.write_text("\n".join(json.dumps(x) for x in [{"type": "genesis"}] + lines) + "\n")
+    p.write_text("\n".join(json.dumps(x) for x in [{"type": "genesis"}] + ticks) + "\n")
     return str(p)
 
 
-def test_runs_come_every_minute_while_people_play_and_every_five_when_quiet(monkeypatch, tmp_path):
+def write_state(tmp_path, used):
+    import json
+    from zoneinfo import ZoneInfo
+    day = NOW.astimezone(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    p = tmp_path / "state.json"
+    p.write_text(json.dumps({"quota": {"day": day, "used": used}}))
+    return str(p)
+
+
+def starts(tmp_path, last_run, used=0, **ago):
+    http, calls = fake([run(last_run), run(12)])
+    kick.main(NOW, http, log=write_log(tmp_path, **ago), state=write_state(tmp_path, used))
+    return calls[-1] == ("POST", "dispatches", {"ref": "main"})
+
+
+def test_runs_come_every_minute_while_the_chat_talks_and_every_five_when_quiet(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_TOKEN", "t")
-    for commented, last_run, starts in ((4, 1.2, True), (4, 0.5, False),     # active: every minute
-                                        (30, 2, False), (30, 3.2, True),     # this hour: every 3
-                                        (120, 4, False), (120, 5.2, True)):  # quiet: every 5
-        http, calls = fake([run(last_run), run(12)])
-        kick.main(NOW, http, log=log_with_comment(tmp_path, commented))
-        assert (calls[-1] == ("POST", "dispatches", {"ref": "main"})) == starts, (commented, last_run)
+    assert starts(tmp_path, 1.2, chat_ago=4) and not starts(tmp_path, 0.5, chat_ago=4)  # chatting: every minute
+    assert not starts(tmp_path, 2, comment_ago=4) and starts(tmp_path, 3.2, comment_ago=4)  # video comments: every 3
+    assert not starts(tmp_path, 2, chat_ago=30) and starts(tmp_path, 3.2, chat_ago=30)  # this hour: every 3
+    assert not starts(tmp_path, 4, comment_ago=120) and starts(tmp_path, 5.2, comment_ago=120)  # quiet: every 5
     http, calls = fake([run(5.2)])
-    kick.main(NOW, http, log=str(tmp_path / "missing.jsonl"))  # no log to read: every 5
-    assert calls[-1][0] == "POST"
+    kick.main(NOW, http, log=str(tmp_path / "missing.jsonl"), state=str(tmp_path / "missing.json"))
+    assert calls[-1][0] == "POST"  # no log to read: every 5
+
+
+def test_it_backs_off_as_the_days_quota_fills(monkeypatch, tmp_path):
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    assert starts(tmp_path, 1.2, used=6000, chat_ago=4)
+    assert not starts(tmp_path, 1.2, used=6600, chat_ago=4) and starts(tmp_path, 3.2, used=6600, chat_ago=4)
+    assert not starts(tmp_path, 3.2, used=7600, chat_ago=4) and starts(tmp_path, 5.2, used=7600, chat_ago=4)
 
 
 def test_it_never_piles_up_runs_and_does_nothing_without_a_token(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "t")
     http, calls = fake([run(9, "queued"), run(20)])
-    kick.main(NOW, http, log="/nonexistent")
+    kick.main(NOW, http, log="/nonexistent", state="/nonexistent")
     assert [c[0] for c in calls] == ["GET"]
     monkeypatch.delenv("GITHUB_TOKEN")
     http, calls = fake([run(60)])

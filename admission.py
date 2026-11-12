@@ -110,7 +110,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
     oldest = gen_of(now) - KEEP_GENS
     state.per_gen = {a: kept for a, g in state.per_gen.items()
                      if (kept := {n: c for n, c in g.items() if int(n) >= oldest})}
-    counts = {"new": 0, "accepted": 0, "rejected": {}}
+    counts = {"new": 0, "new_chat": 0, "accepted": 0, "rejected": {}}
     window_start = now - FETCH_WINDOW_S
     fresh = {}
     for c in new_comments:
@@ -120,6 +120,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
     for kid, c in sorted(fresh.items(), key=lambda kc: (kc[1].epoch, kc[1].id)):
         state.seen[kid] = c.epoch
         counts["new"] += 1
+        counts["new_chat"] += c.video < 0  # the live chat's (deploy/kick.py runs faster while it talks)
         reason = None
         author = keyed(key, "author", c.author)
         last = state.last_accepted.get(author)

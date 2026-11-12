@@ -34,7 +34,7 @@ from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
 # the clock, not by how often the bot runs.
 TITLE_MIN_INTERVAL_S = 60 * 60  # while ALIVE (the countdown is days long); 45 min until 2026-11-12
 TITLE_CRISIS_INTERVAL_S = 15 * 60  # stuck in a loop or contested: hours matter
-PINNED_MIN_INTERVAL_S = 45 * 60  # the main video's status comment, and the newest Short's
+PINNED_MIN_INTERVAL_S = 60 * 60  # the main video's status comment, and the newest Short's (45 min until 2026-11-12)
 PINNED_EXTRA_MIN_INTERVAL_S = 3 * 3600  # the second-newest Short's
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
 VIEWS_EVERY_S = 15 * 60  # the videos' view counts are read at most this often (1 unit), while a rewrite is due
@@ -660,7 +660,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
 
     if events or u.generation != gen_start or counts["new"]:
         events.append({"type": "tick", "now": run_at, "gen_start": gen_start, "gen_end": u.generation,
-                       "phase": u.phase, "state_hash": u.hash.hex(), "comments_new": counts["new"],
+                       "phase": u.phase, "state_hash": u.hash.hex(), "comments_new": counts["new"], "chat_new": counts.get("new_chat", 0),
                        "accepted": counts["accepted"], "rejected": counts["rejected"],
                        "queued": len(world.admission.queue)})
     return events
