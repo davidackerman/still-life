@@ -9,7 +9,7 @@
 **Every comment changes this universe. Some save it. Some kill it.**
 
 - 🧬 **A real Game of Life**, running around the clock: 128×72 cells on a torus, one generation every 2 minutes, from a 7-cell acorn.
-- 💬 **Every comment adds cells.** `glider 40,20 ne`, `acorn 64,30`, or just say anything. Replies count, and so do comments on the Short.
+- 💬 **Every comment adds cells.** `glider 40,20 ne`, `acorn 64,30 red`, or just say anything, and add a color if you like. Replies count, and so do comments on the Shorts and messages in the live chat.
 - ⏳ **The video updates itself.** Its title counts down to its own death ("dies in 8d 21h 30m if nobody comments") and its thumbnail is the universe.
 - 🔁 **Left alone, it always gets stuck.** A finite universe must eventually repeat a state, and then it loops forever. That starts a 24-hour countdown.
 - ⚫ **If nobody breaks the loop, it dies.** An obituary video replays its life, the video goes private, and a bigger universe is born on the obituary.
@@ -21,7 +21,7 @@ No server: a Python bot on GitHub Actions wakes every 5 minutes, steps the unive
 
 ## How to play
 
-Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or [the Short](https://youtube.com/shorts/m-JcepjW41U), or reply to any comment there. The first command in your comment wins:
+Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of its Shorts, reply to any comment there, or type in [the live stream's chat](https://www.youtube.com/channel/UCh9o5dGhiczNcq29QsRZ6pg/live). The first command in your message wins:
 
 | Comment | Adds |
 |---|---|
@@ -29,8 +29,11 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or [the Shor
 | `block x,y` · `blinker x,y` · `rpent x,y` · `acorn x,y` | that pattern, its top-left corner at (x, y) |
 | `cells x,y x,y …` | up to 25 single cells |
 | anything else | a 5×5 random patch made from your comment |
+| add `red`, `orange`, `yellow`, `blue`, `purple`, `pink` or `cyan` | your cells in that color, on the live stream and in the Shorts |
 
 `x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Every comment counts, as many as you like. The bot checks every few minutes and lands each comment at the generation you posted it. Cells are only ever added, and deleting a comment doesn't undo it.
+
+A color is only paint: the game plays out exactly the same with or without it. Painted cells keep their color as they move, and a newborn cell takes the color most of its three parents have, so a colored glider stays colored as it flies.
 
 ## How it lives and dies
 
