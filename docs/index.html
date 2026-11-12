@@ -506,18 +506,39 @@ function setPlaying(p) {
   $("play").setAttribute("aria-label", p ? "Pause" : "Play the whole life");
   lastFrame = performance.now();
 }
-function jump(gen) { Stats.track("jump"); setMode("history"); setPlaying(false); histGen = gen; render(); }
+function jump(gen) {  // a move or a mark: like a chapter in a video, it plays on from there if it was playing
+  Stats.track("jump");
+  const keep = playing;
+  setMode("history"); histGen = gen;
+  if (keep) playPos = gen; else setPlaying(false);
+  render();
+}
 
-$("slider").addEventListener("input", (e) => { Stats.track("scrub"); setMode("history"); setPlaying(false); histGen = +e.target.value; render(); });
+// The slider works like a video player's: drag it while it plays and the board
+// follows the drag, then plays on from where you let go (a click on the track,
+// or an arrow key, seeks and plays on too).
+let resume = false, raf = 0;  // it was playing when the drag began; the pending frame
+function startPlaying() { setPlaying(true); if (!raf) raf = requestAnimationFrame(playFrame); }
+function resumePlay() { if (resume) { resume = false; playPos = histGen; startPlaying(); } }
+$("slider").addEventListener("pointerdown", () => { if (playing) { resume = true; setPlaying(false); } });
+$("slider").addEventListener("input", (e) => {
+  Stats.track("scrub");
+  const seek = playing;  // a key press while it plays
+  setMode("history"); histGen = +e.target.value;
+  if (seek) playPos = histGen; else setPlaying(false);
+  render();
+});
+for (const ev of ["change", "pointerup", "pointercancel"]) $("slider").addEventListener(ev, resumePlay);  // let go
 $("live").addEventListener("click", () => { setMode("live"); render(); });
 $("play").addEventListener("click", () => {
   Stats.track("play");
   if (playing) return setPlaying(false);
   if (mode === "live" || histGen >= liveGen()) histGen = 0;
-  setMode("history"); playPos = histGen; setPlaying(true); requestAnimationFrame(playFrame);
+  setMode("history"); playPos = histGen; startPlaying();
 });
 
 function playFrame(now) {
+  raf = 0;
   if (!playing) return;
   const end = liveGen();
   const speed = Math.max(15, end / 45);  // whole life in about 45 s
@@ -528,7 +549,7 @@ function playFrame(now) {
   if (TL) cues(TL.events.filter((e) => e.gen > was && e.gen <= histGen));
   render();
   if (histGen >= end) { setMode("live"); render(); return; }
-  requestAnimationFrame(playFrame);
+  raf = requestAnimationFrame(playFrame);
 }
 
 const SLICES = 120;  // comments are drawn as a density strip: one bar per slice of the life
