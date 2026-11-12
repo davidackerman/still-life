@@ -86,6 +86,7 @@ def paint_step(before: np.ndarray, after: np.ndarray, paint: np.ndarray) -> np.n
 
 
 TRAIL_GENS, TRAIL_MAX = 10, 0.42  # the tails: a cell that died fades out over 10 steps, from 42% bright
+LIVE_TRAIL = (6, 0.30)  # on a live board (a step every 2 minutes) shorter and fainter, so the living cells stay clear
 
 
 class Trail:
@@ -94,10 +95,11 @@ class Trail:
     the live board and in a replay, a drawn frame in the rewind. Only how the
     board looks: the game never sees it."""
 
-    def __init__(self, shape):
+    def __init__(self, shape, gens: int = TRAIL_GENS, brightest: float = TRAIL_MAX):
         self.last = np.full(shape, -(10 ** 9), np.int64)
         self.col = np.zeros(shape, np.uint8)
         self.t = 0
+        self.gens, self.brightest = gens, brightest
 
     def see(self, grid: np.ndarray, t: int, paint: np.ndarray | None = None) -> None:
         alive = grid == 1
@@ -106,10 +108,10 @@ class Trail:
         self.t = max(self.t, t)
 
     def layer(self, grid: np.ndarray, frac: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
-        """(brightness 0..TRAIL_MAX, color index) per cell; `frac` of the way to the
+        """(brightness 0..self.brightest, color index) per cell; `frac` of the way to the
         next step, so the newest tails fade on between generations."""
         d = (self.t - self.last).astype(np.float32) + frac  # steps since it was last alive
-        a = TRAIL_MAX * np.clip(1 - (d - 1) / TRAIL_GENS, 0, 1) ** 1.6
+        a = self.brightest * np.clip(1 - (d - 1) / self.gens, 0, 1) ** 1.6
         a[(grid == 1) | (d < 1)] = 0
         return a, self.col
 

@@ -179,7 +179,7 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
     snap.checked = last_check(state_dir)
     snap.deaths = death_history(state_dir, u.flatline_gens)
     snap.paint = live_paint(state_dir, u)
-    snap.trail = life.Trail(u.grid.shape)
+    snap.trail = life.Trail(u.grid.shape, *life.LIVE_TRAIL)
     snap.trail.see(u.grid, u.generation, snap.paint)
     step(snap, now if now is not None else time.time())
     return snap
@@ -363,9 +363,6 @@ class Tag:
     t0: float
 
 
-_tiles: dict = {}
-
-
 def geometry(shape) -> tuple[int, int, int]:
     """(cell px, left, top) for a board of `shape` (h, w), centred in the board box."""
     h, w = shape
@@ -375,41 +372,34 @@ def geometry(shape) -> tuple[int, int, int]:
 
 def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.ndarray | None = None,
               trail: tuple | None = None) -> np.ndarray:
+    """The board as pixels: each cell's color worked out on the small grid, then
+    scaled up once, with the grid lines painted over (strided writes; no
+    full-size masks, so a frame stays cheap with the tails on)."""
     h, w = grid.shape
     cell = geometry(grid.shape)[0]
-    if (h, w) not in _tiles:  # the empty board, and where each cell's inside is
-        inner = np.zeros((cell, cell), bool)
-        inner[1:-1, 1:-1] = True
-        tile = np.tile(inner, (h, w))
-        empty = np.empty(tile.shape + (3,), np.uint8)
-        empty[:] = GRID
-        empty[tile] = BG
-        _tiles[(h, w)] = (tile, empty)
-    tile, empty = _tiles[(h, w)]
-    img = empty.copy()
-
-    def big(m):  # a cell mask, scaled up to pixels (insides only)
-        return m.astype(bool).repeat(cell, 0).repeat(cell, 1) & tile
+    cells = np.empty((h, w, 3), np.uint8)
+    cells[:] = BG
     if trail is not None and phase != DIED:  # the tails: cells that just died, fading into the background
         a, col = trail
         on = a > 0.004
         if on.any():
             lut = np.array([PHASE_COLOR[phase]] + [render.PAINT[c] for c in commands.COLORS], np.float32)
-            rgb = np.zeros(grid.shape + (3,), np.uint8)
-            rgb[on] = (np.array(BG, np.float32) * (1 - a[on, None]) + lut[col[on]] * a[on, None]).astype(np.uint8)
-            m = big(on)
-            img[m] = rgb.repeat(cell, 0).repeat(cell, 1)[m]
+            cells[on] = (np.array(BG, np.float32) * (1 - a[on, None]) + lut[col[on]] * a[on, None]).astype(np.uint8)
+    alive = grid == 1
     if paint is None or phase == DIED or not paint.any():  # a dead universe is grey, paint and all
-        img[big(grid)] = PHASE_COLOR[phase]
-    else:  # 1: unpainted (the phase color); 2..: the paint
-        lut = np.array([BG, PHASE_COLOR[phase]] + [render.PAINT[c] for c in commands.COLORS], np.uint8)
-        idx = np.where(grid == 1, paint.astype(np.uint8) + 1, 0).repeat(cell, 0).repeat(cell, 1)
-        inside = (idx > 0) & tile
-        img[inside] = lut[idx[inside]]
+        cells[alive] = PHASE_COLOR[phase]
+    else:  # 0: unpainted (the phase color); 1..: the paint
+        lut = np.array([PHASE_COLOR[phase]] + [render.PAINT[c] for c in commands.COLORS], np.uint8)
+        cells[alive] = lut[paint[alive]]
     if lit is not None and lit.any():
+        m = alive & (lit == 1)
         if paint is not None and phase != DIED:
-            lit = lit & (paint == 0)  # a color shows from the moment it lands
-        img[big(grid & lit)] = HIGHLIGHT
+            m &= paint == 0  # a color shows from the moment it lands
+        cells[m] = HIGHLIGHT
+    img = cells.repeat(cell, 0).repeat(cell, 1)
+    for k in (0, cell - 1):  # each cell's edge: the grid lines
+        img[k::cell, :] = GRID
+        img[:, k::cell] = GRID
     return img
 
 
@@ -530,7 +520,7 @@ class Replay:
         self.start, self.end, self.label = start, t, label
         self.lit: list = []  # the new moves' cells, drawn white
         self.shown = self.first - 1  # the last generation played (before the first: none yet)
-        self.trail = life.Trail(self.u.grid.shape)
+        self.trail = life.Trail(self.u.grid.shape, *life.LIVE_TRAIL)  # the live board's past: its tails
         self.trail.see(self.u.grid, self.u.generation, getattr(self.u, "paint", None))
 
     def landed(self) -> bool:
