@@ -36,6 +36,18 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of it
 
 A color is only paint: the game plays out exactly the same with or without it. Painted cells keep their color as they move, and a newborn cell takes the color most of its three parents have, so a colored glider stays colored as it flies.
 
+## What's new
+
+Each change is also flagged ✨ on the [live page](https://davidackerman.github.io/still-life/)'s timeline and announced as the stream's rewind passes it (the list: [`docs/changes.json`](docs/changes.json)). Times are New York time.
+
+- **Sun Nov 8, 7:15 PM:** every comment counts (no more one move per person per hour)
+- **Tue Nov 10, 11:42 AM:** live-chat messages became moves
+- **Tue Nov 10, 7:35 PM:** top savers and killers in the pinned comments
+- **Wed Nov 11, 2:57 PM:** colors: add a color word to paint your cells
+- **Wed Nov 11, 8:29 PM:** up to 3 moves per person per generation; a pattern's name alone lands it
+- **Thu Nov 12, 11:16 AM:** tails: cells fade out as they die
+- **Thu Nov 12, 1:31 PM:** extra moves wait their turn instead of being skipped
+
 ## How it lives and dies
 
 One generation every 2 minutes, around the clock.

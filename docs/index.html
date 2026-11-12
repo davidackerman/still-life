@@ -104,6 +104,12 @@ let ahead = null;      // {gen, grid}: S stepped forward locally (no comments ye
 let TL = null, logSize = -1;  // the past, rebuilt from the log
 let mode = "live", histGen = 0, playing = false, playPos = 0, lastFrame = 0;
 let forecastFor = null, syncError = false;
+let CHANGES = [];  // [{at, text}]: when the rules or the board's look changed (changes.json)
+fetch("changes.json", { cache: "no-store" }).then((r) => r.ok ? r.json() : []).then((c) => {
+  CHANGES = Array.isArray(c) ? c : [];
+  if (TL) renderEvents();
+}).catch(() => {});
+const changeGen = (c) => Math.max(0, Math.floor((c.at - S.launch) / S.genSec));
 
 const fmtTime = (epoch) => new Date(epoch * 1000).toLocaleString(undefined,
   { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -637,6 +643,19 @@ function renderMarks() {
     b.addEventListener("click", () => jump(e.gen));
     box.appendChild(b);
   }
+  for (const c of CHANGES) {  // what changed when: new rules and features
+    const g = changeGen(c);
+    if (g > end) continue;
+    seen.set("✨", "something new");
+    const b = document.createElement("button");
+    b.className = "flag";
+    b.textContent = "✨";
+    b.style.left = `${(100 * g) / end}%`;
+    b.title = `${fmtTime(c.at)} · gen ${g.toLocaleString()}: new: ${c.text}`;
+    b.setAttribute("aria-label", b.title);
+    b.addEventListener("click", () => jump(g));
+    box.appendChild(b);
+  }
   const lp = $("legend-phases");
   lp.textContent = [...seen].map(([f, t]) => `${f} ${t}`).join("   ");  // only flags that exist
   lp.hidden = !seen.size;
@@ -714,7 +733,9 @@ function renderEvents() {
       items.push({ gen: e.gen, text: describe(e) });
     }
   }
-  for (const it of items.flat().reverse()) {
+  for (const c of S ? CHANGES : []) items.push({ gen: changeGen(c), text: `✨ new: ${c.text}`, at: c.at });
+  const all = items.flat().sort((a, b) => a.gen - b.gen || (a.at ? 1 : 0) - (b.at ? 1 : 0));
+  for (const it of all.reverse()) {
     const li = document.createElement("li");
     const a = document.createElement("a");
     a.href = "#board";

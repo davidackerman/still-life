@@ -58,6 +58,7 @@ STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the s
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 REWIND_TAGS, REWIND_TAG_S = 10, 3.0  # during the rewind, the moves that changed the most get a label
+REWIND_NEWS_S = 4.0  # ...and its banner says what was new (docs/changes.json) as it passes when it came
 # The instant replay of new moves: the board as it was, each move landing, the generations since.
 REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
 REWIND_SOUND, REPLAY_SOUND = 0.15, 0.3  # their notes' level: they play many at once (~ one live generation)
@@ -449,6 +450,8 @@ class Rewind:
         self.seen: set[int] = set()  # generations whose moves have landed
         self.tags: list[Tag] = []
         self.trail, self.frame = life.Trail(self.u.grid.shape), 0  # tails by drawn frame: streaks as it races
+        self.news = changes(state_dir, self.h.gen_seconds)  # [(gen, text)]: what was new, and when
+        self.news_shown: tuple[str, float] | None = None
 
     def done(self, now: float) -> bool:
         return now >= self.start + REWIND_S
@@ -473,12 +476,28 @@ class Rewind:
                     text = render.move_text(e) + render.effect_suffix(eff, self.u.flatline_gens, self.h.gen_seconds)
                     self.tags.append(Tag(text, [tuple(c) for c in e["cells"]], now))
         self.tags = [t for t in self.tags if now - t.t0 < REWIND_TAG_S]
+        while self.news and self.news[0][0] <= self.u.generation:
+            self.news_shown = (self.news.pop(0)[1], now)
         if sound and now - self.pool_at >= 0.3:
             sound.generation(self.pool, self.u.grid, gain=REWIND_SOUND)
             self.pool, self.pool_at = self.u.grid.copy(), now
 
     def lit_mask(self) -> np.ndarray | None:
         return mask_of([c for _, cells in self.lit for c in cells], self.u.grid.shape)
+
+
+def changes(state_dir: str, gen_seconds: int) -> list[tuple[int, str]]:
+    """What changed in the game and when (docs/changes.json next to the state), as
+    (generation, text), oldest first; [] if there's no list."""
+    path = os.path.join(os.path.dirname(os.path.abspath(state_dir)), "docs", "changes.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            items = json.load(f)
+        with open(os.path.join(state_dir, "state.json"), encoding="utf-8") as f:
+            launch = json.load(f)["config"]["launch_time"]
+    except (OSError, ValueError, KeyError):
+        return []
+    return sorted((max(0, int((c["at"] - launch) // gen_seconds)), str(c["text"])) for c in items if "at" in c)
 
 
 def mask_of(cells, shape) -> np.ndarray | None:
@@ -757,6 +776,8 @@ class Screen:
         cx = left + shape[1] * cell / 2
         when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%a %b %d, %I:%M %p")
         line1 = "REWIND · the story so far"
+        if r.news_shown and now - r.news_shown[1] < REWIND_NEWS_S:  # it just passed something new
+            line1 = f"NEW · {r.news_shown[0]}"
         line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, int(r.start + REWIND_S - now))} s"
         self._banner(d, shape, top + 18, line1, line2, (now - r.start) / REWIND_S)
 

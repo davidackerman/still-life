@@ -500,3 +500,25 @@ def state_dir_copy_without_color(tmp_path, d):
     log = (out / "log.jsonl").read_text().replace('"color": "red", ', "").replace(', "color": "red"', "")
     (out / "log.jsonl").write_text(log)
     return str(out)
+
+
+
+def test_the_rewind_says_what_was_new_as_it_passes_it(state_dir):
+    import json
+    import os
+    docs = os.path.join(os.path.dirname(os.path.abspath(state_dir)), "docs")
+    os.makedirs(docs, exist_ok=True)
+    with open(os.path.join(docs, "changes.json"), "w") as f:
+        json.dump([{"at": LAUNCH + 600, "text": "Colors arrive"}], f)
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    screen = stream.Screen(snap)
+    slot = LAUNCH // stream.REWIND_EVERY_S * stream.REWIND_EVERY_S + stream.REWIND_EVERY_S
+    screen.rewind = r = stream.Rewind(state_dir, slot, snap.u.generation)
+    assert r.news == [(5, "Colors arrive")]  # 600 s in: generation 5
+    t = slot
+    while not r.news_shown:
+        t += 0.1
+        r.advance(t)
+    assert r.news_shown[0] == "Colors arrive" and r.u.generation >= 5
+    assert screen.compose(t).size == (stream.SW, stream.SH)
+    assert stream.changes("/nonexistent/state", 120) == []
