@@ -378,6 +378,8 @@ def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.nd
         inside = (idx > 0) & tile
         img[inside] = lut[idx[inside]]
     if lit is not None and lit.any():
+        if paint is not None and phase != DIED:
+            lit = lit & (paint == 0)  # a color shows from the moment it lands
         img[big(grid & lit)] = HIGHLIGHT
     return img
 

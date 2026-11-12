@@ -1,11 +1,33 @@
 // Rebuild the universe's past from the public log (state/log.jsonl), in the
 // browser. Same rules and order as the bot: at each generation, logged
 // injections are OR-ed in first, then the grid steps to the next generation.
-// Keeps a snapshot every SNAP generations so scrubbing is instant.
+// Keeps a snapshot every SNAP generations so scrubbing is instant. It also keeps
+// the paint (the colors people gave their moves) exactly as life.paint_step does.
 "use strict";
 
 const History = (() => {
   const SNAP = 50;
+  const COLORS = ["red", "orange", "yellow", "blue", "purple", "pink", "cyan"];  // paint 1..7 (0: none), as commands.COLORS
+  const DY = [-1, -1, -1, 0, 0, 1, 1, 1], DX = [-1, 0, 1, -1, 1, -1, 0, 1];  // the 8 neighbours, read from the top left
+
+  // The paint one generation on, from `before` to `after` = step(before). A cell
+  // that lives on keeps its paint; a cell born takes its three parents' paint (the
+  // majority's, or if all three differ, the first one's). Dead cells have none.
+  function paintStep(before, after, paint, h, w) {
+    const out = new Uint8Array(h * w);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!after[i]) continue;
+      if (before[i]) { out[i] = paint[i]; continue; }
+      const p = [];
+      for (let k = 0; k < 8; k++) {
+        const j = ((y + DY[k] + h) % h) * w + ((x + DX[k] + w) % w);
+        if (before[j]) p.push(paint[j]);
+      }
+      out[i] = p[0] === p[1] || p[0] === p[2] ? p[0] : p[1] === p[2] ? p[1] : p[0];
+    }
+    return out;
+  }
 
   function parse(text) {
     const lines = text.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
@@ -64,18 +86,27 @@ const History = (() => {
       this.events = parsed.events;
       this.lastGen = parsed.lastGen;
       this.checked = parsed.checked;
-      this.snaps = new Map(); // gen -> grid after that gen's injections
+      this.snaps = new Map(); // gen -> {grid, paint} after that gen's injections (paint: null until a color)
       this.seed0 = seedGrid(g.seed, this.h, this.w);  // before any comment at gen 0
-      this.cur = { gen: 0, grid: this.inject(0, this.seed0) };
-      this.snaps.set(0, this.cur.grid);
+      this.cur = { gen: 0, ...this.inject(0, this.seed0, null) };
+      this.snaps.set(0, this.cur);
     }
 
-    inject(gen, grid) {
+    // That generation's moves, OR-ed in; a move with a color paints its cells.
+    inject(gen, grid, paint) {
       const batch = this.injections.get(gen);
-      if (!batch) return grid;
+      if (!batch) return { grid, paint };
       const out = grid.slice();
-      for (const inj of batch) for (const [x, y] of inj.cells) out[(y % this.h) * this.w + (x % this.w)] = 1;
-      return out;
+      for (const inj of batch) {
+        const k = COLORS.indexOf(inj.color) + 1;
+        if (k && !paint) paint = new Uint8Array(this.h * this.w);  // (a paint passed in is always a fresh copy)
+        for (const [x, y] of inj.cells) {
+          const i = (y % this.h) * this.w + (x % this.w);
+          out[i] = 1;
+          if (k) paint[i] = k;
+        }
+      }
+      return { grid: out, paint };
     }
 
     cellsAt(gen) {
@@ -92,16 +123,23 @@ const History = (() => {
       if (!start || (this.snaps.has(snapGen) && snapGen > start.gen)) {
         let k = snapGen;
         while (k > 0 && !this.snaps.has(k)) k -= SNAP;
-        start = { gen: k, grid: this.snaps.get(k) };
+        start = { gen: k, ...this.snaps.get(k) };
       }
-      let { gen: at, grid } = start;
+      let { gen: at, grid, paint } = start;
       while (at < gen) {
-        grid = this.inject(at + 1, LifeCore.step(grid, this.h, this.w));
+        const next = LifeCore.step(grid, this.h, this.w);
+        ({ grid, paint } = this.inject(at + 1, next, paint && paintStep(grid, next, paint, this.h, this.w)));
         at++;
-        if (at % SNAP === 0 && !this.snaps.has(at)) this.snaps.set(at, grid);
+        if (at % SNAP === 0 && !this.snaps.has(at)) this.snaps.set(at, { grid, paint });
       }
-      this.cur = { gen: at, grid };
+      this.cur = { gen: at, grid, paint };
       return grid;
+    }
+
+    // The paint at `gen` (index per cell: 0 none, 1.. COLORS), or null if nobody had painted yet.
+    paintAt(gen) {
+      this.gridAt(gen);
+      return this.cur.paint;
     }
 
     // Phase in effect at `gen`, and the deadline if any.
@@ -118,7 +156,7 @@ const History = (() => {
     }
   }
 
-  return { parse, Timeline, seedGrid };
+  return { parse, Timeline, seedGrid, paintStep, COLORS };
 })();
 
 if (typeof module !== "undefined") module.exports = History;

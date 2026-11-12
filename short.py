@@ -135,7 +135,10 @@ def board(f) -> Image.Image:
                 img[mine] = (np.array(render.PAINT[name], float) * (1 - f.grey)
                              + np.array(PHASE_COLOR[DIED], float) * f.grey).astype(np.uint8)
     if f.highlight is not None:
-        lit = (f.grid & f.highlight).repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
+        mask = f.grid & f.highlight
+        if paint is not None and f.grey < 1:
+            mask = mask & (paint == 0)  # a color shows from the moment it lands
+        lit = mask.repeat(CELL, 0).repeat(CELL, 1).astype(bool) & _tile
         img[lit] = HIGHLIGHT
     return Image.fromarray(img)
 

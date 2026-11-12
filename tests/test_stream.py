@@ -400,8 +400,80 @@ def test_the_stream_paints_the_cells_and_keeps_the_paint_as_they_move(tmp_path, 
     y, x = np.argwhere(snap.paint == 1)[0]
     assert tuple(img[y * cell + cell // 2, x * cell + cell // 2]) == render_paint("red")
     assert stream.Screen(snap).compose(LAUNCH + 3600 + 1200).size == (stream.SW, stream.SH)
+    lit = np.ones_like(snap.u.grid)  # a new move's glow: white, but a color shows from the moment it lands
+    img = stream.board_rgb(snap.u.grid, snap.u.phase, lit, snap.paint)
+    assert tuple(img[y * cell + cell // 2, x * cell + cell // 2]) == render_paint("red")
+    y, x = np.argwhere((snap.u.grid == 1) & (snap.paint == 0))[0]
+    assert tuple(img[y * cell + cell // 2, x * cell + cell // 2]) == tuple(stream.HIGHLIGHT)
     plain = stream.load(state_dir_copy_without_color(tmp_path, d), now=LAUNCH + 3600)
     assert plain.paint is None  # nothing painted: nothing replayed
+
+
+NODE_PAGE = """
+const fs = require("fs"), docs = process.argv[2];
+global.LifeCore = require(docs + "/life.js");
+const History = require(docs + "/history.js");
+const job = JSON.parse(fs.readFileSync(process.argv[3], "utf8")), out = {};
+if (job.log) {  // the page's replay of the log, then 10 generations stepped on as the page does live
+  const TL = new History.Timeline(History.parse(fs.readFileSync(job.log, "utf8")));
+  let grid = TL.gridAt(job.gen), paint = TL.paintAt(job.gen);
+  out.paint = Array.from(paint);
+  for (let n = 0; n < 10; n++) {
+    const next = LifeCore.step(grid, TL.h, TL.w);
+    paint = History.paintStep(grid, next, paint, TL.h, TL.w);
+    grid = next;
+  }
+  out.ahead = Array.from(paint);
+}
+if (job.grid) {  // one step of a given board and paint
+  const [h, w] = job.shape, g = Uint8Array.from(job.grid);
+  out.step = Array.from(History.paintStep(g, LifeCore.step(g, h, w), Uint8Array.from(job.paint), h, w));
+}
+console.log(JSON.stringify(out));
+"""
+
+
+def run_page(tmp_path, job):
+    import json
+    import os
+    import subprocess
+    (tmp_path / "page.js").write_text(NODE_PAGE)
+    (tmp_path / "job.json").write_text(json.dumps(job))
+    docs = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs")
+    r = subprocess.run(["node", str(tmp_path / "page.js"), docs, str(tmp_path / "job.json")],
+                       capture_output=True, text=True, check=True)
+    return json.loads(r.stdout)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the live page's JavaScript")
+def test_the_live_page_paints_the_same_cells_as_the_bot(tmp_path, monkeypatch):
+    import numpy as np
+    import life
+    import short
+    for k in ("SEED", "GEN_SECONDS", "FLATLINE_HOURS"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("LAUNCH_TIME", str(int(LAUNCH)))
+    d = tmp_path / "state"
+    yt = FakeYT([Comment("c1", "u1", iso(LAUNCH + 900), "glider 64,60 nw red"),
+                 Comment("c2", "u2", iso(LAUNCH + 1000), "acorn 70,40 blue"),
+                 Comment("c3", "u3", iso(LAUNCH + 1300), "no color here"),
+                 Comment("c4", "u4", iso(LAUNCH + 2000), "rpent 60,44 purple")])
+    for t in range(0, 7200, 600):
+        tick.run(str(d), LAUNCH + t, lambda w: yt, KEY, thumb_path=None)
+    h = short.History(str(d))
+    u = h.fresh()
+    h.goto(u, h.now_gen)
+    assert len(set(u.paint[u.grid == 1].tolist())) >= 3  # several colors, and cells with none
+    got = run_page(tmp_path, {"log": str(d / "log.jsonl"), "gen": h.now_gen})
+    assert got["paint"] == u.paint.ravel().tolist()
+    h.goto(u, h.now_gen + 10)
+    assert got["ahead"] == u.paint.ravel().tolist()
+
+    rng = np.random.default_rng(7)  # and the tie-breaks: a busy board, every cell a random color
+    g = (rng.random((72, 128)) < 0.35).astype(np.uint8)
+    paint = np.where(g == 1, rng.integers(0, 8, g.shape), 0).astype(np.uint8)
+    got = run_page(tmp_path, {"grid": g.ravel().tolist(), "paint": paint.ravel().tolist(), "shape": [72, 128]})
+    assert got["step"] == life.paint_step(g, life.step(g), paint).ravel().tolist()
 
 
 def render_paint(name):

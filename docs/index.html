@@ -66,7 +66,7 @@
 <tr><td><code>block x,y</code> · <code>blinker x,y</code> · <code>rpent x,y</code> · <code>acorn x,y</code></td><td>a pattern with its top-left corner at (x, y)</td></tr>
 <tr><td><code>cells x,y x,y …</code></td><td>up to 25 single cells</td></tr>
 <tr><td>anything else</td><td>a 5×5 random patch derived from a hash of your comment</td></tr>
-<tr><td>add <code>red</code>, <code>orange</code>, <code>yellow</code>, <code>blue</code>, <code>purple</code>, <code>pink</code> or <code>cyan</code></td><td>your cells in that color, on the live stream and in the Shorts (only paint: the game plays out the same)</td></tr>
+<tr><td>add <code>red</code>, <code>orange</code>, <code>yellow</code>, <code>blue</code>, <code>purple</code>, <code>pink</code> or <code>cyan</code></td><td>your cells in that color, here, on the live stream and in the Shorts (only paint: the game plays out the same)</td></tr>
 </table>
 <p><code>x</code> is 0–127 and <code>y</code> is 0–71, from the top-left. Every comment counts, as many as you like. New comments are picked up within about 5 minutes; for two hours after a comment lands, everything it changed is drawn in white (and anything it killed outlined in red), boxed, with its command beside it.</p>
 
@@ -91,6 +91,8 @@ const VIDEO_URL = "https://www.youtube.com/watch?v=oFWeLMe4bhI";
 const BASE = new URLSearchParams(location.search).get("base")
   || "https://raw.githubusercontent.com/davidackerman/still-life/main/state/";
 const COLOR = { ALIVE: "#78e6a0", FLATLINING: "#f05a5a", CONTESTED: "#fac850", DIED: "#7a7a87" };
+// The colors a move can paint its cells, by paint index (History.COLORS order), as render.PAINT.
+const PAINT = [null, "#f24848", "#ff9632", "#fae13c", "#468cff", "#aa69ff", "#ff6ec8", "#3cdceb"];
 let CELL = 10;  // px per cell; smaller on bigger boards (set from the state's shape)
 const POLL_MS = 60000, FORECAST_GENS = 30000;
 
@@ -178,8 +180,28 @@ function liveGen() {
 function gridAt(gen) {
   if (gen < S.gen && TL) return TL.gridAt(gen);
   if (!ahead || ahead.gen > gen) ahead = { gen: S.gen, grid: S.grid };
-  for (let n = 0; ahead.gen < gen && n < 5000; n++) ahead = { gen: ahead.gen + 1, grid: LifeCore.step(ahead.grid, S.h, S.w) };
+  if (ahead.paint === undefined && TL) ahead.paint = ahead.gen === S.gen ? livePaint() : null;
+  for (let n = 0; ahead.gen < gen && n < 5000; n++) {
+    const next = LifeCore.step(ahead.grid, S.h, S.w);
+    ahead = { gen: ahead.gen + 1, grid: next, paint: ahead.paint && History.paintStep(ahead.grid, next, ahead.paint, S.h, S.w) };
+  }
   return ahead.grid;
+}
+
+// The paint on the bot's latest state: the log's replay up to it, if that
+// replay is the same board (else none rather than the wrong colors).
+function livePaint() {
+  const g = TL.gridAt(S.gen);
+  if (TL.cur.gen !== S.gen) return null;
+  for (let i = 0; i < g.length; i++) if (g[i] !== S.grid[i]) return null;
+  return TL.cur.paint;
+}
+
+// The colors people gave their cells at `gen` (per cell: 0 none, else a PAINT index), or null.
+function paintAt(gen) {
+  if (gen < S.gen && TL) return TL.paintAt(gen);
+  gridAt(gen);
+  return ahead.paint || null;
 }
 
 function statusAt(gen) {
@@ -339,6 +361,7 @@ function drawRipples(rips) {
 
 function draw(gen) {
   const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
+  const paint = st.phase === "DIED" ? null : paintAt(gen);  // a dead universe is grey, paint and all
   Sound.frame(gen, g, w, h, st.phase);
   const rips = ripplesAt(gen, g), lit = new Set();
   for (const r of rips) for (const i of r.born) lit.add(i);
@@ -348,7 +371,7 @@ function draw(gen) {
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
     if (!g[i]) continue;
-    ctx.fillStyle = lit.has(i) ? "#ffffff" : COLOR[st.phase];
+    ctx.fillStyle = paint && paint[i] ? PAINT[paint[i]] : lit.has(i) ? "#ffffff" : COLOR[st.phase];
     ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
   }
   drawRipples(rips);
