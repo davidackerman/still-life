@@ -62,6 +62,7 @@ REWIND_TAGS, REWIND_TAG_S = 10, 3.0  # during the rewind, the moves that changed
 REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
 REWIND_SOUND, REPLAY_SOUND = 0.15, 0.3  # their notes' level: they play many at once (~ one live generation)
 FADE_S = 0.6  # crossfade between generations
+TRAIL_STEPS = 8  # the newest tails fade on in 8 steps through a live generation (life.Trail)
 RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
 SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
@@ -149,6 +150,7 @@ class Snapshot:
     checked: float | None = None  # when the tick last read the comments
     deaths: list = field(default_factory=list)  # (gen, the gen it would die at, or None: beyond the forecast)
     paint: np.ndarray | None = None  # the cells' colors (life.paint_step); None while no move has asked for one
+    trail: "life.Trail | None" = None  # where cells were lately, for the tails (display only)
     comments_seen: dict = field(default_factory=dict)  # the bot's count: {"total", "day", "today"} (engine.count_comments)
 
 
@@ -177,8 +179,17 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
     snap.checked = last_check(state_dir)
     snap.deaths = death_history(state_dir, u.flatline_gens)
     snap.paint = live_paint(state_dir, u)
+    snap.trail = life.Trail(u.grid.shape)
+    snap.trail.see(u.grid, u.generation, snap.paint)
     step(snap, now if now is not None else time.time())
     return snap
+
+
+def carry_trail(old: "life.Trail | None", snap: Snapshot) -> None:
+    """Give a new state the tails so far (the same universe, a board the same size)."""
+    if old is not None and snap.trail is not None and old.last.shape == snap.u.grid.shape and old.t <= snap.u.generation:
+        snap.trail = old
+        snap.trail.see(snap.u.grid, snap.u.generation, snap.paint)
 
 
 def live_paint(state_dir: str, u: Universe) -> np.ndarray | None:
@@ -328,13 +339,19 @@ def step(snap: Snapshot, now: float) -> bool:
     target = target_generation(now, snap.launch, snap.gen_seconds)
     if snap.u.phase == DIED or target <= snap.u.generation:
         return False
-    if snap.paint is not None and snap.paint.any():  # a generation at a time, so the paint follows the cells
+    painted = snap.paint is not None and snap.paint.any()
+    if painted or target - snap.u.generation <= life.TRAIL_GENS:  # a generation at a time: the paint and tails follow
         while snap.u.generation < target and snap.u.phase != DIED:
             before = snap.u.grid
             snap.u.advance_to(snap.u.generation + 1)
-            snap.paint = life.paint_step(before, snap.u.grid, snap.paint)
+            if painted:
+                snap.paint = life.paint_step(before, snap.u.grid, snap.paint)
+            if snap.trail is not None:
+                snap.trail.see(snap.u.grid, snap.u.generation, snap.paint)
     else:
         snap.u.advance_to(target)
+        if snap.trail is not None:  # a long jump (a restart): no tails across it
+            snap.trail.see(snap.u.grid, snap.u.generation, snap.paint)
     return True
 
 
@@ -356,7 +373,8 @@ def geometry(shape) -> tuple[int, int, int]:
     return cell, BOARD_X + (BOARD_W - w * cell) // 2, BOARD_Y + (BOARD_H - h * cell) // 2
 
 
-def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.ndarray | None = None) -> np.ndarray:
+def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.ndarray | None = None,
+              trail: tuple | None = None) -> np.ndarray:
     h, w = grid.shape
     cell = geometry(grid.shape)[0]
     if (h, w) not in _tiles:  # the empty board, and where each cell's inside is
@@ -372,6 +390,15 @@ def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.nd
 
     def big(m):  # a cell mask, scaled up to pixels (insides only)
         return m.astype(bool).repeat(cell, 0).repeat(cell, 1) & tile
+    if trail is not None and phase != DIED:  # the tails: cells that just died, fading into the background
+        a, col = trail
+        on = a > 0.004
+        if on.any():
+            lut = np.array([PHASE_COLOR[phase]] + [render.PAINT[c] for c in commands.COLORS], np.float32)
+            rgb = np.zeros(grid.shape + (3,), np.uint8)
+            rgb[on] = (np.array(BG, np.float32) * (1 - a[on, None]) + lut[col[on]] * a[on, None]).astype(np.uint8)
+            m = big(on)
+            img[m] = rgb.repeat(cell, 0).repeat(cell, 1)[m]
     if paint is None or phase == DIED or not paint.any():  # a dead universe is grey, paint and all
         img[big(grid)] = PHASE_COLOR[phase]
     else:  # 1: unpainted (the phase color); 2..: the paint
@@ -431,6 +458,7 @@ class Rewind:
         self.big = {(e["gen"], e["command"]): e for e in big[:REWIND_TAGS]}
         self.seen: set[int] = set()  # generations whose moves have landed
         self.tags: list[Tag] = []
+        self.trail, self.frame = life.Trail(self.u.grid.shape), 0  # tails by drawn frame: streaks as it races
 
     def done(self, now: float) -> bool:
         return now >= self.start + REWIND_S
@@ -440,6 +468,8 @@ class Rewind:
         target = int(round(self.end * p))
         if target > self.u.generation:
             cells = self.h.goto(self.u, target)
+            self.frame += 1
+            self.trail.see(self.u.grid, self.frame, getattr(self.u, "paint", None))
             if cells:
                 self.lit.append((self.u.generation, cells))
                 if sound:
@@ -500,6 +530,8 @@ class Replay:
         self.start, self.end, self.label = start, t, label
         self.lit: list = []  # the new moves' cells, drawn white
         self.shown = self.first - 1  # the last generation played (before the first: none yet)
+        self.trail = life.Trail(self.u.grid.shape)
+        self.trail.see(self.u.grid, self.u.generation, getattr(self.u, "paint", None))
 
     def landed(self) -> bool:
         """All its moves have landed (the panel can show what they did)."""
@@ -516,6 +548,7 @@ class Replay:
             before = self.u.grid.copy()
             self.h.goto(self.u, g)
             self.shown = g
+            self.trail.see(self.u.grid, g, getattr(self.u, "paint", None))
             for e in self.new.get(g, []):
                 tags.append(self.label(e, t))
                 self.lit += [tuple(c) for c in e["cells"]]
@@ -573,6 +606,7 @@ class Screen:
         if self.sound and snap.universe_no == self.snap.universe_no:  # the comments' cells appearing
             self.sound.generation(self.snap.u.grid, snap.u.grid, abs(snap.u.generation - self.snap.u.generation) + 1)
         self._changed(now)
+        carry_trail(self.snap.trail if same else None, snap)
         self.snap = snap
 
     @staticmethod
@@ -582,9 +616,10 @@ class Screen:
         return Tag(render.move_text(e) + suffix, [tuple(c) for c in e["cells"]], t0)
 
     def _end_replay(self, now: float) -> None:
-        self.replay = None
+        r, self.replay = self.replay, None
         if self.after_replay is not None:
             self.snap, self.after_replay = self.after_replay, None
+            carry_trail(r.trail if r is not None else None, self.snap)  # its tails carry on from the replay
             step(self.snap, now)
         self._changed(now)  # crossfade from the replay to the live board
 
@@ -642,7 +677,8 @@ class Screen:
         playing = self.rewind or self.replay
         if playing:
             r = playing.u
-            self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None)), None
+            self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None),
+                                               playing.trail.layer(r.grid)), None
             return self.cur
         u = self.snap.u
         self.tags = [t for t in self.tags if now - t.t0 < max(TAG_S, GLOW_S)]
@@ -652,9 +688,13 @@ class Screen:
             lit = np.zeros(u.grid.shape, np.uint8)
             for x, y in glowing:
                 lit[y % u.grid.shape[0], x % u.grid.shape[1]] = 1
-        k = (id(self.snap), u.generation, u.phase, len(glowing))
+        # the newest tails fade on through the generation, in TRAIL_STEPS steps
+        since = (now - self.snap.launch) / self.snap.gen_seconds - u.generation
+        frac = min(TRAIL_STEPS - 1, max(0, int(since * TRAIL_STEPS))) / TRAIL_STEPS
+        k = (id(self.snap), u.generation, u.phase, len(glowing), frac)
         if k != self.cur_key or self.cur is None:
-            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint), k
+            tails = self.snap.trail.layer(u.grid, frac) if self.snap.trail is not None else None
+            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint, tails), k
         a = (now - self.changed_at) / FADE_S
         if self.prev is not None and self.prev.shape == self.cur.shape and 0 <= a < 1:
             return (self.prev * (1 - a) + self.cur * a).astype(np.uint8)

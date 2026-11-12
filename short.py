@@ -126,6 +126,17 @@ def board(f) -> Image.Image:
     img = np.empty(_tile.shape + (3,), np.uint8)
     img[:] = GRID
     img[_tile] = BG
+    trail = getattr(f, "trail", None)
+    if trail is not None and f.grey < 1:  # the tails (add_trails), greying with the rest when it dies
+        a, col = trail
+        on = a > 0.004
+        if on.any():
+            lut = np.array([color] + [np.array(render.PAINT[c], float) * (1 - f.grey) + np.array(PHASE_COLOR[DIED], float)
+                                      * f.grey for c in commands.COLORS], np.float32)
+            rgb = np.zeros(f.grid.shape + (3,), np.uint8)
+            rgb[on] = (np.array(BG, np.float32) * (1 - a[on, None]) + lut[col[on]] * a[on, None]).astype(np.uint8)
+            m = on.repeat(CELL, 0).repeat(CELL, 1) & _tile
+            img[m] = rgb.repeat(CELL, 0).repeat(CELL, 1)[m]
     img[big] = color.astype(np.uint8)
     paint = getattr(f, "paint", None)
     if paint is not None and f.grey < 1 and paint.any():  # paint fades to grey with the rest when it dies
@@ -403,6 +414,27 @@ def days(gens: int, gen_seconds: int) -> int:
 
 
 # ---------------------------------------------------------------- the story
+def add_trails(frames: list, primer=()) -> None:
+    """Give each frame its tails (life.Trail, as on the stream). A step is a frame
+    whose board changed, so a hold keeps its tails, and a cut back in time starts
+    them afresh. `primer` is (grid, paint, generation) for the real generations
+    just before the first frame, so even the first frame (the thumbnail) shows
+    where things are moving."""
+    trail, prev, t, gen0 = None, None, 0, None
+    for grid, paint, gen, f in [*((g, p, n, None) for g, p, n in primer),
+                                *((f.grid, getattr(f, "paint", None), f.gen, f) for f in frames)]:
+        if trail is None or grid.shape != trail.last.shape or (gen0 is not None and gen < gen0):
+            trail, prev = life.Trail(grid.shape), None
+        gen0 = gen
+        if prev is not None and not np.array_equal(grid, prev):
+            t += 1
+        trail.see(grid, t, paint)
+        prev = grid
+        if f is not None:
+            a, col = trail.layer(grid)
+            f.trail = (a, col.copy()) if a.any() else None
+
+
 def build(state_dir: str, since_gen: int | None = None) -> list:
     """The whole life so far, or with `since_gen`, a recap of what happened
     since then (the daily Short): its moves, the biggest ones up close, and
@@ -441,6 +473,13 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     h.goto(now, h.now_gen)
     if h.now_hash and now.hash.hex() != h.now_hash:
         raise SystemExit("replaying the log did not reproduce the current board; run replay.py")
+    primer, pu = [], h.fresh()  # the real generations just before now: tails on the first frame
+    h.goto(pu, max(0, h.now_gen - life.TRAIL_GENS))
+    while True:
+        primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
+        if pu.generation >= h.now_gen:
+            break
+        h.goto(pu, pu.generation + 1)
     F = now.flatline_gens
     stuck_now = now.forecast_stuck(FORECAST_GENS)
     stuck_seed = h.fresh().forecast_stuck(FORECAST_GENS)
@@ -579,6 +618,7 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
             History.advance(u, u.generation + 1)
         a = min(1.0, (i + 1) / FADE)
         add(u, block(top, TOP_Y, a) + block(bottom, bottom_y, a), extras=extras(a, i), dim=dim * a)
+    add_trails(frames, primer)
     return frames
 
 

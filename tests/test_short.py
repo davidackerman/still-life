@@ -152,3 +152,21 @@ def test_the_short_shows_paint(tmp_path, monkeypatch):
     assert painted
     img = np.asarray(short.board(painted[-1]))
     assert (img.reshape(-1, 3) == np.array(short.render.PAINT["blue"])).all(axis=1).any()
+
+
+def test_the_shorts_tails_start_afresh_on_a_cut_back_in_time():
+    import numpy as np
+    import life
+
+    class F:
+        def __init__(self, grid, gen):
+            self.grid, self.gen, self.paint = grid, gen, None
+    a = life.mask([(1, 1), (2, 1), (3, 1)], (10, 10))
+    b = life.step(a)
+    frames = [F(a, 5), F(b, 6), F(a, 1)]  # the last one jumps back to an earlier day
+    short.add_trails(frames)
+    assert frames[1].trail is not None and frames[1].trail[0].max() > 0  # a tail where the blinker was
+    assert frames[2].trail is None  # no ghosts from the later board
+    first = [F(b, 11)]
+    short.add_trails(first, primer=[(a, None, 10)])
+    assert first[0].trail is not None  # the primer gives even the first frame its tails

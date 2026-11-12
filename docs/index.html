@@ -198,6 +198,29 @@ function livePaint() {
   return TL.cur.paint;
 }
 
+// The tails, as on the stream (life.Trail in the repo): cells that died lately fade
+// out over TRAIL_GENS generations, in their own color. Kept along a run of
+// consecutive generations; a jump rebuilds them from the generations just before.
+const TRAIL_GENS = 10, TRAIL_MAX = 0.42;
+const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+let tails = null;  // {gen, last: Int32Array (the generation each cell was last alive), col: Uint8Array (its paint then)}
+function seeTails(gen) {
+  const g = gridAt(gen), p = paintAt(gen);
+  for (let i = 0; i < g.length; i++) if (g[i]) { tails.last[i] = gen; tails.col[i] = p ? p[i] : 0; }
+  tails.gen = gen;
+}
+function tailsAt(gen) {
+  const n = S.h * S.w;
+  if (!tails || tails.last.length !== n || gen < tails.gen || gen - tails.gen > 3) {
+    tails = { gen: -1, last: new Int32Array(n).fill(-1e9), col: new Uint8Array(n) };
+    for (let k = Math.max(0, gen - TRAIL_GENS); k < gen; k++) seeTails(k);
+  } else {
+    for (let k = tails.gen + 1; k < gen; k++) seeTails(k);
+  }
+  seeTails(gen);
+  return tails;
+}
+
 // The colors people gave their cells at `gen` (per cell: 0 none, else a PAINT index), or null.
 function paintAt(gen) {
   if (gen < S.gen && TL) return TL.paintAt(gen);
@@ -351,12 +374,27 @@ function drawRipples(rips) {
 function draw(gen) {
   const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
   const paint = st.phase === "DIED" ? null : paintAt(gen);  // a dead universe is grey, paint and all
+  const T = st.phase === "DIED" ? null : tailsAt(gen);
+  const frac = mode === "live" ? Math.min(0.999, Math.max(0, (Date.now() / 1000 - genTime(gen)) / S.genSec)) : 0;
   Sound.frame(gen, g, w, h, st.phase);
   const rips = ripplesAt(gen, g), lit = new Set();
   for (const r of rips) for (const i of r.born) lit.add(i);
   ctx.fillStyle = "#16191f"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#0a0c10";
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+  if (T) {  // the tails, under the living cells; the newest fade on through the generation
+    const base = rgbOf(COLOR[st.phase]);
+    for (let i = 0; i < g.length; i++) {
+      if (g[i]) continue;
+      const d = gen - T.last[i] + frac;
+      if (d < 1 || d > TRAIL_GENS + 1) continue;
+      const a = TRAIL_MAX * Math.pow(Math.max(0, 1 - (d - 1) / TRAIL_GENS), 1.6);
+      if (a < 0.004) continue;
+      const c = T.col[i] ? rgbOf(PAINT[T.col[i]]) : base;
+      ctx.fillStyle = `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a.toFixed(3)})`;
+      ctx.fillRect((i % w) * CELL + 1, Math.floor(i / w) * CELL + 1, CELL - 2, CELL - 2);
+    }
+  }
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x;
     if (!g[i]) continue;

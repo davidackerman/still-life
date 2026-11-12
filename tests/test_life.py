@@ -102,3 +102,22 @@ def test_paint_only_colors_cells_and_follows_them():
     assert out[0, 2] == 3 and out[2, 2] == 3
     # unpainted boards stay unpainted
     assert not life.paint_step(b, life.step(b), np.zeros((5, 5), np.uint8)).any()
+
+
+def test_tails_fade_out_in_their_color_and_never_touch_the_game():
+    import numpy as np
+    g = life.mask([(5, 5), (6, 5), (7, 5)], (20, 20))  # a blinker
+    paint = np.zeros(g.shape, np.uint8)
+    paint[5, 5:8] = 4  # blue
+    t = life.Trail(g.shape)
+    t.see(g, 0, paint)
+    g1 = life.step(g)
+    t.see(g1, 1, paint)
+    a, col = t.layer(g1)
+    assert a[5, 5] == life.TRAIL_MAX and col[5, 5] == 4  # just died: brightest, in its color
+    assert a[5, 6] == 0 and (a[g1 == 1] == 0).all()  # alive: no tail
+    later = t.layer(g1, frac=0.5)[0][5, 5]
+    assert 0 < later < life.TRAIL_MAX  # fading on through the generation
+    t.see(g1, 1 + life.TRAIL_GENS + 1, paint)
+    assert t.layer(g1)[0][5, 5] == 0  # gone after TRAIL_GENS
+    assert np.array_equal(life.step(g), g1)  # (the game itself is untouched)

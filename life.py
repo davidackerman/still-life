@@ -85,6 +85,35 @@ def paint_step(before: np.ndarray, after: np.ndarray, paint: np.ndarray) -> np.n
     return out
 
 
+TRAIL_GENS, TRAIL_MAX = 10, 0.42  # the tails: a cell that died fades out over 10 steps, from 42% bright
+
+
+class Trail:
+    """Where the cells were lately, for the tails: each cell's last step alive and
+    its color then (a paint index; 0 the phase color). A step is a generation on
+    the live board and in a replay, a drawn frame in the rewind. Only how the
+    board looks: the game never sees it."""
+
+    def __init__(self, shape):
+        self.last = np.full(shape, -(10 ** 9), np.int64)
+        self.col = np.zeros(shape, np.uint8)
+        self.t = 0
+
+    def see(self, grid: np.ndarray, t: int, paint: np.ndarray | None = None) -> None:
+        alive = grid == 1
+        self.last[alive] = t
+        self.col[alive] = paint[alive] if paint is not None else 0
+        self.t = max(self.t, t)
+
+    def layer(self, grid: np.ndarray, frac: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+        """(brightness 0..TRAIL_MAX, color index) per cell; `frac` of the way to the
+        next step, so the newest tails fade on between generations."""
+        d = (self.t - self.last).astype(np.float32) + frac  # steps since it was last alive
+        a = TRAIL_MAX * np.clip(1 - (d - 1) / TRAIL_GENS, 0, 1) ** 1.6
+        a[(grid == 1) | (d < 1)] = 0
+        return a, self.col
+
+
 def state_hash(grid: np.ndarray) -> bytes:
     """BLAKE2b-256 of np.packbits(grid) (row-major, 1 bit per cell)."""
     return hashlib.blake2b(np.packbits(grid).tobytes(), digest_size=32).digest()
