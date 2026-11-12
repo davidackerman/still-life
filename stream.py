@@ -153,6 +153,7 @@ class Snapshot:
     paint: np.ndarray | None = None  # the cells' colors (life.paint_step); None while no move has asked for one
     trail: "life.Trail | None" = None  # where cells were lately, for the tails (display only)
     comments_seen: dict = field(default_factory=dict)  # the bot's count: {"total", "day", "today"} (engine.count_comments)
+    scheduled: list = field(default_factory=list)  # [(generation, command)]: moves scheduled for later, soonest first
 
 
 def load(state_dir: str, after_seq: int | None = None, now: float | None = None) -> Snapshot:
@@ -166,7 +167,9 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
     snap = Snapshot(u=u, launch=cfg["launch_time"], gen_seconds=cfg["gen_seconds"], forecast=disp.get("forecast"),
                     recent=list(disp.get("recent") or []), universe_no=cfg.get("universe", 1),
                     video=cfg.get("video_id") or MAIN_VIDEO, seq=s["log"]["seq"],
-                    comments_seen=dict(s.get("comments_seen") or {}))
+                    comments_seen=dict(s.get("comments_seen") or {}),
+                    scheduled=sorted((q["land_gen"], render.move_text(q)) for q in (s.get("admission") or {}).get("queue", [])
+                                     if q.get("scheduled") and "land_gen" in q))
     if after_seq is not None and snap.seq > after_seq:
         with open(os.path.join(state_dir, "log.jsonl"), encoding="utf-8") as f:
             for line in f:
@@ -894,6 +897,15 @@ class Screen:
             today = m.get("today", 0) if m.get("day") == int(u.generation * snap.gen_seconds // 86400) + 1 else 0
             tally = f"{m['total']:,} comments so far · {today:,} today"
             d.text((x, y + 32), tally, font=font("regular", 19), fill=MUTED, anchor="lt")
+            y += 26
+        soon = [(g, c) for g, c in snap.scheduled if g > u.generation]
+        if soon:  # moves people scheduled for later ("rpent 1 hr")
+            g, what = soon[0]
+            left = (g - u.generation) * snap.gen_seconds
+            line = f"coming up: {what} " + ("in under a minute" if left < 60 else f"in {ago(left).removesuffix(' ago')}")
+            more = f"  (+{len(soon) - 1} more)" if len(soon) > 1 else ""
+            line = line if d.textlength(line + more, font=font("regular", 19)) > COL_W else line + more
+            d.text((x, y + 32), line, font=font("regular", 19), fill=LIGHT, anchor="lt")
             y += 26
         y += 38
         f20 = font("regular", 20)

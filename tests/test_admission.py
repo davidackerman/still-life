@@ -148,3 +148,12 @@ def test_each_person_gets_three_moves_a_generation_the_next_nine_wait_and_the_re
     assert s.queue[-1].get("land_gen") is None and s.queue[-1]["comment"] == k("m21")
     admit(s, [], T0 + (2 * 60 + 10) * 60, KEY, launch_time=T0)  # two hours on, the counts are gone
     assert not s.per_gen
+
+def test_a_scheduled_move_waits_for_its_time_and_each_person_can_schedule_ten():
+    s = Admission()
+    c = admit(s, [C("s1", "u1", 0, "rpent 1 hr")], T0 + 60, KEY, launch_time=T0)
+    assert c["accepted"] == 1 and s.queue[0]["land_gen"] == 30 and s.queue[0]["scheduled"]  # an hour: 30 generations
+    many = [C(f"x{i}", "u1", 1, f"block {i},{i} in {10 + i} min") for i in range(12)]
+    c = admit(s, many, T0 + 120, KEY, launch_time=T0)
+    assert c["accepted"] == 9 and c["rejected"] == {"too_many_scheduled": 3}  # ten at a time
+    assert admit(s, [C("now", "u1", 1, "block 1,1")], T0 + 120, KEY, launch_time=T0)["accepted"] == 1  # (now: fine)

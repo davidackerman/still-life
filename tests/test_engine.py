@@ -696,3 +696,14 @@ def test_a_move_waiting_its_turn_lands_at_its_generation_on_a_later_run():
     assert [e["gen"] for e in first] == [0, 0, 0] and len(w.admission.queue) == 2
     ev = engine.tick(w, LAUNCH + 130, FakeYT())  # generation 1 has come
     assert [e["gen"] for e in ev if e["type"] == "injection"] == [1, 1] and not w.admission.queue
+
+
+def test_a_scheduled_move_lands_when_it_said():
+    w, yt = world(), FakeYT([comment("s", "u1", "block 30,30 in 10 min")])
+    ev = engine.tick(w, LAUNCH + 60, yt)
+    assert not [e for e in ev if e["type"] == "injection"] and len(w.admission.queue) == 1
+    for t in range(240, 600, 180):  # runs before its time: it waits
+        assert not [e for e in engine.tick(w, LAUNCH + t, FakeYT()) if e["type"] == "injection"]
+    ev = engine.tick(w, LAUNCH + 660, FakeYT())
+    landed = [e for e in ev if e["type"] == "injection"]
+    assert [e["command"] for e in landed] == ["block 30,30"] and landed[0]["gen"] == 5 and not w.admission.queue

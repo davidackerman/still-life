@@ -39,6 +39,7 @@ import life
 AUTHOR_COOLDOWN_S = 0  # 0 = off; was 3600 (one per author per hour) until 2026-11-09
 MOVES_PER_GEN = 3  # each person's moves that land per generation (2 minutes); 0 = no limit
 WAIT_GENS = 3  # past that, a move may wait this many generations for its turn (up to 9 more)
+MAX_SCHEDULED = 10  # moves one person can have scheduled for later ("rpent 1 hr") at once
 KEEP_GENS = 60  # how long (in generations: 2 hours) each person's per-generation counts are kept
 MAX_PER_RUN = 200  # was 20 until 2026-11-11, when a flood made moves wait and land late
 FETCH_WINDOW_S = 48 * 3600  # comments older than this are ignored
@@ -130,24 +131,29 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
             reason = "universe_dead"
         elif cooldown and last is not None and abs(c.epoch - last) < cooldown:  # also late arrivals
             reason = "author_rate_limit"
-        land = gen_of(c.epoch)  # its own generation, or the next one with room for this person
+        cmd = commands.parse(c.id, c.text, shape)
+        own = gen_of(c.epoch + cmd.delay_s)  # the generation it was posted in, or scheduled for
+        land = own  # ...or the next one with room for this person
+        if not reason and cmd.delay_s and sum(1 for q in state.queue
+                                              if q["author"] == author and q.get("scheduled")) >= MAX_SCHEDULED:
+            reason = "too_many_scheduled"
         if not reason and limit:
             mine = state.per_gen.get(author, {})
-            while mine.get(str(land), 0) >= limit and land < gen_of(c.epoch) + WAIT_GENS:
+            while mine.get(str(land), 0) >= limit and land < own + WAIT_GENS:
                 land += 1
             if mine.get(str(land), 0) >= limit:
                 reason = "over_per_generation_limit"
         if reason:
             counts["rejected"][reason] = counts["rejected"].get(reason, 0) + 1
             continue
-        cmd = commands.parse(c.id, c.text, shape)
         state.last_accepted[author] = max(c.epoch, last or c.epoch)
         mine = state.per_gen.setdefault(author, {})
         mine[str(land)] = mine.get(str(land), 0) + 1
         state.queue.append({"comment": kid, "author": author, "published_at": c.epoch,
                             "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells], "chat": c.video < 0,
                             **({"color": cmd.color} if cmd.color else {}),
-                            **({"land_gen": land} if land != gen_of(c.epoch) else {})})  # waiting its turn
+                            **({"land_gen": land} if land != gen_of(c.epoch) else {}),  # scheduled, or waiting its turn
+                            **({"scheduled": True} if cmd.delay_s else {})})
         counts["accepted"] += 1
     return counts
 

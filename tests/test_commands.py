@@ -150,3 +150,13 @@ def test_a_patterns_coordinates_can_be_written_other_ways(text):
 
 def test_cells_still_need_commas():
     assert commands.parse("c1", "cells 1 2 3 4").kind == "random"
+
+
+@pytest.mark.parametrize("text,delay,kind", [
+    ("rpent 1 hr", 3600, "rpent"), ("rpent 40,30 in 1h", 3600, "rpent"), ("hi in 30 min", 1800, "random"),
+    ("glider 10,20 ne 90 minutes", 5400, "glider"), ("acorn red in 2 hours", 7200, "acorn"),
+    ("block 5,5", 0, "block"), ("acorn 15x15", 0, "acorn"), ("in 99 hours block", 24 * 3600, "block")])
+def test_a_time_in_a_message_schedules_its_move(text, delay, kind):
+    cmd = commands.parse("c1", text)
+    assert cmd.delay_s == delay and cmd.kind == kind
+    assert commands.parse("c1", "rpent 40,30 in 1h").desc == "rpent 40,30"  # the time is not a coordinate

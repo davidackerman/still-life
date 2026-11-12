@@ -27,6 +27,11 @@ follows its name. A comment with neither injects a 5x5 random patch:
 
 `text` is the comment text exactly as the API returned it (textFormat=plainText).
 
+A time anywhere in the text ("in 1h", "1 hr", "in 30 min", "90 minutes"; the
+first one wins, at most MAX_DELAY_S) schedules the move to land that long after
+the comment was posted; it is taken out before the command is read, so
+"rpent 1 hr" is an rpent.
+
 A color word anywhere in the text (red orange yellow blue purple pink cyan;
 the first one wins) paints the move's cells. Paint is only how cells look: it
 never changes which cells live (see life.paint_step). Unpainted cells are
@@ -54,6 +59,8 @@ _BARE_RE = re.compile(r"\b(glider|block|blinker|rpent|acorn)\b(?!\s*[-+]?\s*\d)(
 _PAIR_RE = re.compile(_COORD, re.ASCII)
 COLORS = ("red", "orange", "yellow", "blue", "purple", "pink", "cyan")  # paint 1..7 (0: unpainted)
 _COLOR_RE = re.compile(rf"\b({'|'.join(COLORS)})\b", re.IGNORECASE | re.ASCII)
+MAX_DELAY_S = 24 * 3600  # a move can be scheduled up to a day ahead
+_DELAY_RE = re.compile(r"\b(?:in\s+)?([0-9]{1,4})\s*(hours?|hrs?|h|minutes?|mins?|m)\b", re.IGNORECASE | re.ASCII)
 
 
 @dataclass(frozen=True)
@@ -62,6 +69,7 @@ class Command:
     cells: tuple[tuple[int, int], ...]  # absolute, wrapped, sorted, unique
     desc: str  # canonical text, e.g. "glider 10,20 se" or "random 5x5 at 3,4"
     color: str | None = None  # a word from COLORS, or None (unpainted)
+    delay_s: int = 0  # scheduled to land this long after it was posted (0: at once)
 
 
 def _in_range(x: int, y: int, shape) -> bool:
@@ -126,8 +134,14 @@ def random_patch(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
 
 def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
     """The command a comment injects. Never fails: falls back to a random patch."""
-    valid = [(pos, cmd) for pos, cmd in _candidates(text, shape) if cmd is not None]
+    delay, m = 0, _DELAY_RE.search(text)
+    words = text
+    if m:  # the time comes out first, so its number is never read as a coordinate
+        n, unit = int(m.group(1)), m.group(2).lower()
+        delay = min(MAX_DELAY_S, n * (3600 if unit.startswith("h") else 60))
+        words = text[:m.start()] + " " + text[m.end():]
+    valid = [(pos, cmd) for pos, cmd in _candidates(words, shape) if cmd is not None]
     cmd = (min(valid, key=lambda pc: pc[0])[1] if valid
-           else bare_pattern(comment_id, text, shape) or random_patch(comment_id, text, shape))
-    m = _COLOR_RE.search(text)
-    return replace(cmd, color=m.group(1).lower()) if m else cmd
+           else bare_pattern(comment_id, words, shape) or random_patch(comment_id, text, shape))
+    c = _COLOR_RE.search(text)
+    return replace(cmd, color=c.group(1).lower() if c else None, delay_s=delay)

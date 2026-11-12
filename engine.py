@@ -474,18 +474,17 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             counts["rejected"]["universe_dead"] = counts["rejected"].get("universe_dead", 0) + len(dropped)
     else:
         target = target_generation(now, world.launch_time, world.gen_seconds)
-        batch = admission.take_batch(world.admission)
         # Each comment lands at the generation it was posted in, or the one it
-        # waits for (land_gen: its person's earlier moves filled its own); never
-        # before where the last run stopped, in posting order. One waiting for a
-        # generation still to come goes back in the queue for a later run.
+        # waits for (land_gen: scheduled, or its person's earlier moves filled
+        # its own); never before where the last run stopped, in posting order.
+        # Those for a generation still to come stay queued, out of this batch.
         start = u.generation
         wanted = lambda q: q.get("land_gen", target_generation(q["published_at"], world.launch_time,  # noqa: E731
                                                                 world.gen_seconds))
-        later = [q for q in batch if wanted(q) > target]
-        if later:
-            world.admission.queue[:0] = later
-            batch = [q for q in batch if wanted(q) <= target]
+        later = [q for q in world.admission.queue if wanted(q) > target]
+        world.admission.queue = [q for q in world.admission.queue if wanted(q) <= target]
+        batch = admission.take_batch(world.admission)
+        world.admission.queue += later
         landing = sorted(((max(start, wanted(q)), n, q) for n, q in enumerate(batch)), key=lambda t: (t[0], t[1]))
         i = 0
         while i < len(landing):
