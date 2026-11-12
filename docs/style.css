@@ -122,3 +122,5 @@ main.wide { max-width: 68rem; }
 .tally .kind { white-space: nowrap; }
 .tally canvas.film { width: 2.1em; height: 2.1em; vertical-align: -.7em; border-radius: 4px; margin-right: .35em;
   image-rendering: pixelated; }
+.events { position: relative; }
+.events li.here { background: var(--code); border-radius: 4px; box-shadow: inset 3px 0 0 var(--accent); }

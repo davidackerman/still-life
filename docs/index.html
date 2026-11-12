@@ -779,8 +779,11 @@ function renderEvents() {
   }
   for (const c of S ? CHANGES : []) items.push({ gen: changeGen(c), text: `✨ new: ${c.text}`, at: c.at });
   const all = items.flat().sort((a, b) => a.gen - b.gen || (a.at ? 1 : 0) - (b.at ? 1 : 0));
+  logItems = [];  // newest first: [{gen, li}], for following the slider (markLog)
+  logAt = undefined;
   for (const it of all.reverse()) {
     const li = document.createElement("li");
+    logItems.push({ gen: it.gen, li });
     const a = document.createElement("a");
     a.href = "#board";
     a.textContent = `${fmtTime(genTime(it.gen))} · gen ${it.gen.toLocaleString()}`;
@@ -800,11 +803,33 @@ function renderEvents() {
 }
 
 // ---------------------------------------------------------------- loop
+// The list follows the slider: looking at the past, the latest entry at or
+// before that moment is marked and scrolled into view (inside the list only);
+// live, the list rests at its newest.
+let logItems = [], logAt;
+function markLog(gen, live) {
+  let k = -1;
+  if (!live) {  // logItems is newest first: the first at or before gen
+    let lo = 0, hi = logItems.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (logItems[m].gen > gen) lo = m + 1; else hi = m; }
+    k = lo < logItems.length ? lo : -1;
+  }
+  if (k === logAt) return;
+  if (logAt !== undefined && logAt >= 0 && logItems[logAt]) logItems[logAt].li.classList.remove("here");
+  logAt = k;
+  const ol = $("events");
+  if (k < 0) { if (live) ol.scrollTop = 0; return; }
+  const li = logItems[k].li;
+  li.classList.add("here");
+  ol.scrollTop = Math.max(0, li.offsetTop - ol.clientHeight / 3);  // (the list is the offset parent)
+}
+
 function render() {
   if (!S) return;
   const end = liveGen(), gen = mode === "live" ? end : Math.min(histGen, end);
   const sl = $("slider");
   sl.max = end; sl.value = gen;
+  markLog(gen, mode === "live");
   draw(gen);
   drawLifeline(gen, end);
   showSync();
