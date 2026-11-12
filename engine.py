@@ -84,6 +84,9 @@ class World:
     # The leaderboard: keyed author -> [generations of life their moves gave (+) or
     # took (-), moves counted]. HMAC'd ids only; names are looked up when shown.
     scores: dict = field(default_factory=dict)
+    # The same for one game day (Day N, as the daily Shorts count them), and the
+    # day before as "prev": {"day", "whole" (counted from the day's start), "scores"}.
+    day_scores: dict = field(default_factory=dict)
     # Succession (death.py): which universe this is, the video hosting it (None =
     # the VIDEO_ID secret, universe #1), videos of dead universes never to be
     # driven again, the death sequence's progress, and videos still to make private.
@@ -121,6 +124,7 @@ class World:
             "reply_counts": dict(sorted(self.reply_counts.items())),
             "chat": self.chat,
             "scores": dict(sorted(self.scores.items())),
+            "day_scores": self.day_scores,
             "death": self.death,
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
@@ -147,6 +151,7 @@ class World:
             pinned=pinned,
             reply_counts=dict(d.get("reply_counts", {})), chat=dict(d.get("chat") or {}),
             scores={a: list(s) for a, s in (d.get("scores") or {}).items()},
+            day_scores=dict(d.get("day_scores") or {}),
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
@@ -259,10 +264,40 @@ def effect_gens(eff: dict) -> int:
     return end(eff["after"]) - end(eff["before"])
 
 
+def game_day(gen: int, gen_seconds: int) -> int:
+    """Day N of the universe that generation `gen` is in (as the daily Shorts count)."""
+    return int(gen * gen_seconds // 86400) + 1
+
+
 def credit(world: World, author: str, eff: dict) -> None:
+    """A move's effect on its author's score: all time, and for the day it landed in."""
     s = world.scores.setdefault(author, [0, 0])
     s[0] += effect_gens(eff)
     s[1] += 1
+    day, d = game_day(eff["gen"], world.gen_seconds), world.day_scores
+    if d.get("day") is None or day > d["day"]:  # a new day: today's board starts empty
+        prev = {k: d[k] for k in ("day", "whole", "scores")} if d.get("day") == day - 1 else None
+        world.day_scores = d = {"day": day, "whole": bool(d), "scores": {}, "prev": prev}
+    rec = d if day == d["day"] else d.get("prev") if (d.get("prev") or {}).get("day") == day else None
+    if rec is not None:  # (a late arrival from an older day is left out of the daily boards)
+        t = rec["scores"].setdefault(author, [0, 0])
+        t[0] += effect_gens(eff)
+        t[1] += 1
+
+
+def board_scores(world: World, gen: int) -> tuple[list, list, str]:
+    """The leaderboard (savers, killers) and what it covers: today's, else
+    yesterday's, from a day counted from its start; else all time."""
+    today, d = game_day(gen, world.gen_seconds), world.day_scores
+    for rec in (d, d.get("prev")):
+        if rec and rec.get("whole") and rec["day"] in (today, today - 1):
+            up, down = render.leaders(rec["scores"])
+            if up or down:
+                start = (rec["day"] - 1) * 86400 // world.gen_seconds
+                weekday = render._at(world.launch_time, start, world.gen_seconds, "%a")
+                return up, down, f"{'today' if rec['day'] == today else 'yesterday'} ({weekday}, Day {rec['day']})"
+    up, down = render.leaders(world.scores)
+    return up, down, "(all time)"
 
 
 def backfill_scores(world: World, comments: list, entries: list[dict], shape) -> int:
@@ -531,10 +566,10 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
     if hasattr(yt, "update_comment") and any(due(v, s) for v, s in world.pinned.items()):
         # who made each move, and the leaderboard: names looked up now, never stored
         by = (world.recent_by + [None] * len(world.recent))[:len(world.recent)]
-        up, down = render.leaders(world.scores)
+        up, down, covers = board_scores(world, u.generation)
         wanted = {a for _, a in up + down} | {a.removeprefix("chat:") for a in by if a and a != "chat"}
         names = lookup_names(world, yt, comments, now, events, wanted) if wanted else {}
-        board = render.leaderboard(up, down, names, world.gen_seconds) or None
+        board = render.leaderboard(up, down, names, world.gen_seconds, covers) or None
         recent = [render.with_author(line, a, names) for line, a in zip(world.recent, by)]
     recent = [render.with_time(line, world.launch_time, world.gen_seconds) for line in recent]
     for v, slot in sorted(world.pinned.items(), key=lambda kv: int(kv[0])):

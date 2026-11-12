@@ -533,10 +533,33 @@ def test_the_status_comment_names_the_top_savers_and_killers():
     engine.tick(w, LAUNCH + 600, yt)
     text = yt.updates[-1][1]
     saver, killer = [ln for ln in text.splitlines() if ln.startswith(("🏆", "💀"))]
-    assert saver.startswith("🏆 Top savers: @ann +") and saver.endswith(" · someone +3h")  # u3's 20 min: too little
-    assert killer.startswith("💀 Top killers: @bob −8d 8h · someone −3h")
+    assert saver.startswith("🏆 Top savers (all time): @ann +") and saver.endswith(" · someone +3h")  # u3: too little
+    assert killer.startswith("💀 Top killers (all time): @bob −8d 8h · someone −3h")  # no whole day counted yet
     assert LAUNCH in yt.reads  # names it hadn't seen this run: one read of every comment since launch
     assert "@ann" not in str(w.to_state()[0]) and "@bob" not in str(w.to_state()[0])  # names are never stored
+
+
+def test_the_leaderboard_is_todays_and_says_which_day():
+    w = world()
+    day = 86400 // w.gen_seconds  # generations in a day
+
+    def eff(gen, gens):
+        return {"gen": gen, "before": 5000, "after": 5000 + gens, "horizon": 30000}
+    engine.credit(w, "a1", eff(10, 600))  # day 1, but counted from part way through it
+    assert engine.board_scores(w, 20)[2] == "(all time)"
+    engine.credit(w, "a2", eff(day + 5, 300))  # day 2, counted from its start
+    engine.credit(w, "a3", eff(day - 3, 900))  # a late arrival from day 1 counts for day 1
+    up, down, covers = engine.board_scores(w, day + 6)
+    assert [a for _, a in up] == ["a2"] and covers.startswith("today (") and covers.endswith(", Day 2)")
+    assert w.scores["a3"] == [900, 1] and "a3" in w.day_scores["prev"]["scores"]
+    assert engine.board_scores(w, 2 * day + 1)[2].startswith("yesterday (")  # day 3, nobody yet
+    assert engine.board_scores(w, 3 * day + 1)[2] == "(all time)"  # day 4: nothing recent
+    assert engine.World.from_state(*w.to_state(), w.key).day_scores == w.day_scores  # kept across runs
+    w = world()  # and the status comment says so, with the name looked up
+    w.day_scores = {"day": 1, "whole": True, "scores": {keyed("u1"): [300, 1]}, "prev": None}
+    yt = NamesYT([owner_status()], everyone=[player("y", "u1", "block 5,5", LAUNCH + 30, name="@ann")])
+    engine.tick(w, LAUNCH + 600, yt)
+    assert [ln for ln in yt.updates[-1][1].splitlines() if ln.startswith("🏆")][0].endswith(", Day 1): @ann +10h")
 
 
 def test_no_leaderboard_until_someone_has_moved_it_an_hour():
