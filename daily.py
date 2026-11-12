@@ -1,8 +1,9 @@
 """The daily Short: once a day, a recap of the last 24 hours, posted as a Short
 whose comments feed the same universe.
 
-Runs inside the scheduled tick, on the first run after DAILY_HOUR_UTC each
-(UTC) day. DAILY_SHORT (a repository variable) decides what it does:
+Runs inside the scheduled tick, on the first run after DAILY_HOUR_ET (2 PM in
+New York) each New York day; a late or failed run still posts it that day, up
+to midnight. DAILY_SHORT (a repository variable) decides what it does:
 
     off   nothing (default)
     dry   render it, attach it to the workflow run, open an issue; no upload
@@ -18,25 +19,33 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+from zoneinfo import ZoneInfo
 
 import render
 from universe import ALIVE, DIED
 
-DAILY_HOUR_UTC = 23  # 6 PM in New York (7 PM in summer)
+ET = ZoneInfo("America/New_York")
+# 2 PM in New York, all year: a Short's views come in its first ~5 hours and
+# stalled at midnight when it posted at 6 PM (23:00 UTC until 2026-11-12).
+DAILY_HOUR_ET = 14
 RECAP_HOURS = 24
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"
 
 
 def today(now: float) -> str:
-    return dt.datetime.fromtimestamp(now, dt.timezone.utc).date().isoformat()
+    """The New York date (the day a Short is posted for)."""
+    return dt.datetime.fromtimestamp(now, ET).date().isoformat()
 
 
-def due(world, now: float) -> bool:
-    """The first run at or after DAILY_HOUR_UTC on a day that hasn't had one."""
-    t = dt.datetime.fromtimestamp(now, dt.timezone.utc)
-    return (world.universe.phase != DIED and t.hour >= DAILY_HOUR_UTC
-            and world.daily.get("date") != today(now))
+def due(world_or_state, now: float) -> bool:
+    """The first run at or after DAILY_HOUR_ET on a New York day that hasn't had
+    one. Takes the World, or the state.json dict (as the workflow reads it)."""
+    if isinstance(world_or_state, dict):
+        phase, last = world_or_state["universe"]["phase"], (world_or_state.get("daily") or {}).get("date")
+    else:
+        phase, last = world_or_state.universe.phase, world_or_state.daily.get("date")
+    return phase != DIED and dt.datetime.fromtimestamp(now, ET).hour >= DAILY_HOUR_ET and last != today(now)
 
 
 def day_number(world) -> int:
