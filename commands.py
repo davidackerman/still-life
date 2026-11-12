@@ -6,6 +6,9 @@ Grammar (case-insensitive; the earliest valid command anywhere in the text wins)
     block x,y | blinker x,y | rpent x,y | acorn x,y
     cells x,y x,y ...            1 to 25 cells
 
+A pattern's x,y may also be written "x y", "x x y" or "(x, y)" ("acorn 15x15",
+"glider 10 20 ne"), since people write them that way; `cells` needs commas.
+
 (x, y) is the top-left of the pattern's bounding box; x in 0..W-1, y in 0..H-1
 (0..127 and 0..71 on the first universe's 128x72 board), origin top-left. Patterns that run past an edge wrap. A command with any
 coordinate out of range, or a `cells` list longer than 25, is invalid and
@@ -40,8 +43,9 @@ import life
 
 MAX_CELLS = 25
 _COORD = r"([0-9]+)\s*,\s*([0-9]+)"
+_PATTERN_COORD = r"(?:\(\s*)?([0-9]+)\s*(?:,|x|×|\s)\s*([0-9]+)(?:\s*\))?"  # "15,15", "15x15", "15 15", "(15, 15)"
 _PATTERN_RE = re.compile(
-    rf"\b(glider|block|blinker|rpent|acorn)\s+{_COORD}(?:\s+(ne|nw|se|sw)\b)?",
+    rf"\b(glider|block|blinker|rpent|acorn)\s+{_PATTERN_COORD}(?:\s+(ne|nw|se|sw)\b)?",
     re.IGNORECASE | re.ASCII,
 )
 _CELLS_RE = re.compile(rf"\bcells((?:\s+{_COORD})+)", re.IGNORECASE | re.ASCII)

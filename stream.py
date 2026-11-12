@@ -149,7 +149,7 @@ class Snapshot:
     checked: float | None = None  # when the tick last read the comments
     deaths: list = field(default_factory=list)  # (gen, the gen it would die at, or None: beyond the forecast)
     paint: np.ndarray | None = None  # the cells' colors (life.paint_step); None while no move has asked for one
-    moves: dict = field(default_factory=dict)  # the bot's count: {"total", "day", "today"} (engine.count_move)
+    comments_seen: dict = field(default_factory=dict)  # the bot's count: {"total", "day", "today"} (engine.count_comments)
 
 
 def load(state_dir: str, after_seq: int | None = None, now: float | None = None) -> Snapshot:
@@ -162,7 +162,8 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
     cfg, disp = s["config"], s.get("display") or {}
     snap = Snapshot(u=u, launch=cfg["launch_time"], gen_seconds=cfg["gen_seconds"], forecast=disp.get("forecast"),
                     recent=list(disp.get("recent") or []), universe_no=cfg.get("universe", 1),
-                    video=cfg.get("video_id") or MAIN_VIDEO, seq=s["log"]["seq"], moves=dict(s.get("moves") or {}))
+                    video=cfg.get("video_id") or MAIN_VIDEO, seq=s["log"]["seq"],
+                    comments_seen=dict(s.get("comments_seen") or {}))
     if after_seq is not None and snap.seq > after_seq:
         with open(os.path.join(state_dir, "log.jsonl"), encoding="utf-8") as f:
             for line in f:
@@ -837,13 +838,12 @@ class Screen:
             y += 34
         y += 18
         d.text((x, y), "Latest moves", font=font("bold", 24), fill=WHITE, anchor="lt")
-        m = snap.moves
-        if m.get("total"):  # how many so far, and today (Day N, as the daily Shorts count)
+        m = snap.comments_seen
+        if m.get("total"):  # every comment read so far (skipped ones too), and today (Day N, as the Shorts count)
             today = m.get("today", 0) if m.get("day") == int(u.generation * snap.gen_seconds // 86400) + 1 else 0
-            tally = f"{m['total']:,} so far · {today:,} today"
-            tx = x + d.textlength("Latest moves", font=font("bold", 24)) + 12
-            if tx + d.textlength(tally, font=font("regular", 19)) <= x + COL_W:
-                d.text((tx, y + 4), tally, font=font("regular", 19), fill=MUTED, anchor="lt")
+            tally = f"{m['total']:,} comments so far · {today:,} today"
+            d.text((x, y + 32), tally, font=font("regular", 19), fill=MUTED, anchor="lt")
+            y += 26
         y += 38
         f20 = font("regular", 20)
         for r in snap.recent:

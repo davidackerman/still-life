@@ -141,3 +141,12 @@ def test_a_pattern_named_without_coordinates_is_placed_at_the_comments_spot():
 def cells_at(name, x, y):
     import life
     return tuple(sorted(set(life.place(life.PATTERNS[name], x, y, (life.H, life.W)))))
+
+
+@pytest.mark.parametrize("text", ["acorn 15x15 orange", "Acorn 15X15", "acorn 15 15", "acorn (15, 15)", "acorn 15,15"])
+def test_a_patterns_coordinates_can_be_written_other_ways(text):
+    assert commands.parse("c1", text).desc == "acorn 15,15"
+
+
+def test_cells_still_need_commas():
+    assert commands.parse("c1", "cells 1 2 3 4").kind == "random"

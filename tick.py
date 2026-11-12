@@ -125,11 +125,14 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
     if world.recent is None:  # first run with the pinned comment: backfill from the log
         lines = render.lines_from_log(read_log(store.path(LOG)), world.universe.flatline_gens, world.gen_seconds)
         world.recent = list(reversed(lines))[: engine.RECENT_MAX]
-    if "total" not in world.moves:  # once: count the moves so far from the log
-        gens = [e["gen"] for e in read_log(store.path(LOG)) if e["type"] == "injection"]
+    if "total" not in world.comments_seen:  # once: count every comment read so far, from the log
+        entries = read_log(store.path(LOG))
         day = engine.game_day(world.universe.generation, world.gen_seconds)
-        world.moves = {"total": len(gens), "day": day,
-                       "today": sum(engine.game_day(g, world.gen_seconds) == day for g in gens)}
+        ticks = [e for e in entries if e["type"] == "tick"]
+        again = sum(e["count"] for e in entries if e["type"] == "readmitted")  # those were read twice
+        world.comments_seen = {
+            "total": sum(e.get("comments_new", 0) for e in ticks) - again, "day": day,
+            "today": sum(e.get("comments_new", 0) for e in ticks if engine.game_day(e["gen_end"], world.gen_seconds) == day)}
     was_dead = world.universe.phase == DIED
     yt = yt_factory(world)
     logged = None

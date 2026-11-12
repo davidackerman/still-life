@@ -175,16 +175,19 @@ def test_recent_events_are_backfilled_from_the_log(tmp_path, env):
     assert len(recent) == 1 and recent[0].startswith("gen 4: block 5,5 · ")  # posted at 570 s: gen 4
 
 
-def test_the_moves_so_far_are_counted_once_from_the_log_then_kept_up(tmp_path, env):
+def test_every_comment_read_is_counted_once_from_the_log_then_kept_up(tmp_path, env, monkeypatch):
+    import admission
+    monkeypatch.setattr(admission, "MOVES_PER_GEN", 1)  # so one of the two is skipped: it still counts
     d = str(tmp_path / "state")
-    live(d, FakeYT(), 3600, comments_at=[(600, "block 5,5"), (900, "hi")])
+    live(d, FakeYT(), 3600, comments_at=[(600, "block 5,5"), (607, "hi")])  # one person, one generation
     p = os.path.join(d, "state.json")
     st = json.load(open(p))
-    assert st["moves"]["total"] == 2
-    st.pop("moves")  # as written by the bot before it counted
+    assert st["comments_seen"]["total"] == 2
+    assert len([e for e in log_entries(d) if e["type"] == "injection"]) == 1
+    st.pop("comments_seen")  # as written by the bot before it counted
     json.dump(st, open(p, "w"))
     tick.run(d, LAUNCH + 3600, lambda w: FakeYT(), KEY, thumb_path=None)
-    assert json.load(open(p))["moves"] == {"total": 2, "day": 1, "today": 2}
+    assert json.load(open(p))["comments_seen"] == {"total": 2, "day": 1, "today": 2}
 
 
 def test_painted_moves_are_logged_with_their_color_and_replay(tmp_path, env):

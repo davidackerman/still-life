@@ -494,7 +494,8 @@ def pinned_text(status: str, recent: list[str], suggest: str | None = None, link
     lines = [first, INTRO_MAIN if main else INTRO_EXTRA, ""]
     if board:  # who gave it the most life, and who took the most (every video and the live chat)
         lines += board + [""]
-    so_far = f" · {counts[0]:,} so far, {counts[1]:,} today" if counts and counts[0] else ""
+    so_far = (f" · {counts[0]:,} comment{'s' * (counts[0] != 1)} so far, {counts[1]:,} today"
+              if counts and counts[0] else "")  # every one read, including any skipped
     lines.append(f"Latest moves{so_far} (time it had left: before → after):")
     lines += [f"• {r}" for r in recent] or ["• none yet. Be the first!"]
     lines.append("")
