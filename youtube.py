@@ -435,6 +435,15 @@ class YouTube:
             self.service.videos().update(part="snippet", body={"id": vid, "snippet": body}).execute()
         return vid
 
+    def view_counts(self) -> dict[str, int]:
+        """Each configured video's view count, keyed by its index as a string (the
+        status comments' slots: "0" the main video, "1".. the extras). One
+        videos.list call for all of them (it takes up to 50 ids)."""
+        self.quota.spend(COST["videos.list"])
+        resp = self.service.videos().list(part="statistics", id=",".join(self.videos[:50])).execute()
+        by_id = {it["id"]: int(it.get("statistics", {}).get("viewCount", 0)) for it in resp.get("items", [])}
+        return {str(i): by_id[v] for i, v in enumerate(self.videos) if v in by_id}
+
     def update_comment(self, comment_id: str, text: str) -> None:
         """Rewrite one of the channel owner's own comments (the pinned status comment)."""
         self.quota.spend(COST["comments.update"])

@@ -36,6 +36,7 @@ TITLE_CRISIS_INTERVAL_S = 15 * 60  # stuck in a loop or contested: hours matter
 PINNED_MIN_INTERVAL_S = 45 * 60  # the main video's status comment, and the newest Short's
 PINNED_EXTRA_MIN_INTERVAL_S = 3 * 3600  # the second-newest Short's
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
+VIEWS_EVERY_S = 15 * 60  # the videos' view counts are read at most this often (1 unit), while a rewrite is due
 PINNED_RESTAMP_S = 0  # off since 2026-11-12 (was 3 h, 8 x 50 units/day: now spent reading the chat every 3 min)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
@@ -99,6 +100,7 @@ class World:
     extra_videos: list = field(default_factory=list)  # Shorts the bot posted (daily.py); comments play
     extra_read: dict = field(default_factory=dict)  # video id -> when its comments were last read
     comments_read_at: float = 0.0  # when the videos' comments were last read (the chat is read every run)
+    views: dict = field(default_factory=dict)  # {"at": when, "counts": {slot: views}}: the last read of view counts
     daily: dict = field(default_factory=dict)  # the daily Short: {"date", "day", "video"}
     death: dict | None = None
     retire_pending: list = field(default_factory=list)
@@ -134,6 +136,7 @@ class World:
             "retire_pending": self.retire_pending,
             "extra_read": dict(sorted(self.extra_read.items())),
             "comments_read_at": self.comments_read_at,
+            "views": self.views,
             "daily": self.daily,
         }, history)
 
@@ -162,7 +165,7 @@ class World:
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
             extra_videos=list(d["config"].get("extra_videos", [])), extra_read=dict(d.get("extra_read", {})),
-            comments_read_at=float(d.get("comments_read_at") or 0.0),
+            comments_read_at=float(d.get("comments_read_at") or 0.0), views=dict(d.get("views") or {}),
             daily=dict(d.get("daily") or {}),
             retire_pending=list(d.get("retire_pending", [])),
             pinned_core=disp.get("pinned_core"), pinned_suggest=disp.get("pinned_suggest"),
@@ -589,8 +592,24 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         gap = (PINNED_MIN_INTERVAL_S if v == "0" or v in newest else PINNED_EXTRA_MIN_INTERVAL_S if v in second
                else PINNED_OLD_EXTRA_MIN_INTERVAL_S)
         return force_pinned or slot.get("at") is None or now - slot["at"] >= gap
+    # Only where people have watched since the comment was last written: one read of
+    # every video's view count (1 unit) when a rewrite is due. Unknown counts count as watched.
+    views: dict = {}
+    if hasattr(yt, "update_comment") and hasattr(yt, "view_counts") and any(due(v, s) for v, s in world.pinned.items()):
+        if now - world.views.get("at", 0) < VIEWS_EVERY_S:
+            views = dict(world.views.get("counts") or {})  # read recently: wait for the next read
+        else:
+            try:
+                views = yt.view_counts()
+                world.views = {"at": now, "counts": views}
+            except Exception as e:  # noqa: BLE001 - then every due comment is rewritten, as before
+                events.append({"type": "youtube_error", "op": "view_counts", "error": repr(e)[:500]})
+
+    def watched(v, slot):
+        n = views.get(v)
+        return n is None or slot.get("at") is None or force_pinned or n > slot.get("views", -1)
     board, recent = None, world.recent
-    if hasattr(yt, "update_comment") and any(due(v, s) for v, s in world.pinned.items()):
+    if hasattr(yt, "update_comment") and any(due(v, s) and watched(v, s) for v, s in world.pinned.items()):
         # who made each move, and the leaderboard: names looked up now, never stored
         by = (world.recent_by + [None] * len(world.recent))[:len(world.recent)]
         up, down, covers = board_scores(world, u.generation)
@@ -609,12 +628,14 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
         text = admission.keyed(world.key, "pinned", render.pinned_text(
             status_line, recent, world.pinned_suggest, pinned_link, main=main, board=board, counts=tally))
         stale = main and (slot.get("at") is None or bool(PINNED_RESTAMP_S) and now - slot["at"] >= PINNED_RESTAMP_S)
-        if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot):
+        if hasattr(yt, "update_comment") and (text != slot.get("text") or stale) and due(v, slot) and watched(v, slot):
             op = "update_pinned" if main else f"update_pinned_{v}"
             stamped = render.pinned_text(status_line, recent, world.pinned_suggest, pinned_link, main=main,
                                          stamp=render.clock(now, date=False), board=board, counts=tally)
             if _display(world, op, now, lambda: yt.update_comment(slot["id"], stamped), events):
                 slot["text"], slot["at"] = text, now
+                if v in views:  # the views it had when written: the next rewrite waits for more
+                    slot["views"] = views[v]
                 events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
 
     if events or u.generation != gen_start or counts["new"]:

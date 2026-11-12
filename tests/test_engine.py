@@ -223,6 +223,36 @@ def test_pinned_comment_updates_only_when_changed_and_at_most_every_45_minutes()
     assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1]
 
 
+def test_a_status_comment_is_only_rewritten_where_people_have_watched_since():
+    class ViewsYT(PinYT):
+        views = {"0": 100}
+        reads = 0
+
+        def view_counts(self):
+            self.reads += 1
+            return dict(self.views)
+    w, yt = world(), ViewsYT([owner_status()])
+    engine.tick(w, LAUNCH, yt)
+    assert len(yt.updates) == 1 and w.pinned["0"]["views"] == 100  # the first one is always written
+    yt.comments.append(comment("b", "u2", "rpent 90,20"))
+    engine.tick(w, LAUNCH + 2700, yt)
+    assert len(yt.updates) == 1  # new move, due, but nobody has watched since
+    reads = yt.reads
+    yt.views = {"0": 103}
+    engine.tick(w, LAUNCH + 2800, yt)
+    assert yt.reads == reads and len(yt.updates) == 1  # counts are read at most every 15 minutes
+    engine.tick(w, LAUNCH + 2700 + engine.VIEWS_EVERY_S, yt)
+    assert yt.reads == reads + 1
+    assert len(yt.updates) == 2 and "rpent 90,20" in yt.updates[-1][1] and w.pinned["0"]["views"] == 103
+
+    class Broken(ViewsYT):
+        def view_counts(self):
+            raise RuntimeError("no stats")
+    w2, yt2 = world(), Broken([owner_status()])
+    engine.tick(w2, LAUNCH, yt2)
+    assert len(yt2.updates) == 1  # without counts, as before
+
+
 def test_pinned_comment_lists_phase_changes_newest_first():
     w, yt = world(), PinYT([owner_status()])
     for t in range(0, 70 * 3600, 1800):  # past the acorn's loop at gen 1855 (61.8 h)
