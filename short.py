@@ -775,7 +775,7 @@ def opening_move(h: History, since_gen: int, lead: str | None = None):
 # glider flying OPEN_GLIDER_GENS before it hits anything. Day 6's biggest kill was a glider
 # dropped onto a blinker: a blue blob, never a glider.
 OPEN_CLEAR, OPEN_GLIDER_GENS = 2, 8
-OPEN_PICK: dict = {}  # {day: a logged command}: pins that day's opening comment, if it moved the forecast
+OPEN_PICK: dict = {6: "glider 20,23 se"}  # {day: a logged command}: pins that day's opening comment, if it moved the forecast
 
 
 def _lands_clear(h: History, moves, since_gen: int) -> dict:
