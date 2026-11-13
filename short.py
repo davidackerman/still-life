@@ -982,10 +982,10 @@ def tag(centre, r: float, alpha: float, text: str | None = None):
     return draw
 
 
-MAP_X, MAP_Y, MAP_W = 40, 1200, 330  # the whole universe, small, at the bottom left (the bubble below it)
+MAP_X, MAP_Y, MAP_W = 40, 1250, 330  # the whole universe, small, at the bottom left
 
 
-def minimap(grid, path, alpha: float):
+def minimap(grid, path, alpha: float, label: float = 1.0):
     """The whole board, small, with the glider's path so far (cells, unwrapped) and a ring where it is."""
     Hh, Ww = grid.shape
     c = MAP_W / Ww
@@ -1004,7 +1004,8 @@ def minimap(grid, path, alpha: float):
             d.ellipse((px - 1.8, py - 1.8, px + 1.8, py + 1.8), fill=(255, 255, 255, int(170 * alpha)))
         px, py = pts[-1]
         d.ellipse((px - 8, py - 8, px + 8, py + 8), outline=(255, 255, 255, a), width=3)
-        ex.text(d, (MAP_X - 4, MAP_Y - 32), "the whole universe", "demi", 30, alpha * 0.9, anchor="lm")
+        if label > 0:  # named while it's new, then just the map
+            ex.text(d, (MAP_X - 4, MAP_Y - 32), "the whole universe", "demi", 30, alpha * label * 0.9, anchor="lm")
     return draw
 
 
@@ -1057,8 +1058,6 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     tonight = h.fresh()
     h.goto(tonight, h.now_gen)
     qx, qy = render.quiet_spot(tonight.grid)  # the examples' spot: a quiet corner of the board as it is now
-    spot = f"{qx},{qy}"
-    cycle = [EXAMPLES[1]] + [c for c in CYCLE if c is not EXAMPLES[1]]  # what you can comment, the glider first
     primer, pu = [], h.fresh()
     h.goto(pu, max(0, g - life.TRAIL_GENS))
     while pu.generation < g:
@@ -1077,7 +1076,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
               if words != "barely changed its fate" else "It barely changed the universe's fate.")
     said = f"\u201c{render.move_text(e)}\u201d"
     lead = [("Someone's comment", "bold", 84), ("became this glider.", "bold", 84)]
-    question = [("How far will it get?", "demi", 60)]
+    question = [("Will it save this universe, or kill it?", "demi", 56)]  # the reason to stay: answered at the end
     # on the way, what this universe is: in order, as many as the flight has time for
     beats = [(2, [(f"This universe has been running live on YouTube since {began}.", "demi", 50)]),
              (0, [("Every comment drops cells into it.", "demi", 50), ("Some save it. Some kill it.", "demi", 50)])]
@@ -1119,14 +1118,6 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         return [(f"{n:,}", "bold", 120, (MAP_X + MAP_W + 330, MAP_Y + 70), "mm", a),
                 ("generations flown", "demi", 40, (MAP_X + MAP_W + 330, MAP_Y + 160), "mm", a)]
 
-    shown = [0]  # frames the bubble has been on screen
-
-    def chip(fade_out: int | None = None):  # what you can comment, one example at a time, under the map
-        k = shown[0]
-        shown[0] += 1
-        a = min(1.0, (k + 1) / FADE, (fade_out / FADE) if fade_out is not None else 1.0)
-        return comment_chip(k, a, spot, cycle=cycle)
-
     r = 15 * s_full * 2.2  # ring radius on screen: a bit more than the glider
     hx, hy = np.round(at(flown)).astype(int)
     hit = life.mask([((hx + i) % W, (hy + j) % H) for i in range(-5, 6) for j in range(-5, 6)], (H, W))
@@ -1161,11 +1152,13 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             highlight=near(t) if t < flown else (hit if t < flown + 6 else None),  # the impact flashes
             cue=("inject", float(c0[0])) if i == 0 else ("inject", float(at(flown)[0])) if i == crash_at else None,
             extras=[tag(at(t), r * boom, ring_a, said if t < flown else None),
-                    minimap(u.grid, [at(x) for x in range(0, int(min(t, flown)) + 1, 4)], map_a), chip()])
+                    minimap(u.grid, [at(x) for x in range(0, int(min(t, flown)) + 1, 4)], map_a,
+                            label=min(1.0, max(0.0, (lead_s + 5.0 - sec) * 2)))])
         i += 1
 
     # what it did, pulling back to the whole board
-    top = [(f"{flown:,} generations. Then it hit something.", "bold", 64), (result, "demi", 54)]
+    answer = "It saved it." if words.startswith("gave") else "It hurt it." if words.startswith("took") else "It barely changed a thing."
+    top = [(f"{flown:,} generations. Then it hit something.", "demi", 52), (answer, "bold", 96), (result, "demi", 52)]
     n = max(int(3.4 * FPS), rf(*[t for t, _, _ in top]) + int(0.9 * FPS))  # + the pull back
     end_focus = follow(flown)
     path = [at(x) for x in range(0, flown + 1, 4)]
@@ -1179,7 +1172,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         add(u, block(top, TOP_Y, a), zoom=band_h / BH * push * BW / BAND_W, band=(band_y, band_h), free=True,
             focus=(end_focus[0] + (BW / 2 - end_focus[0]) * q, end_focus[1] + (BH / 2 - end_focus[1]) * q),
             dark=1 - q, cue=("saved",) if k == int(0.9 * FPS) and "gave" in result else None,
-            extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q)), minimap(u.grid, path, 1 - q), chip()])
+            extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q)), minimap(u.grid, path, 1 - q, label=0)])
 
     # the same universe tonight: still going, and what happens next if nobody comments
     now = tonight
@@ -1199,8 +1192,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             History.advance(now, now.generation + 1)
         a = min(1.0, (k + 1) / FADE)
         add(now, block([("The same universe, right now:", "demi", 54)], TOP_Y - 80, min(a, (n - k) / FADE * 4))
-            + block([("Still alive.", "bold", 110)], TOP_Y + 30, a) + block(bottom, BOTTOM_Y, a),
-            extras=[chip(fade_out=n - k)])
+            + block([("Still alive.", "bold", 110)], TOP_Y + 30, a) + block(bottom, BOTTOM_Y, a))
 
     # what you can comment: yours could fly next
     x, y = qx, qy
