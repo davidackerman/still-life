@@ -247,7 +247,7 @@ def ring(cells, alpha: float, caption: str | None = None, dashed: bool = False):
 # one you could write and, beside it, a little film (render.demo) of exactly what it
 # adds. They take turns from the first frame until the ending, each held until its
 # film has played through; the ending then lists them all, one under another.
-EXAMPLES = [("hi!", "random", None, "adds a random patch"),
+EXAMPLES = [("hi!|wow|save it", "random", None, "any message adds a random patch"),  # any words: a few, in turn
             ("glider {at} se blue", "glider_se", "blue", "adds a blue glider that flies off"),
             ("block {at}", "block", None, "adds a block that just sits"),
             ("blinker {at} cyan", "blinker", "cyan", "adds a cyan blinker that blinks"),
@@ -258,8 +258,17 @@ CHIP_Y, CHIP_BOX, CHIP_CELL, CHIP_EVERY = 1516, 9, 10, 3  # the bubble's centre,
 STACK_Y, STACK_SCALE, STACK_GAP = 536, 0.9, 14  # the ending's list: its top, its bubbles' size, the gap between them
 
 
-def _quote(say: str, at: str) -> str:
-    return "\u201c" + say.format(at=at) + "\u201d"
+SAY_TURN = int(1.1 * FPS)  # frames each of an example's messages shows ("hi!|wow|save it")
+
+
+def _quote(say: str, at: str, i: int = 0) -> str:
+    """The example in quotes; one of its "|"-separated messages, in turn by frame i."""
+    opts = say.split("|")
+    return "\u201c" + opts[(i // SAY_TURN) % len(opts)].format(at=at) + "\u201d"
+
+
+def _widest(d, say: str, at: str, adds: str, s: float = 1.0) -> float:
+    return max(_bubble_width(d, _quote(o, at), adds, s) for o in say.split("|"))
 
 
 def _bubble_width(d, say: str, adds: str, s: float = 1.0) -> float:
@@ -298,11 +307,11 @@ def comment_chip(i: int, alpha: float, at: str, per: float | None = None):
         if alpha <= 0:
             return
         turn = int(i // per)
-        say, pattern, paint, adds = CYCLE[turn % len(CYCLE)]
-        say = _quote(say, at)
+        raw, pattern, paint, adds = CYCLE[turn % len(CYCLE)]
+        say = _quote(raw, at, i)
         film = render.demo(pattern, CHIP_BOX)
         k = min(len(film) - 1, int((i - turn * per) * len(film) / per))
-        w = _bubble_width(d, say, adds)
+        w = _widest(d, raw, at, adds)  # steady while its messages take turns
         _bubble(d, int(CX - w / 2), CHIP_Y, w, say, adds, film[k], paint, alpha)
     return draw
 
@@ -312,8 +321,8 @@ def comment_stack(i: int, n: int, alpha: float, at: str):
     films starting together and playing through once."""
     def draw(d, to_canvas):
         s = STACK_SCALE
-        rows = [(_quote(say, at), pattern, paint, adds) for say, pattern, paint, adds in EXAMPLES]
-        w = max(_bubble_width(d, say, adds, s) for say, _, _, adds in rows)
+        rows = [(_quote(say, at, i), pattern, paint, adds) for say, pattern, paint, adds in EXAMPLES]
+        w = max(_widest(d, say, at, adds, s) for say, _, _, adds in EXAMPLES)
         h = 112 * s
         for r, (say, pattern, paint, adds) in enumerate(rows):
             film = render.demo(pattern, CHIP_BOX)
@@ -909,7 +918,7 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
 # crash, then shows what that comment did to the universe's life. Everything in it
 # comes from the log.
 GLIDER_DIRS = {"ne": (1, -1), "nw": (-1, -1), "se": (1, 1), "sw": (-1, 1)}
-FLIGHT_GPS, FLIGHT_MAX_S = 18, 20  # generations a second while it flies (faster only to keep the flight under 20 s)
+FLIGHT_GPS, FLIGHT_MAX_S = 16, 20  # generations a second while it flies (faster only to keep the flight under 20 s)
 FLIGHT_SLOW_GPS, FLIGHT_SLOW_BEFORE, FLIGHT_SLOW_AFTER = 6, 8, 16  # the crash in slow motion: gens around it
 FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.0, 950, 110  # the board's full height (cells ~27 px); the glider's height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
@@ -971,6 +980,32 @@ def tag(centre, r: float, alpha: float, text: str | None = None):
     return draw
 
 
+MAP_X, MAP_Y, MAP_W = 40, 1250, 330  # the whole universe, small, at the bottom left
+
+
+def minimap(grid, path, alpha: float):
+    """The whole board, small, with the glider's path so far (cells, unwrapped) and a ring where it is."""
+    Hh, Ww = grid.shape
+    c = MAP_W / Ww
+    mh = round(Hh * c)
+    mask = Image.fromarray((grid > 0).astype(np.uint8) * 255).resize((MAP_W, mh), Image.NEAREST)
+
+    def draw(d, to_canvas):
+        if alpha <= 0.01:
+            return
+        a = int(255 * alpha)
+        d.rounded_rectangle((MAP_X - 8, MAP_Y - 8, MAP_X + MAP_W + 8, MAP_Y + mh + 8), radius=12,
+                            fill=(6, 8, 10, int(215 * alpha)), outline=(70, 76, 92, a), width=2)
+        d.bitmap((MAP_X, MAP_Y), mask, fill=tuple(PHASE_COLOR["ALIVE"]) + (int(150 * alpha),))
+        pts = [(MAP_X + (x % Ww + 0.5) * c, MAP_Y + (y % Hh + 0.5) * c) for x, y in path]
+        for px, py in pts[:-1]:
+            d.ellipse((px - 1.8, py - 1.8, px + 1.8, py + 1.8), fill=(255, 255, 255, int(170 * alpha)))
+        px, py = pts[-1]
+        d.ellipse((px - 8, py - 8, px + 8, py + 8), outline=(255, 255, 255, a), width=3)
+        ex.text(d, (MAP_X - 4, MAP_Y - 32), "the whole universe", "demi", 30, alpha * 0.9, anchor="lm")
+    return draw
+
+
 def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     """The glider Short: the longest flight in the log (or the logged move `pick`).
     None when no glider flew FLIGHT_MIN_GENS."""
@@ -1026,20 +1061,33 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     h.goto(u, g)
 
     when = f"{rd._at(launch, g, G, '%A %b %d')}, {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}"
-    span = _span(eff["before"] * G).replace("1 day", "a day").replace("1 hour", "an hour") if eff and eff.get("before") is not None else None
-    stakes = f"{when}. The universe was {span} from getting stuck." if span else when
+    began = rd._at(launch, 0, G, "%A %b %d")
+    span = None
+    if eff and eff.get("before") is not None:  # `before`: the generation it would have got stuck at
+        span = _span((eff["before"] - g) * G).replace("1 day", "a day").replace("1 hour", "an hour")
     words = effect_words(eff["before"], eff["after"], G) if eff else "barely changed its fate"
     result = ("That comment " + words.replace("gave it", "gave this universe").replace("its life", "this universe's life") + "."
               if words != "barely changed its fate" else "It barely changed the universe's fate.")
-    said = f"“{render.move_text(e)}”"
+    said = f"\u201c{render.move_text(e)}\u201d"
     lead = [("Someone's comment", "bold", 84), ("became this glider.", "bold", 84)]
     question = [("How far will it get?", "demi", 60)]
-    rule = [("Life's rule: a cell with 2 or 3 neighbors lives.", "demi", 44), ("An empty cell with 3 comes alive.", "demi", 44)]
+    # on the way, what this universe is: in order, as many as the flight has time for
+    beats = [(2, [(f"This universe has been running live on YouTube since {began}.", "demi", 50)]),
+             (0, [("Every comment drops cells into it.", "demi", 50), ("Some save it. Some kill it.", "demi", 50)])]
+    if span:
+        beats.append((1, [(f"{when}: it was {span} from getting stuck.", "demi", 50),
+                          ("Stuck means it dies, and these videos go private.", "demi", 44)]))
+    gps = max(FLIGHT_GPS, (flown - FLIGHT_SLOW_BEFORE) / FLIGHT_MAX_S)
+    lead_s = 4.0
+    room = (flown - FLIGHT_SLOW_BEFORE) / gps - lead_s
+    keep = sorted(b[0] for b in beats)[:max(0, min(len(beats), int(room // 3.5)))]  # by priority
+    beats = [lines for rank, lines in beats if rank in keep]
+    per = room / len(beats) if beats else 0
 
     def counter(n: int, a: float):
-        return block([(f"{n:,}", "bold", 120), ("generations flown", "demi", 44)], BOTTOM_Y + 60, a)
+        return [(f"{n:,}", "bold", 120, (MAP_X + MAP_W + 330, MAP_Y + 70), "mm", a),
+                ("generations flown", "demi", 40, (MAP_X + MAP_W + 330, MAP_Y + 160), "mm", a)]
 
-    gps = max(FLIGHT_GPS, (flown - FLIGHT_SLOW_BEFORE) / FLIGHT_MAX_S)
     r = 15 * s_full * 2.2  # ring radius on screen: a bit more than the glider
     t, i = 0.0, 0
     crash_at = None
@@ -1048,7 +1096,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         t += (FLIGHT_SLOW_GPS if slow else gps) / FPS
         h.goto(u, g + int(t))
         sec = i / FPS
-        a_lead = 1.0 if sec < 4.0 else max(0.0, 1 - (sec - 4.0) * 2)
+        a_lead = 1.0 if sec < lead_s else max(0.0, 1 - (sec - lead_s) * 2)
         a_q = min(1.0, max(0.0, (sec - 1.0) * 3)) * (1.0 if t < flown else max(0.0, 1 - (t - flown) / 4))
         texts = []
         if a_lead > 0:
@@ -1056,26 +1104,28 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             texts = [x[:5] + (a_lead,) for x in texts[:2]] + [x[:5] + (a_q,) for x in texts[2:]]
         else:
             texts += [x[:5] + (a_q,) for x in block(question, TOP_Y - 140, 1.0)]
-            if 5.0 <= sec < 12.0:  # the rule, then the stakes
-                texts += block(rule, TOP_Y + 40, min(1.0, (sec - 5.0) * 3, (12.0 - sec) * 3))
-            elif 12.0 <= sec and t < flown:
-                texts += block([(stakes, "demi", 44)], TOP_Y + 40, min(1.0, (sec - 12.0) * 3))
+            j = int((sec - lead_s) // per) if per else len(beats)
+            if t < flown and j < len(beats):
+                t0 = lead_s + j * per
+                texts += block(beats[j], TOP_Y + 40, min(1.0, (sec - t0) * 3, (t0 + per - sec) * 3))
         if t >= flown:
             if crash_at is None:
                 crash_at = i
-            k = i - crash_at
-            texts += block([("Crash.", "bold", 110)], TOP_Y + 40, min(1.0, (k + 1) / 6))
+            texts += block([("Crash.", "bold", 110)], TOP_Y + 40, min(1.0, (i - crash_at + 1) / 6))
         texts += counter(min(int(t), flown), 1.0)
         boom = 1.0 if t < flown else 1 + min(1.0, (t - flown) / 10) * 1.6  # the ring opens out at the crash
         ring_a = 1.0 if t < flown else max(0.35, 1 - (t - flown) / 14)
+        map_a = min(1.0, max(0.0, (sec - lead_s) * 2))
         add(u, texts, zoom=zoom_full, focus=follow(t), band=(0, PH), free=True, dark=1.0,
             highlight=near(t) if t < flown else None, cue=("inject", float(c0[0])) if i == 0 else None,
-            extras=[tag(at(t), r * boom, ring_a, said if t < flown else None)])
+            extras=[tag(at(t), r * boom, ring_a, said if t < flown else None),
+                    minimap(u.grid, [at(x) for x in range(0, int(min(t, flown)) + 1, 4)], map_a)])
         i += 1
 
     # what it did, pulling back to the whole board
     n, top = int(3.4 * FPS), [(f"{flown:,} generations, then it hit something.", "bold", 64), (result, "demi", 54)]
     end_focus = follow(flown)
+    path = [at(x) for x in range(0, flown + 1, 4)]
     for k in range(n):
         if k % 5 == 0:
             h.goto(u, u.generation + 1)
@@ -1086,17 +1136,38 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         add(u, block(top, TOP_Y, a), zoom=band_h / BH * push * BW / BAND_W, band=(band_y, band_h), free=True,
             focus=(end_focus[0] + (BW / 2 - end_focus[0]) * q, end_focus[1] + (BH / 2 - end_focus[1]) * q),
             dark=1 - q, cue=("saved",) if k == int(0.9 * FPS) and "gave" in result else None,
-            extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q))])
+            extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q)), minimap(u.grid, path, 1 - q)])
 
-    # what you can comment: yours could fly next
-    x, y = render.quiet_spot(u.grid)
-    top = [("Yours could fly next.", "bold", 90), ("Comment anything. Like one of these:", "demi", 54)]
-    n = 6 * FPS
+    # the same universe tonight: still going, and what happens next if nobody comments
+    now = h.fresh()
+    h.goto(now, h.now_gen)
+    F = now.flatline_gens
+    if now.phase == "FLATLINING":
+        fate = f"It's stuck in a loop: it dies {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')} unless a comment breaks it."
+    elif now.phase == "CONTESTED":
+        fate = f"A comment broke its loop: it lives if it's still changing {rd._at(launch, now.deadline_gen, G, '%a %I:%M %p ET')}."
+    else:
+        stuck = now.forecast_stuck(FORECAST_GENS)
+        fate = (f"It dies {rd._at(launch, stuck + F, G, '%a %b %d')} unless someone comments." if stuck is not None
+                else "Nothing is set to get it stuck for weeks. A comment could change that.")
+    bottom = [(fate, "demi", 56), ("It's live on this channel.", "demi", 46)]
+    n = int(4.5 * FPS)
     for k in range(n):
         if k % 6 == 0:
-            History.advance(u, u.generation + 1)
+            History.advance(now, now.generation + 1)
         a = min(1.0, (k + 1) / FADE)
-        add(u, block(top, TOP_Y, a) + block([("Your cells could save it. Or kill it.", "demi", 62)], BOTTOM_Y + 24, a),
+        add(now, block([("The same universe, right now:", "demi", 54)], TOP_Y - 80, a)
+            + block([("Still alive.", "bold", 110)], TOP_Y + 30, a) + block(bottom, BOTTOM_Y, a))
+
+    # what you can comment: yours could fly next
+    x, y = render.quiet_spot(now.grid)
+    top = [("Yours could fly next.", "bold", 90), ("Comment anything. Like one of these:", "demi", 54)]
+    n = 5 * FPS
+    for k in range(n):
+        if k % 6 == 0:
+            History.advance(now, now.generation + 1)
+        a = min(1.0, (k + 1) / FADE)
+        add(now, block(top, TOP_Y, a) + block([("Your cells could save it. Or kill it.", "demi", 62)], BOTTOM_Y + 24, a),
             extras=[comment_stack(k, n, a, f"{x},{y}")], dim=0.82 * a)
     add_trails(frames, primer)
     return frames

@@ -127,7 +127,7 @@ def test_each_bubble_is_held_until_its_film_has_played_through():
     seen = []
     real = short._bubble
     try:
-        short._bubble = lambda d, x0, yc, w, say, adds, cells, *a, **k: seen.append((say, cells.sum()))
+        short._bubble = lambda d, x0, yc, w, say, adds, cells, *a, **k: seen.append((adds, cells.sum()))
         per = 100.5  # what end_chips picks: the bubbles' time split into whole films
         d = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
         for i in range(int(2 * per)):
@@ -135,7 +135,7 @@ def test_each_bubble_is_held_until_its_film_has_played_through():
     finally:
         short._bubble = real
     film = short.render.demo(short.CYCLE[0][1], short.CHIP_BOX)
-    first = [n for say, n in seen if "hi!" in say]
+    first = [n for adds, n in seen if adds == short.CYCLE[0][3]]
     assert len(first) == int(per) + 1 and first[0] == film[0].sum() and first[-1] == film[-1].sum()
     assert seen[len(first)][0] != seen[0][0]  # then the next one, from the start of its own film
 
