@@ -924,7 +924,7 @@ FLIGHT_GPS, FLIGHT_EMPTY_GPS, FLIGHT_MAX_S = 14, 26, 20  # generations a second 
 FLIGHT_SLOW_GPS, FLIGHT_SLOW_BEFORE, FLIGHT_SLOW_AFTER = 6, 8, 16  # the crash in slow motion: gens around it
 FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the board's full height (cells ~33 px); its height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
-FLIGHT_MIN_GENS, FLIGHT_MIN_GPS, FLIGHT_RECENT_DAYS = 40, 4.5, 3  # a shorter trip isn't a journey; never slower than
+FLIGHT_MIN_GENS, FLIGHT_MIN_GPS, FLIGHT_RECENT_DAYS = 40, 6, 3  # a shorter trip isn't a journey; never slower than
 # this while it flies; a recent flight (the board as it is lately, colors and all) before an older, longer one
 
 
@@ -965,6 +965,72 @@ def flights(h: History, since_gen: int = 0) -> list:
         if movers:
             h.goto(u, g)
             out += [(_flew(h, u, e), g, e, h.effects.get((g, e["command"]))) for e in movers]
+    return sorted(out, key=lambda t: -t[0])
+
+
+def _glider_shapes() -> dict:
+    """Every 3x3 glider phase in every direction: {bytes: direction}."""
+    def step(p):
+        q = np.pad(p, 2)
+        n = sum(np.roll(np.roll(q, i, 0), j, 1) for i in (-1, 0, 1) for j in (-1, 0, 1)) - q
+        return ((n == 3) | ((q == 1) & (n == 2))).astype(np.uint8)
+
+    def crop(p):
+        ys, xs = np.nonzero(p)
+        return p[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    out, p = {}, crop(np.array(life.mask(life.PATTERNS["glider_se"], (8, 8)), np.uint8))
+    for _ in range(4):
+        for name, (fx, fy) in GLIDER_DIRS.items():
+            q = p[:, ::-1] if fx < 0 else p
+            q = q[::-1, :] if fy < 0 else q
+            out[q.tobytes()] = name
+        p = crop(step(p))
+    return out
+
+
+def wild_gliders(h: History) -> list:
+    """Every lone glider in the universe's history that no comment placed (born in a
+    collision), checked every 4 generations: (generations flown, gen, move-like dict, None).
+    The dict has its cells as first seen and its color: a glider's paint always came
+    from some comment's color."""
+    shapes, H, W = _glider_shapes(), life.H, life.W
+
+    def box(a, n):
+        c = np.pad(np.pad(a, n // 2, mode="wrap").astype(np.int32).cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+        return c[n:, n:] - c[:-n, n:] - c[n:, :-n] + c[:-n, :-n]
+    placed = {(g, x, y) for g, b in h.batches.items() for e in b if e["command"].startswith("glider")
+              for x, y in e.get("cells", [])}
+    u, live, done = h.fresh(), {}, []
+    for gen in range(0, h.now_gen + 1, 4):
+        h.goto(u, gen)
+        gr = u.grid.astype(np.uint8)
+        b5, b3 = box(gr, 5), box(gr, 3)
+        now = {}
+        for y, x in zip(*np.nonzero((b5 == 5) & (b3 == 5))):
+            ys, xs = np.arange(y - 1, y + 2) % H, np.arange(x - 1, x + 2) % W
+            win = gr[np.ix_(ys, xs)]
+            way = shapes.get(win.tobytes())
+            if not way:
+                continue
+            dx, dy = GLIDER_DIRS[way]
+            trip = live.pop((way, (x - dx) % W, (y - dy) % H), None)
+            if trip is None:
+                cells = [[int(xs[j]), int(ys[i])] for i, j in zip(*np.nonzero(win))]
+                paint = u.paint[np.ix_(ys, xs)][win == 1] if u.paint is not None else np.zeros(1, int)
+                k = int(np.bincount(paint).argmax())
+                trip = {"start": gen, "move": {"command": f"glider {x},{y} {way}", "cells": cells, "wild": True,
+                                               "color": commands.COLORS[k - 1] if k else None}}
+            trip["end"] = gen
+            now[(way, x, y)] = trip
+        done += live.values()
+        live = now
+    done += live.values()
+    out = []
+    for t in done:
+        g = t["start"]
+        if any((gg, cx, cy) in placed for gg in range(max(0, g - 8), g + 1) for cx, cy in t["move"]["cells"]):
+            continue  # a comment's own glider: flights() has it
+        out.append((t["end"] - g + 4, g, t["move"], None))
     return sorted(out, key=lambda t: -t[0])
 
 
@@ -1015,14 +1081,24 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     None when no glider flew FLIGHT_MIN_GENS."""
     import render as rd
     h = History(state_dir)
-    trips = [t for t in flights(h) if t[0] >= FLIGHT_MIN_GENS and t[1] + t[0] + FLIGHT_SLOW_AFTER <= h.now_gen]  # crashed already
+    trips = [t for t in flights(h) + wild_gliders(h)
+             if t[0] >= FLIGHT_MIN_GENS and t[1] + t[0] <= h.now_gen]  # its crash is in the log
     recent = h.now_gen - FLIGHT_RECENT_DAYS * 86400 // h.gen_seconds
-    trips = [t for t in trips if t[1] >= recent] + [t for t in trips if t[1] < recent]
+    trips.sort(key=lambda t: (t[1] >= recent, bool(t[2].get("color")), t[0]), reverse=True)
     if pick:
         trips = [t for t in trips if t[2]["command"] == pick] or trips
     if not trips:
         return None
     flown, g, e, eff = trips[0]
+    wild = bool(e.get("wild"))
+    if wild:  # what it did: the universe's forecast with it, against the same moment without it
+        w = h.fresh()
+        h.goto(w, g)
+        without = copy.deepcopy(w)
+        without.grid = without.grid.copy()
+        for x, y in e["cells"]:
+            without.grid[y, x] = 0
+        eff = {"before": without.forecast_stuck(FORECAST_GENS), "after": w.forecast_stuck(FORECAST_GENS)}
     G, launch = h.gen_seconds, h.genesis["launch_time"]
     H, W = life.H, life.W
     d = np.array(GLIDER_DIRS.get(e["command"].split()[-1], (1, 1)), float)
@@ -1072,17 +1148,21 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     when = f"{rd._at(launch, g, G, '%A %b %d')}, {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}"
     began = rd._at(launch, 0, G, "%A %b %d")
     span = None
-    if eff and eff.get("before") is not None:  # `before`: the generation it would have got stuck at
-        span = _span((eff["before"] - g) * G).replace("1 day", "a day").replace("1 hour", "an hour")
+    stuck_then = eff and (eff.get("after") if wild else eff.get("before"))  # the generation it was due to get stuck at
+    if stuck_then is not None and stuck_then:
+        span = _span((stuck_then - g) * G).replace("1 day", "a day").replace("1 hour", "an hour")
     words = effect_words(eff["before"], eff["after"], G) if eff else "barely changed its fate"
-    result = ("That comment " + words.replace("gave it", "gave this universe").replace(" to live", "").replace("its life", "this universe's life") + "."
+    result = (("It " if wild else "That comment ") + words.replace("gave it", "gave this universe").replace(" to live", "").replace("its life", "this universe's life") + "."
               if words != "barely changed its fate" else "It barely changed the universe's fate.")
-    said = f"\u201c{render.move_text(e)}\u201d"
-    lead = [("Someone's comment", "bold", 84), ("became this glider.", "bold", 84)]
+    said = None if wild else f"\u201c{render.move_text(e)}\u201d"
+    lead = ([("This glider was born", "bold", 84), ("in a collision.", "bold", 84)] if wild
+            else [("Someone's comment", "bold", 84), ("became this glider.", "bold", 84)])
     question = [("Will it save this universe, or kill it?", "demi", 56)]  # the reason to stay: answered at the end
     # on the way, what this universe is: in order, as many as the flight has time for
     beats = [(2, [(f"This universe has been running live on YouTube since {began}.", "demi", 50)]),
              (0, [("Every comment drops cells into it.", "demi", 50), ("Some save it. Some kill it.", "demi", 50)])]
+    if wild and e.get("color"):  # its paint can only have come from a comment
+        beats.insert(0, (-1, [(f"Its {e['color']} came from someone's comment.", "demi", 50)]))
     if span:
         beats.append((1, [(f"{rd._at(launch, g, G, '%A %I:%M %p').replace(' 0', ' ')}:", "demi", 50),
                           (f"it was {span} from getting stuck.", "demi", 50),
