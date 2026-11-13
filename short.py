@@ -544,7 +544,8 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     # kept 44.5%. So it opens on the whole board again.
     if opening:  # the daily Short opens on what one real comment did (see _open_on)
         _open_on(h, opening, add)
-    n = int((2.0 if opening else 2.7) * FPS)  # without an opening, on from the very first frame: the thumbnail
+    n = max(int((2.0 if opening else 2.7) * FPS), rf("THIS SHORT", "DIES", "if nobody comments"))  # without an opening,
+    # on from the very first frame: the thumbnail
     Z, hold = HOOK_ZOOM, int(1.2 * FPS)
     busy = whole
     if Z > 1:
@@ -789,7 +790,8 @@ def _open_on(h: History, move, add) -> None:
         caption = "someone's message\nbecame a random 5\u00d75 patch" + (f", {e['color']}" if e.get("color") else "")
     else:
         caption = "\u201c" + render.move_text(e) + "\u201d"
-    n, land, lit = int(OPEN_S * FPS), int(OPEN_LAND_S * FPS), None
+    n = max(int(OPEN_S * FPS), rf(*lines, *[t for t, _, _ in more]))  # every word of it long enough to read
+    land, lit = int(OPEN_LAND_S * FPS), None
     out, later = int(OPEN_OUT_S * FPS), int(OPEN_MORE_S * FPS)
     px, py = centre(piece)
     s0 = PH / BH  # screen px per board px with the board's whole height filling the screen
@@ -819,7 +821,15 @@ def _open_on(h: History, move, add) -> None:
 def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, effect_text):
     """Replay up to `until`, zooming in on each generation in `shown`."""
     lit = None
-    seg = max(18, int(2.4 * FPS) // (len(shown) + 1))
+
+    def caption_for(target):  # plain words, not "glider 67,69 ne": most viewers of a daily Short are new
+        batch = h.batches[target]
+        return (f"{len(batch)} comments landed here" if len(batch) > 1 else "a comment landed here") + effect_text(target, batch)
+    captions = {t: caption_for(t) for t in shown}
+    holds = {t: max(int(2.6 * FPS), rf(c.replace("\n", " "))) for t, c in captions.items()}
+    # long enough to read it all: the words at the top, and each caption while it's held
+    need = rf(*[t for t, _, _ in head], *[c.replace("\n", " ") for c in captions.values()])
+    seg = max(18, int(2.4 * FPS) // (len(shown) + 1), -(-(need - sum(holds.values())) // (len(shown) + 1)))
     for target in shown + [until]:
         if target - u.generation > TRAVEL_GENS:  # a long way: cut to just before, then play it at a followable pace
             cells = h.goto(u, target - TRAVEL_GENS)
@@ -837,10 +847,7 @@ def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, eff
         cells = [tuple(c) for e in batch for c in e["cells"]]
         piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
         lit = life.mask(cells, u.grid.shape)
-        # plain words, not "glider 67,69 ne": most viewers of a daily Short are new
-        caption = f"{len(batch)} comments landed here" if len(batch) > 1 else "a comment landed here"
-        caption += effect_text(target, batch)
-        hold, z = int(2.6 * FPS), 3.2
+        caption, hold, z = captions[target], holds[target], 3.2
         for i in range(hold):
             if i > 12 and i % 6 == 0:  # let it be seen where it landed, then let it move, slowly
                 h.goto(u, u.generation + 1)
@@ -864,7 +871,6 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
     day = int(h.now_gen * G // 86400) + 1
     gens = sorted(g for g in h.batches if since_gen < g <= h.now_gen)
     count = sum(len(h.batches[g]) for g in gens)
-    total = sum(len(b) for g, b in h.batches.items() if g <= h.now_gen)
 
     # the board as it was a day ago
     u = h.fresh()
@@ -873,8 +879,6 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
     head = [("Every comment adds cells to this Game of Life.", "bold", 76),
             (f"Day {day}: {count} comment{'s' * (count != 1)} in the last day" if count
              else f"Day {day}: no comments in the last day", "demi", 54)]
-    if total > count:  # and how many it has had in all
-        head.append((f"{total:,} since it began", "demi", 44))
 
     def effect_text(gen, batch):  # "\ngave it 6 more days to live"
         effs = [h.effects[(gen, e["command"])] for e in batch if (gen, e["command"]) in h.effects]
@@ -937,7 +941,11 @@ FLIGHT_MIN_GENS, FLIGHT_MIN_GPS = 40, 6  # a shorter trip isn't a journey; never
 NOW_LINES = ("This universe is driven by your comments.", "Some save it. Some kill it.")  # the glider Short's
 NOW_MORE_S, NOW_STEP, NOW_PUSH = 1.2, 5, 1.08  # first beat: the board as it is now, full screen, its second line in
 # from NOW_MORE_S, a generation every NOW_STEP frames, closing in a little (and back out by the end, so it loops)
-END_DIM = 0.3  # the ending: the same view behind what you can comment, darkened only this much, so its colors show
+# the ending's example comment lands in a quiet spot in view, clear of the words above, the
+# bubble below and the Shorts buttons on the right: columns from the view's left edge, rows
+END_COLS, END_ROWS, END_RING = (6, 28), (22, 46), 72  # ...and its ring's radius (px)
+END_BUBBLE_S = 0.5  # the bubble comes in this long after the words
+END_ADDS = "adds a blue glider at the ring"  # what the bubble's example does (EXAMPLES[1]), tied to the ring
 
 
 def _flew(h: History, u: Universe, e: dict) -> int:
@@ -1239,8 +1247,8 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     hx, hy = np.round(at(flown)).astype(int)
     hit = life.mask([((hx + i) % W, (hy + j) % H) for i in range(-5, 6) for j in range(-5, 6)], (H, W))
     t, i = 0.0, 0
-    crash_at = None
-    while t < flown + FLIGHT_AFTER:
+    crash_at, crash_hold = None, rf("Crash.") - FADE  # it plays on at top speed until "Crash." has been read
+    while t < flown + FLIGHT_AFTER or crash_at is None or i - crash_at < crash_hold:
         t += pace[min(flown, int(t))] / FPS
         h.goto(u, g + int(t))
         sec = i / FPS
@@ -1281,20 +1289,27 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             result = f"{without}, it was due to die {moved_by} sooner."
     top = [(answer, "bold", 96), (result, "demi", 52)]  # the counter already said how far it flew
 
-    # back to the universe now, in the opening's view: what it did, then the challenge (beat
-    # it, before it dies) and what you can comment, easing back out to where the Short began, so it loops
+    # back to the universe now, in the opening's view: what it did, then the challenge and the
+    # one comment that takes it up, ringed where it would land; the board bright and moving
+    # throughout, easing back out to where the Short began, so it loops
     now = tonight
     k_end = len(frames)
     who = "Someone's glider" if not wild else "This glider"
-    lines = [(f"{who} flew {flown:,} generations.", "demi", 52), ("Can you beat it?", "bold", 110),
-             ("before this universe dies", "demi", 52)]
-    bottom = "Your cells could save it. Or kill it."
+    dare = [(f"{who} flew {flown:,} generations.", "demi", 52), ("Can yours fly farther?", "bold", 88)]
+    view = np.full(now.grid.shape, 1000, np.int32)  # everywhere but the quiet part of the view is taken
+    view[np.ix_(range(*END_ROWS), [(x0 + c) % W for c in range(*END_COLS)])] = 0
+    sx, sy = render.quiet_spot(view + now.grid, 10, 8)  # once: it stays put
+    spot = f"{sx},{sy}"
+    pts = np.array(commands.parse("example", EXAMPLES[1][0].format(at=spot)).cells, float)
+    rel = (pts - pts[0] + (W // 2, H // 2)) % (W, H) - (W // 2, H // 2)
+    ring = pts[0] + rel.mean(axis=0)
+    ring[0] = x0 + (ring[0] - x0) % W  # in the view's columns, wherever the board wraps
     n_res = max(int(3.0 * FPS), rf(*[t for t, _, _ in top]))
-    n_end = max(5 * FPS, rf(*[t for t, _, _ in lines], bottom))
-    spots = [f"{x},{y}" for x, y in render.quiet_spots(now.grid, len(EXAMPLES))]  # each example its own, held throughout
+    example = (EXAMPLES[1][0], EXAMPLES[1][1], EXAMPLES[1][2], END_ADDS)
+    n_end = max(int(4.0 * FPS), rf(*[t for t, _, _ in dare], _quote(example[0], spot), END_ADDS) + int(END_BUBBLE_S * FPS))
     total = n_res + n_end
     for k in range(total):
-        if k % 6 == 0:
+        if k % NOW_STEP == 0:
             History.advance(now, now.generation + 1)
         zoom = s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * (1 - ease(k / (total - 1))))
         if k < n_res:
@@ -1304,10 +1319,10 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         else:
             j = k - n_res
             a = min(1.0, (j + 1) / FADE)
-            add(now, block(lines[:1], TOP_Y - 130, a) + block(lines[1:2], TOP_Y - 25, a) + block(lines[2:], TOP_Y + 80, a)
-                + block([(bottom, "demi", 62)], BOTTOM_Y + 24, a),
-                extras=[comment_stack(j, n_end, a, spots, first=1)],
-                dim=END_DIM * a, zoom=zoom, focus=look, band=(0, PH), free=True, dark=1.0)
+            b = min(1.0, max(0.0, (j + 1 - END_BUBBLE_S * FPS) / FADE))
+            add(now, block(dare[:1], TOP_Y - 95, a) + block(dare[1:], TOP_Y + 5, a),  # apart: sizes differ
+                extras=[tag(ring, END_RING, b, spot), comment_chip(j, b, spot, cycle=[example])],
+                zoom=zoom, focus=look, band=(0, PH), free=True, dark=1.0)
     add_trails(frames[:k_flight], primer_now)
     add_trails(frames[k_flight:k_end], primer)
     add_trails(frames[k_end:], [(f.grid, f.paint, f.gen) for f in frames[:k_flight]])  # it carries on from the opening

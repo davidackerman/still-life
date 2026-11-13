@@ -72,7 +72,7 @@ def test_a_tampered_log_is_refused(state_dir, monkeypatch):
 def test_the_daily_recap_is_short_and_opens_on_a_full_screen_of_board(state_dir, monkeypatch):
     monkeypatch.setattr(explainer, "SCALE", 1)
     frames = short.build(state_dir, since_gen=0)
-    assert 12 * short.FPS < len(frames) < 25 * short.FPS  # short enough to be watched to the end
+    assert 12 * short.FPS < len(frames) < 40 * short.FPS  # short enough to be watched to the end, every word readable
     # the board's whole height filling the screen (Day 5, a band across the middle, had 57% swipe away)
     assert frames[0].band == (0, short.PH) and abs(short.view(frames[0])[3] - short.BH) < 1
     assert 1 <= sum(1 for f in frames if f.cue and f.cue[0] == "inject") <= 2  # the day's biggest moves
@@ -89,7 +89,8 @@ def test_a_close_up_opening_can_come_back(state_dir, monkeypatch):
     monkeypatch.setattr(short, "HOOK_ZOOM", 4.0)
     monkeypatch.setattr(short, "opening_move", lambda h, since: None)  # (the hook alone)
     frames = short.build(state_dir, since_gen=0)
-    assert frames[0].zoom == 4.0 and frames[int(2.6 * short.FPS)].zoom < 1.1  # close up, then the whole board
+    n = short.rf("THIS SHORT", "DIES", "if nobody comments")  # held long enough to read
+    assert frames[0].zoom == 4.0 and frames[n - 1].zoom < 1.1  # close up, then the whole board
 
 
 def test_busiest_finds_the_active_patch():
@@ -190,13 +191,14 @@ def test_the_daily_short_opens_on_what_one_real_comment_did(state_dir, monkeypat
     landed = [i for i, fr in enumerate(frames) if fr.cue and fr.cue[0] == "inject"]
     assert landed and landed[0] == int(short.OPEN_LAND_S * short.FPS) and frames[landed[0]].gen == g
     assert frames[0].gen == short.open_first(g) and frames[landed[0] - 1].gen == max(0, g - 1)  # moving from frame one
-    n = int(short.OPEN_S * short.FPS)
+    n = next(i for i, fr in enumerate(frames) if any("DIES" in t[0] for t in fr.texts))  # the opening's end
+    said = [t[0] for t in frames[n - 20].texts]  # every word of it, held long enough to read
+    assert n >= max(int(short.OPEN_S * short.FPS), short.rf(*said))
     assert frames[n - 1].band == (short.BAND_Y, short.BAND_H)  # then back into the band, for the hook
     for fr in (frames[0], frames[n // 2], frames[n - 4]):
         assert len(short.compose(fr)) == short.PW * short.PH * 3
-    assert any(fr.zoom > 1.5 for fr in frames[:int(short.OPEN_S * short.FPS)])  # closer as it lands
-    hook = frames[int(short.OPEN_S * short.FPS)]
-    assert any("DIES" in t[0] for t in hook.texts) or any("DIES" in t[0] for t in frames[int(short.OPEN_S * short.FPS) + 8].texts)
+    assert any(fr.zoom > 1.5 for fr in frames[:n])  # closer as it lands
+    assert all(any("DIES" in t[0] for t in fr.texts) for fr in frames[n:n + short.rf("THIS SHORT", "DIES", "if nobody comments")])
 
 
 
@@ -224,10 +226,10 @@ def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypa
     h = short.History(str(tmp_path))
     flown, g, e, _ = short.flights(h)[0]
     assert e["command"] == "glider 64,71 nw" and flown >= short.FLIGHT_MIN_GENS
-    spotted, quiet = [], short.render.quiet_spots
-    monkeypatch.setattr(short.render, "quiet_spots", lambda *a: spotted.append(1) or quiet(*a))
+    spotted, quiet = [], short.render.quiet_spot
+    monkeypatch.setattr(short.render, "quiet_spot", lambda *a: spotted.append(1) or quiet(*a))
     frames = short.build_flight(str(tmp_path))
-    assert len(spotted) == 1  # the ending's examples keep their spots, each its own
+    assert len(spotted) == 1  # the ending's example keeps its spot
     first = " ".join(t[0] for t in frames[0].texts)
     assert "driven by your comments" in first and frames[0].band == (0, short.PH)  # it opens on the board as it is now
     assert any("Some save it. Some kill it." in t[0] for f in frames[:short.FPS * 3] for t in f.texts)
@@ -237,9 +239,10 @@ def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypa
     counted = [int(t[0].replace(",", "")) for f in frames for t in f.texts if t[0].replace(",", "").isdigit()]
     assert counted[0] == 0 and max(counted) == flown  # the counter climbs to the crash
     assert any(t[0] == "Crash." for f in frames for t in f.texts)
-    assert all(f.extras for f in frames[-10:])  # it ends on what you can comment,
+    assert any(t[0] == "Can yours fly farther?" for t in frames[-1].texts)  # it ends on the challenge
+    assert all(f.extras for f in frames[-10:])  # and a comment that takes it up,
     assert frames[-1].band == (0, short.PH) and frames[-1].focus == frames[0].focus  # over the opening's view: it loops
-    assert abs(frames[-1].zoom - frames[0].zoom) < 1e-9 and 0 < frames[-1].dim < 0.5  # and its colors show
+    assert abs(frames[-1].zoom - frames[0].zoom) < 1e-9 and not frames[-1].dim  # and the board isn't darkened
     for fr in (frames[0], frames[len(frames) // 2], frames[-1]):
         assert len(short.compose(fr)) == short.PW * short.PH * 3
 
