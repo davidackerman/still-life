@@ -230,19 +230,15 @@ def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypa
     monkeypatch.setattr(short.render, "quiet_spot", lambda *a: spotted.append(1) or quiet(*a))
     frames = short.build_flight(str(tmp_path))
     assert len(spotted) == 1  # the ending's example keeps its spot
-    first = " ".join(t[0] for t in frames[0].texts)
-    assert "driven by your comments" in first and frames[0].band == (0, short.PH)  # it opens on the board as it is now
-    assert any("Some save it. Some kill it." in t[0] for f in frames[:short.FPS * 3] for t in f.texts)
-    assert frames[0].gen <= h.now_gen and frames[0].gen > g
-    lands = next(f for f in frames if any("became this glider" in t[0] for t in f.texts))
-    assert lands.gen == g and lands.band == (0, short.PH)  # then cuts to the glider as it lands
+    assert any("became this glider" in t[0] for t in frames[0].texts)  # it opens on the glider as it lands
+    assert frames[0].gen == g and frames[0].band == (0, short.PH)
     counted = [int(t[0].replace(",", "")) for f in frames for t in f.texts if t[0].replace(",", "").isdigit()]
     assert counted[0] == 0 and max(counted) == flown  # the counter climbs to the crash
     assert any(t[0] == "Crash." for f in frames for t in f.texts)
     assert any(t[0] == "Can yours fly farther?" for t in frames[-1].texts)  # it ends on the challenge
     assert all(f.extras for f in frames[-10:])  # and a comment that takes it up,
-    assert frames[-1].band == (0, short.PH) and frames[-1].focus == frames[0].focus  # over the opening's view: it loops
-    assert abs(frames[-1].zoom - frames[0].zoom) < 1e-9 and not frames[-1].dim  # and the board isn't darkened
+    assert frames[-1].band == (0, short.PH) and frames[-1].gen > h.now_gen  # over the universe now, moving on
+    assert not frames[-1].dim  # and the board isn't darkened
     for fr in (frames[0], frames[len(frames) // 2], frames[-1]):
         assert len(short.compose(fr)) == short.PW * short.PH * 3
 
