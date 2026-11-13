@@ -407,6 +407,19 @@ def quiet_spot(grid, win_w: int = 24, win_h: int = 14) -> tuple[int, int]:
     return int((x + win_w // 2 - 3) % w), int((y + win_h // 2 - 1) % h)
 
 
+def quiet_spots(grid, n: int, win_w: int = 24, win_h: int = 14) -> list[tuple[int, int]]:
+    """n spots like quiet_spot, each in a different quiet window (so examples don't all share one)."""
+    h, w = grid.shape
+    g = grid.astype(np.int32).copy()
+    out = []
+    for _ in range(n):
+        x, y = quiet_spot(g, win_w, win_h)
+        out.append((x, y))
+        ys, xs = np.arange(y - win_h, y + win_h) % h, np.arange(x - win_w // 2, x + win_w // 2) % w
+        g[np.ix_(ys, xs)] += 1000  # taken: the next one is elsewhere
+    return out
+
+
 def suggestion(u: Universe) -> str:
     x, y = quiet_spot(u.grid)
     pattern = ("acorn", "rpent", "glider")[(u.generation // 180) % 3]
