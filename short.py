@@ -1169,7 +1169,8 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         band_h, band_y = round(PH + (BAND_H - PH) * q), round(BAND_Y * q)
         push = FLIGHT_ZOOM + (1 - FLIGHT_ZOOM) * q
         a = min(1.0, (k + 1) / FADE, (n - k) / FADE)
-        add(u, block(top, TOP_Y, a), zoom=band_h / BH * push * BW / BAND_W, band=(band_y, band_h), free=True,
+        add(u, block(top[:1], TOP_Y - 125, a) + block(top[1:2], TOP_Y - 20, a) + block(top[2:], TOP_Y + 105, a),
+            zoom=band_h / BH * push * BW / BAND_W, band=(band_y, band_h), free=True,
             focus=(end_focus[0] + (BW / 2 - end_focus[0]) * q, end_focus[1] + (BH / 2 - end_focus[1]) * q),
             dark=1 - q, cue=("saved",) if k == int(0.9 * FPS) and "gave" in result else None,
             extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q)), minimap(u.grid, path, 1 - q, label=0)])
