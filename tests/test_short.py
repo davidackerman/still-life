@@ -69,11 +69,12 @@ def test_a_tampered_log_is_refused(state_dir, monkeypatch):
         short.build(state_dir)
 
 
-def test_the_daily_recap_is_short_and_opens_on_the_whole_board(state_dir, monkeypatch):
+def test_the_daily_recap_is_short_and_opens_on_a_full_screen_of_board(state_dir, monkeypatch):
     monkeypatch.setattr(explainer, "SCALE", 1)
     frames = short.build(state_dir, since_gen=0)
     assert 12 * short.FPS < len(frames) < 25 * short.FPS  # short enough to be watched to the end
-    assert frames[0].zoom == 1  # the whole board, as the teaser opened (it kept more viewers)
+    # the board's whole height filling the screen (Day 5, a band across the middle, had 57% swipe away)
+    assert frames[0].band == (0, short.PH) and abs(short.view(frames[0])[3] - short.BH) < 1
     assert 1 <= sum(1 for f in frames if f.cue and f.cue[0] == "inject") <= 2  # the day's biggest moves
     assert any(f.grey > 0 for f in frames)  # its future: stuck, then dead
     assert len(short.compose(frames[0])) == short.PW * short.PH * 3
@@ -185,9 +186,14 @@ def test_the_daily_short_opens_on_what_one_real_comment_did(state_dir, monkeypat
     words = short.effect_words(f["before"], f["after"], h.gen_seconds)
     amount = words.split()[1 if words.startswith("took") else 2]  # "took 2 days ...", "gave it 9 more days ..."
     assert top.startswith("One comment ") and "this Short" in top and f" {amount} " in f" {top} "
-    assert frames[0].zoom == 1 and frames[0].extras  # the whole board, with its words in a bubble where it lands
+    assert frames[0].band == (0, short.PH) and frames[0].extras  # a full screen of board, its words in a bubble where it lands
     landed = [i for i, fr in enumerate(frames) if fr.cue and fr.cue[0] == "inject"]
     assert landed and landed[0] == int(short.OPEN_LAND_S * short.FPS) and frames[landed[0]].gen == g
+    assert frames[0].gen == short.open_first(g) and frames[landed[0] - 1].gen == max(0, g - 1)  # moving from frame one
+    n = int(short.OPEN_S * short.FPS)
+    assert frames[n - 1].band == (short.BAND_Y, short.BAND_H)  # then back into the band, for the hook
+    for fr in (frames[0], frames[n // 2], frames[n - 4]):
+        assert len(short.compose(fr)) == short.PW * short.PH * 3
     assert any(fr.zoom > 1.5 for fr in frames[:int(short.OPEN_S * short.FPS)])  # closer as it lands
     hook = frames[int(short.OPEN_S * short.FPS)]
     assert any("DIES" in t[0] for t in hook.texts) or any("DIES" in t[0] for t in frames[int(short.OPEN_S * short.FPS) + 8].texts)

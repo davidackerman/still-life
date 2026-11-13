@@ -105,10 +105,29 @@ def busiest(weight, zoom: float) -> tuple[float, float]:
 
 
 def view(f) -> tuple[float, float, float, float]:
-    """The part of the board image on screen: (x0, y0, w, h)."""
-    w, h = BW / f.zoom, BH / f.zoom
+    """The part of the board image on screen: (x0, y0, w, h). A frame can set
+    `band` (its board's top and height on screen; the whole screen in the daily
+    Short's opening) and `free` (a window anywhere on the torus, wrapping)."""
+    _, bh = getattr(f, "band", (BAND_Y, BAND_H))
+    if bh == BAND_H:
+        w, h = BW / f.zoom, BH / f.zoom
+    else:
+        s = f.zoom * BAND_W / BW  # screen px per board px
+        w, h = PW / s, bh / s
     fx, fy = f.focus
+    if getattr(f, "free", False):
+        return fx - w / 2, fy - h / 2, w, h
     return min(max(fx - w / 2, 0), BW - w), min(max(fy - h / 2, 0), BH - h), w, h
+
+
+SCRIM_MAX, SCRIM_SOLID, SCRIM_CLEAR = 0.6, 560, 860  # behind the text over a full-screen board: dark down to y, clear by y
+_scrim_alpha = np.clip((SCRIM_CLEAR - np.arange(PH)) / (SCRIM_CLEAR - SCRIM_SOLID), 0, 1) * SCRIM_MAX
+
+
+def scrim(amount: float) -> Image.Image:
+    a = np.zeros((PH, PW, 4), np.uint8)
+    a[..., 3] = (255 * amount * _scrim_alpha)[:, None].astype(np.uint8)
+    return Image.fromarray(a, "RGBA")
 
 
 # ---------------------------------------------------------------- drawing
@@ -312,33 +331,42 @@ def arrow_down(x: int, y: int, alpha: float):
 
 
 def compose(f) -> bytes:
+    band_y, band_h = getattr(f, "band", (BAND_Y, BAND_H))
     x0, y0, w, h = view(f)
     resample = Image.NEAREST if f.zoom * BAND_W / BW >= 1 else Image.LANCZOS
     img = board(f)
     if WRAP_DIM < 1:
         # The whole screen, top to bottom, at the band's scale. Rows outside the
         # board wrap around (it is a torus), so this is what really lies beyond its edges.
-        k = h / BAND_H  # board px per screen px
-        top, bottom = y0 - BAND_Y * k, y0 + (PH - BAND_Y) * k
+        k = h / band_h  # board px per screen px
+        top, bottom = y0 - band_y * k, y0 + (PH - band_y) * k
         r0, r1 = int(np.floor(top)), int(np.ceil(bottom))
-        tall = Image.fromarray(np.asarray(img)[np.arange(r0, r1) % BH])
-        canvas = tall.resize((PW, PH), resample, box=(x0, top - r0, x0 + w, bottom - r0)).convert("RGBA")
-        veil = Image.new("RGBA", (PW, PH), (0, 0, 0, int(255 * WRAP_DIM)))
-        veil.paste((0, 0, 0, 0), (0, BAND_Y, PW, BAND_Y + BAND_H))
-        canvas = Image.alpha_composite(canvas, veil)
+        rows, bx = np.asarray(img)[np.arange(r0, r1) % BH], x0
+        c0, c1 = int(np.floor(x0)), int(np.ceil(x0 + w))
+        if c0 < 0 or c1 > BW:  # a free window past a side edge: it wraps there too
+            rows, bx = rows[:, np.arange(c0, c1) % BW], x0 - c0
+        canvas = Image.fromarray(rows).resize((PW, PH), resample, box=(bx, top - r0, bx + w, bottom - r0)).convert("RGBA")
+        if band_h < PH:
+            veil = Image.new("RGBA", (PW, PH), (0, 0, 0, int(255 * WRAP_DIM)))
+            veil.paste((0, 0, 0, 0), (0, band_y, PW, band_y + band_h))
+            canvas = Image.alpha_composite(canvas, veil)
     else:
         canvas = Image.new("RGBA", (PW, PH), (0, 0, 0, 255))
-        canvas.paste(img.resize((BAND_W, BAND_H), resample, box=(x0, y0, x0 + w, y0 + h)), (0, BAND_Y))
+        canvas.paste(img.resize((PW, band_h), resample, box=(x0, y0, x0 + w, y0 + h)), (0, band_y))
+    if getattr(f, "scrim", 0):
+        canvas = Image.alpha_composite(canvas, scrim(f.scrim))
     layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     edge = (70, 76, 92, 255)
-    d.line((0, BAND_Y - 1, PW, BAND_Y - 1), fill=edge, width=2)
-    d.line((0, BAND_Y + BAND_H, PW, BAND_Y + BAND_H), fill=edge, width=2)
+    if band_y > 0:
+        d.line((0, band_y - 1, PW, band_y - 1), fill=edge, width=2)
+    if band_y + band_h < PH:
+        d.line((0, band_y + band_h, PW, band_y + band_h), fill=edge, width=2)
     if f.dim:
-        d.rectangle((0, BAND_Y, PW, BAND_Y + BAND_H), fill=(5, 6, 9, int(255 * f.dim)))
+        d.rectangle((0, band_y, PW, band_y + band_h), fill=(5, 6, 9, int(255 * f.dim)))
 
     def to_canvas(bx, by):
-        return (bx - x0) * BAND_W / w, BAND_Y + (by - y0) * BAND_H / h
+        return (bx - x0) * PW / w, band_y + (by - y0) * band_h / h
 
     for s, weight, size, xy, anchor, alpha in f.texts:
         ex.text(d, xy, s, weight, size, alpha, anchor=anchor)
@@ -446,8 +474,11 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     whole = (BW / 2, BH / 2)
 
     def add(u, texts=(), zoom=1.0, focus=whole, extras=(), **kw):
+        band, free, dark = kw.pop("band", None), kw.pop("free", False), kw.pop("scrim", 0.0)
         f = ex.Frame(u, texts=texts, hud=False, zoom=zoom, dim=kw.pop("dim", 0.0), extras=extras, **kw)
-        f.focus = focus
+        f.focus, f.free, f.scrim = focus, free, dark
+        if band:
+            f.band = band
         paint = getattr(u, "paint", None)
         f.paint = paint.copy() if paint is not None and paint.any() else None
         frames.append(f)
@@ -476,7 +507,7 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
     if h.now_hash and now.hash.hex() != h.now_hash:
         raise SystemExit("replaying the log did not reproduce the current board; run replay.py")
     opening = opening_move(h, since_gen) if since_gen is not None else None
-    first = max(0, opening[0] - 1) if opening else h.now_gen  # the first frame's generation
+    first = open_first(opening[0]) if opening else h.now_gen  # the first frame's generation
     primer, pu = [], h.fresh()  # the real generations just before it: tails on the first frame
     h.goto(pu, max(0, first - life.TRAIL_GENS))
     while True:
@@ -664,7 +695,19 @@ def _impact(h: History, gen: int) -> float:
     return best
 
 
-OPEN_S, OPEN_LAND_S, OPEN_ZOOM = 3.4, 0.7, 2.2  # the daily Short's opening: its length, when the move lands, how close
+# The daily Short's opening: its length, when the move lands, frames per generation
+# (from the first frame: it moves at once), when its second lines appear, the pull
+# back to the board's band at its end, a slow push in, and where the comment sits on screen.
+# Measured: Day 5 (board in a band, still for its first 0.7 s, four lines of text at
+# once) had 57.3% swipe away. So it opens on a full screen of board, already moving,
+# with one sentence.
+OPEN_S, OPEN_LAND_S, OPEN_STEP, OPEN_MORE_S, OPEN_OUT_S = 3.4, 0.7, 5, 1.0, 0.6
+OPEN_PUSH, OPEN_PIECE_Y = 1.12, 1000
+
+
+def open_first(g: int) -> int:
+    """The opening's first generation, for a comment landing at `g`: a few before, so it moves from frame one."""
+    return max(0, g - 1 - int(OPEN_LAND_S * FPS) // OPEN_STEP)
 
 
 OPENING_LEAD = "alternate"  # the opening's comment: "save", "kill", or "alternate" (kills on even days, saves on odd)
@@ -698,46 +741,60 @@ def opening_move(h: History, since_gen: int, lead: str | None = None):
 
 
 def _open_on(h: History, move, add) -> None:
-    """The daily Short's first beat: what one real comment did. "One comment gave it
-    6 more days to live", on the whole board, with that comment's words in a
-    bubble where it lands, then a gentle zoom as its cells arrive and move."""
+    """The daily Short's first beat: what one real comment did. "One comment gave this
+    Short 6 more days to live", over a full screen of board already moving, with that
+    comment's words in a bubble where it lands; then it pulls back into the band."""
     import render as rd
     g, e, f = move
     G, launch = h.gen_seconds, h.genesis["launch_time"]
     u = h.fresh()
-    h.goto(u, max(0, g - 1))
+    h.goto(u, open_first(g))
     cells = [tuple(c) for c in e["cells"]]
     piece = main_piece(cells)
     day = rd._at(launch, g, G, "%Y-%m-%d")
     days_ago = (dt.date.fromisoformat(rd._at(launch, h.now_gen, G, "%Y-%m-%d")) - dt.date.fromisoformat(day)).days
     said = {0: "today", 1: "yesterday"}.get(days_ago, rd._at(launch, g, G, "%A"))
     words = effect_words(f["before"], f["after"], G)  # "gave it 9 more days to live", "took 9 days off its life"
-    if words.startswith("gave it "):  # split where it reads, naming "it": the Short
-        lines = ["One comment gave this Short", words.removeprefix("gave it ") + "."]
+    if words.startswith("gave it "):  # naming "it": the Short; one sentence, split where it reads
+        lines = ["One comment", "gave this Short", words.removeprefix("gave it ") + "."]
     else:
-        amount = words.removeprefix("took ").removesuffix(" off its life")
-        lines = [f"One comment took {amount}", "off this Short's life."]
-    top = [(lines[0], "bold", 64), (lines[1], "bold", 82),
-           (f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 44)]
+        lines = ["One comment", "took " + words.removeprefix("took ").removesuffix(" off its life") + " off",
+                 "this Short's life."]
+    main = [(s, "bold", 92) for s in lines]
+    more = [(f"{said} at {rd._at(launch, g, G, '%I:%M %p').lstrip('0')}", "demi", 46)]
     if words.startswith("took"):  # a kill: turn it toward the viewer
-        top.append(("Yours could give them back.", "demi", 54))
+        more.append(("Yours could give them back.", "demi", 56))
+    rows = block(main + more, TOP_Y, 1.0)  # placed together, so nothing moves when the rest appears
+    k = len(block(main, TOP_Y, 1.0))
     if e["command"].startswith("random"):  # what they typed isn't kept: say what it became
         caption = "someone's message\nbecame a random 5\u00d75 patch" + (f", {e['color']}" if e.get("color") else "")
     else:
         caption = "\u201c" + render.move_text(e) + "\u201d"
     n, land, lit = int(OPEN_S * FPS), int(OPEN_LAND_S * FPS), None
+    out, later = int(OPEN_OUT_S * FPS), int(OPEN_MORE_S * FPS)
+    px, py = centre(piece)
+    s0 = PH / BH  # screen px per board px with the board's whole height filling the screen
+    start = (px, py + (PH / 2 - OPEN_PIECE_Y) / s0)  # the comment at OPEN_PIECE_Y, below the words
     for i in range(n):
         cue = None
         if i == land:  # it lands
             h.goto(u, g)
             lit = life.mask(cells, u.grid.shape)
             cue = ("inject", float(np.mean([c[0] for c in cells])))
-        elif i > land and (i - land) % 5 == 0:  # then moves, slowly enough to follow
+        elif i % OPEN_STEP == 0 and i and (i > land or u.generation < g - 1):  # moving, slowly enough to follow
             h.goto(u, u.generation + 1)
-        zoom = 1 + (OPEN_ZOOM - 1) * min(ease(min(1.0, max(0, i - land + 6) / 24)), ease(min(1.0, (n - 1 - i) / 18)))
-        a = 1.0 if i < n - FADE else fade(i, n)  # the first frame is the thumbnail: all of it there
-        add(u, block(top, TOP_Y, a), highlight=lit, cue=cue, zoom=zoom, focus=centre(piece),
-            extras=[ring(piece, a, caption)])
+        # the pull back: the band shrinks to its place while the view widens to the whole
+        # board, always showing all of its rows (so nothing repeats on the torus)
+        q = ease((i - (n - out)) / (out - 1)) if i >= n - out else 0.0
+        band_h, band_y = round(PH + (BAND_H - PH) * q), round(BAND_Y * q)
+        push = 1 + (OPEN_PUSH - 1) * ease(i / (n - out)) * (1 - q)
+        zoom = band_h / BH * push * BW / BAND_W
+        focus = (start[0] + (BW / 2 - start[0]) * q, start[1] + (BH / 2 - start[1]) * q)
+        a = 1.0 if i < n - FADE else fade(i, n)  # the first frame is the thumbnail: the sentence there
+        b = a * ease((i - later) / 10)  # the rest, a beat later
+        texts = [r[:5] + (a,) for r in rows[:k]] + [r[:5] + (b,) for r in rows[k:]]
+        add(u, texts, highlight=lit, cue=cue, zoom=zoom, focus=focus, extras=[ring(piece, a, caption)],
+            band=(band_y, band_h), free=True, scrim=1 - q)
 
 
 def _moves(h: History, u: Universe, shown: list[int], head, add, until: int, effect_text):
