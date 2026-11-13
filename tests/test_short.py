@@ -211,3 +211,25 @@ def test_the_opening_alternates_between_the_days_biggest_kill_and_save(state_dir
             assert d * sign > 0 or move == (save if sign < 0 else kill)  # its kind, or the other when the day had none
     day = int(h.now_gen * h.gen_seconds // 86400) + 1
     assert short.opening_move(h, 0, "alternate") == (kill if day % 2 == 0 else save)
+
+
+def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypatch):
+    for k in ("SEED", "GEN_SECONDS", "FLATLINE_HOURS"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("LAUNCH_TIME", str(int(LAUNCH)))
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    yt = FakeYT([Comment("c1", "u1", iso(LAUNCH + 900), "glider 64,71 nw")])  # straddles the edge
+    for t in range(0, 8 * 3600, 1200):
+        tick.run(str(tmp_path), LAUNCH + t, lambda w: yt, KEY, thumb_path=None)
+    h = short.History(str(tmp_path))
+    flown, g, e, _ = short.flights(h)[0]
+    assert e["command"] == "glider 64,71 nw" and flown >= short.FLIGHT_MIN_GENS
+    frames = short.build_flight(str(tmp_path))
+    first = " ".join(t[0] for t in frames[0].texts)
+    assert "became this glider" in first and frames[0].band == (0, short.PH) and frames[0].gen == g
+    counted = [int(t[0].replace(",", "")) for f in frames for t in f.texts if t[0].replace(",", "").isdigit()]
+    assert counted[0] == 0 and max(counted) == flown  # the counter climbs to the crash
+    assert any(t[0] == "Crash." for f in frames for t in f.texts)
+    assert any(f.extras and f.dim > 0.5 for f in frames[-10:])  # it ends on what you can comment
+    for fr in (frames[0], frames[len(frames) // 2], frames[-1]):
+        assert len(short.compose(fr)) == short.PW * short.PH * 3
