@@ -101,8 +101,12 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     day = day_number(world)
     since = max(0, world.universe.generation - RECAP_HOURS * 3600 // world.gen_seconds)
     from store import LOG, read_log
-    injections = [e for e in read_log(store.path(LOG)) if e["type"] == "injection"]
-    count, total = sum(1 for e in injections if e["gen"] > since), len(injections)
+    # every comment read, counted or skipped: the same count as the status comments and the stream
+    import engine
+    entries = read_log(store.path(LOG))
+    count = sum(e.get("comments_new", 0) for e in entries if e["type"] == "tick" and e["gen_end"] > since)
+    seen = engine.comment_counts(world, world.universe.generation)
+    total = seen[0] if seen else sum(1 for e in entries if e["type"] == "injection")
     render_short(store.dir, out, since)
     mark = marker(world, day)
     if mode == "dry":
