@@ -154,3 +154,28 @@ def test_older_shorts_status_comments_update_rarely():
     yt.updates, yt.extra = [], [Comment("m", "u", "2027-01-15T12:10:00Z", "block 5,5")]
     engine.tick(w, LAUNCH + 3700, yt)  # an hour later, something changed
     assert sorted(yt.updates) == ["pin0", "pin3"]  # the newest Short too; the next waits 3 h, the oldest 12 h
+
+
+def test_a_planned_day_posts_the_glider_short_with_its_title(d, monkeypatch):
+    import daily
+    import short
+    yt = DailyYT()
+    when = LAUNCH + 11.2 * 3600
+    monkeypatch.setattr(daily, "PLAN", {daily.today(when): "flight"})
+    monkeypatch.setattr(short, "pick_flight", lambda h, pick=None: (88, 10, {"command": "glider 1,1 se"}, None))
+    calls = []
+
+    def render(state_dir, out, since, **kw):
+        calls.append(kw)
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        open(out, "wb").write(b"mp4")
+        return out
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, when, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=render)
+    assert calls == [{"kind": "flight"}]
+    up = yt.uploads[0]
+    assert up["title"] == "Someone's comment became this glider · Universe 1, Day 1 #GameOfLife"
+    assert up["description"].startswith("Someone's comment became this glider: this Short follows it")
+    monkeypatch.setattr(short, "pick_flight", lambda h, pick=None: None)  # no glider flew far: the recap, as usual
+    tick.run(d, when + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=render)
+    assert calls[-1] == {} and yt.uploads[-1]["title"].startswith("This Short dies if nobody comments")

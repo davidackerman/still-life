@@ -60,7 +60,12 @@ def stream_title(world, day: int) -> str:
     return f"This stream dies if nobody chats · Game of Life, Universe {world.universe_no}, Day {day}"
 
 
-def snippet(world, day: int, count: int, mark: str, total: int | None = None, main: str | None = None) -> dict:
+# Which kind of Short posts on a New York date; on every other day, the recap.
+PLAN = {"2026-11-14": "flight"}  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
+
+
+def snippet(world, day: int, count: int, mark: str, total: int | None = None, main: str | None = None,
+            headline: str | None = None) -> dict:
     """The Short's title and description. The forecast in it is dated ("as of day 3"),
     so the description stays true after the forecast moves on."""
     u, G = world.universe, world.gen_seconds
@@ -76,7 +81,8 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
         fate = "it won't get stuck for weeks unless a comment changes that."
     countdown = f" The main video's title counts down live: https://youtu.be/{main}" if main else ""
     so_far = f" ({total:,} since it began)" if total is not None and total > count else ""
-    desc = (f"Day {day} of universe {world.universe_no}, a live Conway's Game of Life: {count} comment{'s' * (count != 1)} in the last "
+    intro = f"{headline}: this Short follows it across the universe until it hits something.\n\n" if headline else ""
+    desc = (f"{intro}Day {day} of universe {world.universe_no}, a live Conway's Game of Life: {count} comment{'s' * (count != 1)} in the last "
             f"24 hours{so_far}. As of day {day}, {fate}{countdown}\n\n"
             f"This Short is a replay: your comment lands in the live universe within minutes. Watch it happen on "
             f"the 24/7 live stream (type in its chat to play): {render.STREAM_URL}\n\n"
@@ -85,7 +91,8 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
-    return {"title": f"This Short dies if nobody comments · Universe {world.universe_no}, Day {day} #GameOfLife", "description": desc,
+    return {"title": f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, Day {day} #GameOfLife",
+            "description": desc,
             "tags": ["game of life", "conway's game of life", "cellular automata", "glider", "simulation",
                      "interactive", "live", "emergence"],
             "categoryId": "28", "defaultLanguage": "en"}
@@ -107,7 +114,15 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     count = sum(e.get("comments_new", 0) for e in entries if e["type"] == "tick" and e["gen_end"] > since)
     seen = engine.comment_counts(world, world.universe.generation)
     total = seen[0] if seen else sum(1 for e in entries if e["type"] == "injection")
-    render_short(store.dir, out, since)
+    headline = None
+    if PLAN.get(today(now)) == "flight":
+        trip = short.pick_flight(short.History(store.dir))
+        if trip is not None:  # else no glider flew far enough: the usual recap
+            headline = short.flight_title(trip)
+    if headline:
+        render_short(store.dir, out, since, kind="flight")
+    else:
+        render_short(store.dir, out, since)
     mark = marker(world, day)
     if mode == "dry":
         world.daily = {"date": today(now), "day": day, "video": None, "dry": True}
@@ -117,7 +132,8 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
                              "To post one every day, set the repository variable DAILY_SHORT to live."}]
         store.save(world, events)
         return events
-    vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None)))
+    vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None),
+                                                               headline))
     if vid not in world.extra_videos:
         world.extra_videos.append(vid)
     world.video_names[vid] = f"the Day {day} Short"  # where its comments' moves came from, on the live page

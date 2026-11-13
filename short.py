@@ -924,7 +924,7 @@ FLIGHT_GPS, FLIGHT_EMPTY_GPS, FLIGHT_MAX_S = 14, 26, 20  # generations a second 
 FLIGHT_SLOW_GPS, FLIGHT_SLOW_BEFORE, FLIGHT_SLOW_AFTER = 6, 8, 16  # the crash in slow motion: gens around it
 FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the board's full height (cells ~33 px); its height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
-FLIGHT_MIN_GENS, FLIGHT_MIN_GPS, FLIGHT_RECENT_DAYS = 40, 6, 3  # a shorter trip isn't a journey; never slower than
+FLIGHT_MIN_GENS, FLIGHT_MIN_GPS, FLIGHT_RECENT_DAYS, FLIGHT_STAR_GENS = 40, 6, 3, 80  # a shorter trip isn't a journey; never slower than
 # this while it flies; a recent flight (the board as it is lately, colors and all) before an older, longer one
 
 
@@ -1076,20 +1076,34 @@ def minimap(grid, path, alpha: float, label: float = 1.0):
     return draw
 
 
+def pick_flight(h: History, pick: str | None = None, wild: bool = False):
+    """The flight to show (or the move `pick`): the longest glider a comment placed, unless a
+    recent, colored one flew at least FLIGHT_STAR_GENS (the board as it is lately). Its crash
+    must be in the log. None when none flew far enough. Gliders born in collisions only with
+    `wild`: so much of the history leads to one that no single comment can be credited."""
+    trips = [t for t in flights(h) + (wild_gliders(h) if wild else [])
+             if t[0] >= FLIGHT_MIN_GENS and t[1] + t[0] <= h.now_gen]
+    recent = h.now_gen - FLIGHT_RECENT_DAYS * 86400 // h.gen_seconds
+    trips.sort(key=lambda t: (t[1] >= recent and bool(t[2].get("color")) and t[0] >= FLIGHT_STAR_GENS, t[0]), reverse=True)
+    if pick:
+        trips = [t for t in trips if t[2]["command"] == pick] or trips
+    return trips[0] if trips else None
+
+
+def flight_title(trip) -> str:
+    """What the glider Short says it is."""
+    return "This glider was born in a collision" if trip[2].get("wild") else "Someone's comment became this glider"
+
+
 def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     """The glider Short: the longest flight in the log (or the logged move `pick`).
     None when no glider flew FLIGHT_MIN_GENS."""
     import render as rd
     h = History(state_dir)
-    trips = [t for t in flights(h) + wild_gliders(h)
-             if t[0] >= FLIGHT_MIN_GENS and t[1] + t[0] <= h.now_gen]  # its crash is in the log
-    recent = h.now_gen - FLIGHT_RECENT_DAYS * 86400 // h.gen_seconds
-    trips.sort(key=lambda t: (t[1] >= recent, bool(t[2].get("color")), t[0]), reverse=True)
-    if pick:
-        trips = [t for t in trips if t[2]["command"] == pick] or trips
-    if not trips:
+    trip = pick_flight(h, pick)
+    if trip is None:
         return None
-    flown, g, e, eff = trips[0]
+    flown, g, e, eff = trip
     wild = bool(e.get("wild"))
     if wild:  # what it did: the universe's forecast with it, against the same moment without it
         w = h.fresh()
@@ -1161,8 +1175,6 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     # on the way, what this universe is: in order, as many as the flight has time for
     beats = [(2, [(f"This universe has been running live on YouTube since {began}.", "demi", 50)]),
              (0, [("Every comment drops cells into it.", "demi", 50), ("Some save it. Some kill it.", "demi", 50)])]
-    if wild and e.get("color"):  # its paint can only have come from a comment
-        beats.insert(0, (-1, [(f"Its {e['color']} came from someone's comment.", "demi", 50)]))
     if span:
         beats.append((1, [(f"{rd._at(launch, g, G, '%A %I:%M %p').replace(' 0', ' ')}:", "demi", 50),
                           (f"it was {span} from getting stuck.", "demi", 50),
