@@ -938,8 +938,9 @@ FLIGHT_MAX_AVG_GPS = 30  # a long flight takes longer instead of racing past
 FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the board's full height (cells ~33 px); its height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
 FLIGHT_MIN_GENS, FLIGHT_MIN_GPS = 40, 6  # a shorter trip isn't a journey; never slower than this while it flies
-NOW_STEP, NOW_PUSH = 5, 1.08  # the glider Short's end, over the board as it is now: a generation every NOW_STEP
-# frames, starting this much closer and easing back out
+NOW_LINES = ("This universe is driven by your comments.", "Some save it. Some kill it.")  # the glider Short's
+NOW_MORE_S, NOW_STEP, NOW_PUSH = 1.2, 5, 1.08  # first beat: the board as it is now, full screen, its second line in
+# from NOW_MORE_S, a generation every NOW_STEP frames, closing in a little (and back out by the end, so it loops)
 # the ending's example comment lands in a quiet spot in view, clear of the words above, the
 # bubble below and the Shorts buttons on the right: columns from the view's left edge, rows
 END_COLS, END_ROWS, END_RING = (6, 28), (22, 46), 72  # ...and its ring's radius (px)
@@ -1120,9 +1121,9 @@ def flight_title(trip) -> str:
 
 
 def build_flight(state_dir: str, pick: str | None = None) -> list | None:
-    """The glider Short (pick_flight's glider, or the logged move `pick`): that glider from
-    where it landed until it crashed, quicker and quicker, then, over the universe as it is
-    now, what it did and the challenge. None when no glider flew FLIGHT_MIN_GENS."""
+    """The glider Short (pick_flight's glider, or the logged move `pick`): the universe as it
+    is now, then that glider from where it landed until it crashed, quicker and quicker, what
+    it did, and the challenge. None when no glider flew FLIGHT_MIN_GENS."""
     import render as rd
     h = History(state_dir)
     trip = pick_flight(h, pick)
@@ -1172,10 +1173,14 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         cx, cy = np.round(at(t)).astype(int)
         return life.mask([((cx + i) % W, (cy + j) % H) for i in range(-2, 3) for j in range(-2, 3)], (H, W))
 
-    # the universe as it is now (every color in it is some comment's), for the end: a full
-    # screen of its most colorful part
+    # first, the universe as it is now (every color in it is some comment's): a full screen
+    # of its most colorful part, already moving; one sentence, then what comments do
     tonight = h.fresh()
     h.goto(tonight, h.now_gen)
+    main, more = [(NOW_LINES[0], "bold", 92)], [(NOW_LINES[1], "demi", 62)]
+    open_rows, k_main = block(main + more, TOP_Y, 1.0), len(block(main, TOP_Y, 1.0))  # placed together: nothing moves
+    n_open = max(rf(*NOW_LINES), int(NOW_MORE_S * FPS) + rf(NOW_LINES[1]))
+    open_gen = max(0, h.now_gen - n_open // NOW_STEP)
     s0 = PH / BH  # screen px per board px with the board's whole height filling the screen
     across = int(PW / s0 / CELL)  # cells on screen, side to side
     weight = tonight.grid > 0
@@ -1184,15 +1189,22 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     cols = weight.sum(0)
     x0 = max(range(W), key=lambda x: int(cols.take(range(x, x + across), mode="wrap").sum()))
     look = ((x0 + across / 2) * CELL, BH / 2)
-    primer_now, ou = [], h.fresh()  # the real generations just before it: tails on its first frame
-    h.goto(ou, max(0, h.now_gen - life.TRAIL_GENS))
-    while ou.generation < h.now_gen:
+    primer_now, ou = [], h.fresh()
+    h.goto(ou, max(0, open_gen - life.TRAIL_GENS))
+    while ou.generation < open_gen:
         primer_now.append((ou.grid.copy(), None if ou.paint is None else ou.paint.copy(), ou.generation))
         h.goto(ou, ou.generation + 1)
+    for k in range(n_open):
+        if k and k % NOW_STEP == 0 and ou.generation < h.now_gen:
+            h.goto(ou, ou.generation + 1)
+        a = 1.0 if k < n_open - FADE else fade(k, n_open)  # the first frame is the thumbnail: the sentence there
+        b = a * ease((k - NOW_MORE_S * FPS) / 10)
+        add(ou, [r[:5] + (a,) for r in open_rows[:k_main]] + [r[:5] + (b,) for r in open_rows[k_main:]],
+            zoom=s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * ease(k / n_open)),
+            focus=look, band=(0, PH), free=True, dark=1.0)
+    k_flight = len(frames)
 
-
-    # it opens on the glider as it lands (the first frame is the thumbnail); the real
-    # generations before: tails on its first frame
+    # then a cut to the glider as it lands; the real generations before: tails on its first frame
     primer, pu = [], h.fresh()
     h.goto(pu, max(0, g - life.TRAIL_GENS))
     while pu.generation < g:
@@ -1277,9 +1289,9 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             result = f"{without}, it was due to die {moved_by} sooner."
     top = [(answer, "bold", 96), (result, "demi", 52)]  # the counter already said how far it flew
 
-    # a cut to the universe now, its most colorful part: what it did, then the challenge and
-    # the one comment that takes it up, ringed where it would land; the board bright and
-    # moving throughout, easing out a little
+    # back to the universe now, in the opening's view: what it did, then the challenge and the
+    # one comment that takes it up, ringed where it would land; the board bright and moving
+    # throughout, easing back out to where the Short began, so it loops
     now = tonight
     k_end = len(frames)
     who = "Someone's glider" if not wild else "This glider"
@@ -1311,8 +1323,9 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             add(now, block(dare[:1], TOP_Y - 95, a) + block(dare[1:], TOP_Y + 5, a),  # apart: sizes differ
                 extras=[tag(ring, END_RING, b, spot), comment_chip(j, b, spot, cycle=[example])],
                 zoom=zoom, focus=look, band=(0, PH), free=True, dark=1.0)
-    add_trails(frames[:k_end], primer)
-    add_trails(frames[k_end:], primer_now)
+    add_trails(frames[:k_flight], primer_now)
+    add_trails(frames[k_flight:k_end], primer)
+    add_trails(frames[k_end:], [(f.grid, f.paint, f.gen) for f in frames[:k_flight]])  # it carries on from the opening
     return frames
 
 
