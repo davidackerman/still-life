@@ -924,7 +924,8 @@ FLIGHT_GPS, FLIGHT_EMPTY_GPS, FLIGHT_MAX_S = 14, 26, 20  # generations a second 
 FLIGHT_SLOW_GPS, FLIGHT_SLOW_BEFORE, FLIGHT_SLOW_AFTER = 6, 8, 16  # the crash in slow motion: gens around it
 FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the board's full height (cells ~33 px); its height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
-FLIGHT_MIN_GENS, FLIGHT_MIN_GPS = 40, 8  # a shorter trip isn't a journey; never slower than this while it flies
+FLIGHT_MIN_GENS, FLIGHT_MIN_GPS, FLIGHT_RECENT_DAYS = 40, 4.5, 3  # a shorter trip isn't a journey; never slower than
+# this while it flies; a recent flight (the board as it is lately, colors and all) before an older, longer one
 
 
 def _flew(h: History, u: Universe, e: dict) -> int:
@@ -1015,6 +1016,8 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     import render as rd
     h = History(state_dir)
     trips = [t for t in flights(h) if t[0] >= FLIGHT_MIN_GENS and t[1] + t[0] + FLIGHT_SLOW_AFTER <= h.now_gen]  # crashed already
+    recent = h.now_gen - FLIGHT_RECENT_DAYS * 86400 // h.gen_seconds
+    trips = [t for t in trips if t[1] >= recent] + [t for t in trips if t[1] < recent]
     if pick:
         trips = [t for t in trips if t[2]["command"] == pick] or trips
     if not trips:
@@ -1083,7 +1086,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     if span:
         beats.append((1, [(f"{rd._at(launch, g, G, '%A %I:%M %p').replace(' 0', ' ')}:", "demi", 50),
                           (f"it was {span} from getting stuck.", "demi", 50),
-                          ("Stuck means it dies, and these videos go private.", "demi", 44)]))
+                          ("If it stays stuck for a day, it dies, and these videos go private.", "demi", 44)]))
     # its pace: quick through empty space, slower wherever something is near (within 12 cells)
     busy, w, applied = [], copy.deepcopy(u), set(h.applied)
     try:
@@ -1157,7 +1160,10 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         i += 1
 
     # what it did, pulling back to the whole board
-    answer = "It saved it." if words.startswith("gave") else "It hurt it." if words.startswith("took") else "It barely changed a thing."
+    moved = abs((eff["after"] or 0) - (eff["before"] or 0)) * G if eff else 0  # how much (if both are known)
+    big = moved >= 86400 or not eff or eff.get("after") is None or eff.get("before") is None
+    answer = (("It saved it." if big else "It helped, a little.") if words.startswith("gave")
+              else ("It hurt it." if big else "It hurt it, a little.") if words.startswith("took") else "It barely changed a thing.")
     top = [(f"{flown:,} generations. Then it hit something.", "demi", 52), (answer, "bold", 96), (result, "demi", 52)]
     n = max(int(3.4 * FPS), rf(*[t for t, _, _ in top]) + int(0.9 * FPS))  # + the pull back
     end_focus = follow(flown)
@@ -1186,8 +1192,8 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         stuck = now.forecast_stuck(FORECAST_GENS)
         fate = (f"It dies {rd._at(launch, stuck + F, G, '%a %b %d')} unless someone comments." if stuck is not None
                 else "Nothing is set to get it stuck for weeks. A comment could change that.")
-    bottom = [(fate, "demi", 56), ("Live on this channel.", "demi", 46)]
-    n = max(int(4.5 * FPS), rf("Right now:", "Still alive.", fate, "Live on this channel."))
+    bottom = [(fate, "demi", 56), (f"Live on this channel since {began}.", "demi", 46)]
+    n = max(int(4.5 * FPS), rf("Right now:", "Still alive.", fate, bottom[1][0]))
     for k in range(n):
         if k % 6 == 0:
             History.advance(now, now.generation + 1)
@@ -1210,11 +1216,11 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
 
 
 def render_video(state_dir: str, out: str, since_gen: int | None = None, preview: str | None = None,
-                 kind: str = "recap") -> str:
+                 kind: str = "recap", pick: str | None = None) -> str:
     """Render the Short (or, with `since_gen`, the recap since then; with kind="flight",
     the glider Short) to an MP4."""
     ex.SCALE = 1  # explainer's text helpers draw in pixels here
-    frames = build_flight(state_dir) if kind == "flight" else None
+    frames = build_flight(state_dir, pick) if kind == "flight" else None
     if frames is None:
         frames = build(state_dir, since_gen)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -1245,13 +1251,14 @@ def main() -> None:
     ap.add_argument("--out", default=os.path.join("out", "short.mp4"))
     ap.add_argument("--preview", help="also save one frame per second as PNG into this folder")
     ap.add_argument("--since-hours", type=float, help="a recap of the last N hours (the daily Short)")
-    ap.add_argument("--flight", action="store_true", help="the glider Short: the longest glider flight in the log")
+    ap.add_argument("--flight", action="store_true", help="the glider Short: the longest recent glider flight in the log")
+    ap.add_argument("--pick", help='with --flight, this logged move instead (e.g. "glider 66,8 se")')
     args = ap.parse_args()
     since = None
     if args.since_hours:
         h = History(args.state_dir)
         since = max(0, h.now_gen - int(args.since_hours * 3600 // h.gen_seconds))
-    render_video(args.state_dir, args.out, since, args.preview, "flight" if args.flight else "recap")
+    render_video(args.state_dir, args.out, since, args.preview, "flight" if args.flight else "recap", args.pick)
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
 
