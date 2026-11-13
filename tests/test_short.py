@@ -233,7 +233,9 @@ def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypa
     counted = [int(t[0].replace(",", "")) for f in frames for t in f.texts if t[0].replace(",", "").isdigit()]
     assert counted[0] == 0 and max(counted) == flown  # the counter climbs to the crash
     assert any(t[0] == "Crash." for f in frames for t in f.texts)
-    assert any(f.extras and f.dim > 0.5 for f in frames[-10:])  # it ends on what you can comment
+    assert all(f.extras for f in frames[-10:])  # it ends on what you can comment,
+    assert frames[-1].band == (0, short.PH) and frames[-1].focus == frames[0].focus  # over the opening's view: it loops
+    assert abs(frames[-1].zoom - frames[0].zoom) < 1e-9 and 0 < frames[-1].dim < 0.5  # and its colors show
     for fr in (frames[0], frames[len(frames) // 2], frames[-1]):
         assert len(short.compose(fr)) == short.PW * short.PH * 3
 
