@@ -721,7 +721,8 @@ def _impact(h: History, gen: int) -> float:
 # Measured: Day 5 (board in a band, still for its first 0.7 s, four lines of text at
 # once) had 57.3% swipe away. So it opens on a full screen of board, already moving,
 # with one sentence.
-OPEN_S, OPEN_LAND_S, OPEN_STEP, OPEN_MORE_S, OPEN_OUT_S = 3.4, 0.7, 5, 1.0, 0.6
+OPEN_S, OPEN_LAND_S, OPEN_STEP, OPEN_MORE_S, OPEN_OUT_S = 3.4, 0.0, 5, 1.0, 0.6  # it has landed on the first
+# frame (the thumbnail): never an empty ring
 OPEN_PUSH, OPEN_PIECE_Y = 1.12, 1000
 
 
@@ -755,6 +756,9 @@ def opening_move(h: History, since_gen: int, lead: str | None = None):
                 key = (round(abs(d) / 30), not e["command"].startswith("random"))
                 (saves if d > 0 else kills).append((key, g, e, f))
     order = (kills, saves) if lead == "kill" else (saves, kills)
+    want = OPEN_PICK.get(int(h.now_gen * h.gen_seconds // 86400) + 1)
+    for t in (t for pick in order for t in pick if want and t[2]["command"] == want):
+        return t[1:]
     clear = _lands_clear(h, [t[1:3] for pick in order for t in pick], since_gen)
     for pick in order:  # the biggest that looks like what it says; then the other kind's; then the biggest anyway
         seen = [t for t in pick if clear.get((t[1], t[2]["command"]))]
@@ -771,6 +775,7 @@ def opening_move(h: History, since_gen: int, lead: str | None = None):
 # glider flying OPEN_GLIDER_GENS before it hits anything. Day 6's biggest kill was a glider
 # dropped onto a blinker: a blue blob, never a glider.
 OPEN_CLEAR, OPEN_GLIDER_GENS = 2, 8
+OPEN_PICK: dict = {}  # {day: a logged command}: pins that day's opening comment, if it moved the forecast
 
 
 def _lands_clear(h: History, moves, since_gen: int) -> dict:
@@ -825,12 +830,16 @@ def _open_on(h: History, move, add) -> None:
     px, py = centre(piece)
     s0 = PH / BH  # screen px per board px with the board's whole height filling the screen
     start = (px, py + (PH / 2 - OPEN_PIECE_Y) / s0)  # the comment at OPEN_PIECE_Y, below the words
+    heading = np.array(GLIDER_DIRS.get(e["command"].split()[-1], (1, 1))) if e["command"].startswith("glider") else None
+    far = 0  # a glider's ring goes with it, as far as it flies
     for i in range(n):
         cue = None
         if i == land:  # it lands
             h.goto(u, g)
             lit = life.mask(cells, u.grid.shape)
             cue = ("inject", float(np.mean([c[0] for c in cells])))
+            if heading is not None:
+                far = _flew(h, u, e)
         elif i % OPEN_STEP == 0 and i and (i > land or u.generation < g - 1):  # moving, slowly enough to follow
             h.goto(u, u.generation + 1)
         # the pull back: the band shrinks to its place while the view widens to the whole
@@ -843,7 +852,10 @@ def _open_on(h: History, move, add) -> None:
         a = 1.0 if i < n - FADE else fade(i, n)  # the first frame is the thumbnail: the sentence there
         b = a * ease((i - later) / 10)  # the rest, a beat later
         texts = [r[:5] + (a,) for r in rows[:k]] + [r[:5] + (b,) for r in rows[k:]]
-        add(u, texts, highlight=lit, cue=cue, zoom=zoom, focus=focus, extras=[ring(piece, a, caption)],
+        at = piece if heading is None else [(x + heading[0] * min(max(0, u.generation - g), far) / 4,
+                                             y + heading[1] * min(max(0, u.generation - g), far) / 4) for x, y in piece]
+        gone = 0.0 if heading is None or i <= land else ease((u.generation - g - far) / 3)  # its glider has hit something
+        add(u, texts, highlight=lit, cue=cue, zoom=zoom, focus=focus, extras=[ring(at, a * (1 - gone), caption)],
             band=(band_y, band_h), free=True, scrim=1 - q)
 
 

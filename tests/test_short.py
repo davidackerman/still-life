@@ -190,7 +190,8 @@ def test_the_daily_short_opens_on_what_one_real_comment_did(state_dir, monkeypat
     assert frames[0].band == (0, short.PH) and frames[0].extras  # a full screen of board, its words in a bubble where it lands
     landed = [i for i, fr in enumerate(frames) if fr.cue and fr.cue[0] == "inject"]
     assert landed and landed[0] == int(short.OPEN_LAND_S * short.FPS) and frames[landed[0]].gen == g
-    assert frames[0].gen == short.open_first(g) and frames[landed[0] - 1].gen == max(0, g - 1)  # moving from frame one
+    assert landed[0] == 0 and frames[0].gen == g  # landed on the first frame (the thumbnail): never an empty ring
+    assert frames[short.OPEN_STEP].gen == g + 1  # and moving from the start
     n = next(i for i, fr in enumerate(frames) if any("DIES" in t[0] for t in fr.texts))  # the opening's end
     said = [t[0] for t in frames[n - 20].texts]  # every word of it, held long enough to read
     assert n >= max(int(short.OPEN_S * short.FPS), short.rf(*said))
