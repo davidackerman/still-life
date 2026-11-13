@@ -918,11 +918,12 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
 # crash, then shows what that comment did to the universe's life. Everything in it
 # comes from the log.
 GLIDER_DIRS = {"ne": (1, -1), "nw": (-1, -1), "se": (1, 1), "sw": (-1, 1)}
-FLIGHT_GPS, FLIGHT_MAX_S = 16, 20  # generations a second while it flies (faster only to keep the flight under 20 s)
+FLIGHT_GPS, FLIGHT_EMPTY_GPS, FLIGHT_MAX_S = 14, 26, 20  # generations a second while it flies: near other cells,
+# through empty space (faster: nothing to see), and faster still only to keep the flight under 20 s
 FLIGHT_SLOW_GPS, FLIGHT_SLOW_BEFORE, FLIGHT_SLOW_AFTER = 6, 8, 16  # the crash in slow motion: gens around it
-FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.0, 950, 110  # the board's full height (cells ~27 px); the glider's height on
+FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the board's full height (cells ~33 px); its height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
-FLIGHT_MIN_GENS = 40  # a shorter trip isn't a journey
+FLIGHT_MIN_GENS, FLIGHT_MIN_GPS = 40, 8  # a shorter trip isn't a journey; never slower than this while it flies
 
 
 def _flew(h: History, u: Universe, e: dict) -> int:
@@ -1066,7 +1067,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     if eff and eff.get("before") is not None:  # `before`: the generation it would have got stuck at
         span = _span((eff["before"] - g) * G).replace("1 day", "a day").replace("1 hour", "an hour")
     words = effect_words(eff["before"], eff["after"], G) if eff else "barely changed its fate"
-    result = ("That comment " + words.replace("gave it", "gave this universe").replace("its life", "this universe's life") + "."
+    result = ("That comment " + words.replace("gave it", "gave this universe").replace(" to live", "").replace("its life", "this universe's life") + "."
               if words != "barely changed its fate" else "It barely changed the universe's fate.")
     said = f"\u201c{render.move_text(e)}\u201d"
     lead = [("Someone's comment", "bold", 84), ("became this glider.", "bold", 84)]
@@ -1075,25 +1076,50 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     beats = [(2, [(f"This universe has been running live on YouTube since {began}.", "demi", 50)]),
              (0, [("Every comment drops cells into it.", "demi", 50), ("Some save it. Some kill it.", "demi", 50)])]
     if span:
-        beats.append((1, [(f"{when}: it was {span} from getting stuck.", "demi", 50),
+        beats.append((1, [(f"{rd._at(launch, g, G, '%A %I:%M %p').replace(' 0', ' ')}: it was {span} from getting stuck.", "demi", 50),
                           ("Stuck means it dies, and these videos go private.", "demi", 44)]))
-    gps = max(FLIGHT_GPS, (flown - FLIGHT_SLOW_BEFORE) / FLIGHT_MAX_S)
+    # its pace: quick through empty space, slower wherever something is near (within 12 cells)
+    busy, w, applied = [], copy.deepcopy(u), set(h.applied)
+    try:
+        for x in range(flown + 1):
+            cx, cy = np.round(at(x)).astype(int)
+            win = w.grid[np.ix_(np.arange(cy - 12, cy + 13) % H, np.arange(cx - 12, cx + 13) % W)].astype(bool)
+            win[10:15, 10:15] = False  # not the glider itself
+            busy.append(min(1.0, win.sum() / 12))
+            h.goto(w, w.generation + 1)
+    finally:
+        h.applied = applied
+    pace = [FLIGHT_EMPTY_GPS + (FLIGHT_GPS - FLIGHT_EMPTY_GPS) * max(busy[max(0, x - 8):x + 9]) for x in range(flown + 1)]
+    fly_s = sum(1 / pace[x] for x in range(flown - FLIGHT_SLOW_BEFORE))
+    if fly_s > FLIGHT_MAX_S:
+        pace, fly_s = [p * fly_s / FLIGHT_MAX_S for p in pace], FLIGHT_MAX_S
+    # every line on screen long enough to read (rf): the flight slows to fit them, down to
+    # FLIGHT_MIN_GPS; lines that still don't fit are left out, the least needed first
     lead_s = 4.0
-    room = (flown - FLIGHT_SLOW_BEFORE) / gps - lead_s
-    keep = sorted(b[0] for b in beats)[:max(0, min(len(beats), int(room // 3.5)))]  # by priority
-    beats = [lines for rank, lines in beats if rank in keep]
-    per = room / len(beats) if beats else 0
+    need = {rank: rf(*[t for t, _, _ in lines]) / FPS for rank, lines in beats}
+    longest = (flown - FLIGHT_SLOW_BEFORE) / FLIGHT_MIN_GPS
+    keep = []
+    for rank in sorted(need):
+        if lead_s + sum(need[k] for k in keep) + need[rank] <= longest:
+            keep.append(rank)
+    beats = [(need[rank], lines) for rank, lines in beats if rank in keep]
+    want = lead_s + sum(n for n, _ in beats)
+    if fly_s < want:
+        pace, fly_s = [p * fly_s / want for p in pace], want
+    starts = list(np.cumsum([lead_s] + [n * (fly_s - lead_s) / max(1e-9, want - lead_s) for n, _ in beats]))
 
     def counter(n: int, a: float):
         return [(f"{n:,}", "bold", 120, (MAP_X + MAP_W + 330, MAP_Y + 70), "mm", a),
                 ("generations flown", "demi", 40, (MAP_X + MAP_W + 330, MAP_Y + 160), "mm", a)]
 
     r = 15 * s_full * 2.2  # ring radius on screen: a bit more than the glider
+    hx, hy = np.round(at(flown)).astype(int)
+    hit = life.mask([((hx + i) % W, (hy + j) % H) for i in range(-5, 6) for j in range(-5, 6)], (H, W))
     t, i = 0.0, 0
     crash_at = None
     while t < flown + FLIGHT_SLOW_AFTER:
         slow = t >= flown - FLIGHT_SLOW_BEFORE
-        t += (FLIGHT_SLOW_GPS if slow else gps) / FPS
+        t += (FLIGHT_SLOW_GPS if slow else pace[min(flown, int(t))]) / FPS
         h.goto(u, g + int(t))
         sec = i / FPS
         a_lead = 1.0 if sec < lead_s else max(0.0, 1 - (sec - lead_s) * 2)
@@ -1104,10 +1130,10 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             texts = [x[:5] + (a_lead,) for x in texts[:2]] + [x[:5] + (a_q,) for x in texts[2:]]
         else:
             texts += [x[:5] + (a_q,) for x in block(question, TOP_Y - 140, 1.0)]
-            j = int((sec - lead_s) // per) if per else len(beats)
-            if t < flown and j < len(beats):
-                t0 = lead_s + j * per
-                texts += block(beats[j], TOP_Y + 40, min(1.0, (sec - t0) * 3, (t0 + per - sec) * 3))
+            j = next((k for k in range(len(beats)) if starts[k] <= sec < starts[k + 1]), None)
+            if t < flown and j is not None:
+                t0, t1 = starts[j], starts[j + 1]
+                texts += block(beats[j][1], TOP_Y + 40, min(1.0, (sec - t0) * 3, (t1 - sec) * 3))
         if t >= flown:
             if crash_at is None:
                 crash_at = i
@@ -1117,13 +1143,15 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         ring_a = 1.0 if t < flown else max(0.35, 1 - (t - flown) / 14)
         map_a = min(1.0, max(0.0, (sec - lead_s) * 2))
         add(u, texts, zoom=zoom_full, focus=follow(t), band=(0, PH), free=True, dark=1.0,
-            highlight=near(t) if t < flown else None, cue=("inject", float(c0[0])) if i == 0 else None,
+            highlight=near(t) if t < flown else (hit if t < flown + 6 else None),  # the impact flashes
+            cue=("inject", float(c0[0])) if i == 0 else ("inject", float(at(flown)[0])) if i == crash_at else None,
             extras=[tag(at(t), r * boom, ring_a, said if t < flown else None),
                     minimap(u.grid, [at(x) for x in range(0, int(min(t, flown)) + 1, 4)], map_a)])
         i += 1
 
     # what it did, pulling back to the whole board
-    n, top = int(3.4 * FPS), [(f"{flown:,} generations, then it hit something.", "bold", 64), (result, "demi", 54)]
+    top = [(f"{flown:,} generations. Then it hit something.", "bold", 64), (result, "demi", 54)]
+    n = max(int(3.4 * FPS), rf(*[t for t, _, _ in top]) + int(0.9 * FPS))  # + the pull back
     end_focus = follow(flown)
     path = [at(x) for x in range(0, flown + 1, 4)]
     for k in range(n):
@@ -1150,13 +1178,13 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         stuck = now.forecast_stuck(FORECAST_GENS)
         fate = (f"It dies {rd._at(launch, stuck + F, G, '%a %b %d')} unless someone comments." if stuck is not None
                 else "Nothing is set to get it stuck for weeks. A comment could change that.")
-    bottom = [(fate, "demi", 56), ("It's live on this channel.", "demi", 46)]
-    n = int(4.5 * FPS)
+    bottom = [(fate, "demi", 56), ("Live on this channel.", "demi", 46)]
+    n = max(int(4.5 * FPS), rf("Right now:", "Still alive.", fate, "Live on this channel."))
     for k in range(n):
         if k % 6 == 0:
             History.advance(now, now.generation + 1)
         a = min(1.0, (k + 1) / FADE)
-        add(now, block([("The same universe, right now:", "demi", 54)], TOP_Y - 80, a)
+        add(now, block([("The same universe, right now:", "demi", 54)], TOP_Y - 80, min(a, (n - k) / FADE * 4))
             + block([("Still alive.", "bold", 110)], TOP_Y + 30, a) + block(bottom, BOTTOM_Y, a))
 
     # what you can comment: yours could fly next
