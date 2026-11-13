@@ -596,9 +596,9 @@ def test_the_status_comment_names_the_top_savers_and_killers():
                  everyone=[player("y", "u2", "block 5,5", LAUNCH + 30, name="@bob")])
     engine.tick(w, LAUNCH + 600, yt)
     text = yt.updates[-1][1]
-    saver, killer = [ln for ln in text.splitlines() if ln.startswith(("🏆", "💀"))]
-    assert saver.startswith("🏆 Top savers (all time): @ann +") and saver.endswith(" · someone +3h")  # u3: too little
-    assert killer.startswith("💀 Top killers (all time): @bob −8d 8h · someone −3h")  # no whole day counted yet
+    saver, killer = [ln for ln in text.splitlines() if ln.startswith(("🌱", "⏳"))]
+    assert saver.startswith("🌱 Gave it the most time (all time): @ann +") and saver.endswith(" · someone +3h")  # u3: too little
+    assert killer.startswith("⏳ Took the most time (all time): @bob −8d 8h · someone −3h")  # no whole day counted yet
     assert LAUNCH in yt.reads  # names it hadn't seen this run: one read of every comment since launch
     assert "@ann" not in str(w.to_state()[0]) and "@bob" not in str(w.to_state()[0])  # names are never stored
 
@@ -623,14 +623,14 @@ def test_the_leaderboard_is_todays_and_says_which_day():
     w.day_scores = {"day": 1, "whole": True, "scores": {keyed("u1"): [300, 1]}, "prev": None}
     yt = NamesYT([owner_status()], everyone=[player("y", "u1", "block 5,5", LAUNCH + 30, name="@ann")])
     engine.tick(w, LAUNCH + 600, yt)
-    assert [ln for ln in yt.updates[-1][1].splitlines() if ln.startswith("🏆")][0].endswith(", Day 1): @ann +10h")
+    assert [ln for ln in yt.updates[-1][1].splitlines() if ln.startswith("🌱")][0].endswith(", Day 1): @ann +10h")
 
 
 def test_no_leaderboard_until_someone_has_moved_it_an_hour():
     w, yt = world(), PinYT([owner_status()])
     w.scores = {keyed("u1"): [29, 1]}
     engine.tick(w, LAUNCH + 600, yt)
-    assert "Top savers" not in yt.updates[-1][1] and "Top killers" not in yt.updates[-1][1]
+    assert "Gave it the most time" not in yt.updates[-1][1] and "Took the most time" not in yt.updates[-1][1]
 
 
 def test_latest_moves_name_who_made_them_and_the_names_are_never_stored():

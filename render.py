@@ -436,7 +436,7 @@ def leaders(scores: dict, k: int = LEADERS, min_gens: int = LEADER_MIN_GENS) -> 
 
 
 def leaderboard(up: list, down: list, names: dict, gen_seconds: int, covers: str = "") -> list[str]:
-    """'🏆 Top savers today (Thu, Day 5): @ann +6d 2h · …' and '💀 Top killers …: …',
+    """'🌱 Gave it the most time today (Thu, Day 5): @ann +6d 2h · …' and '⏳ Took the most time …: …',
     from leaders(); `covers` says which day (or "(all time)")."""
     def who(a):
         return " ".join((names.get(a) or "").split())[:40] or "someone"
@@ -446,9 +446,9 @@ def leaderboard(up: list, down: list, names: dict, gen_seconds: int, covers: str
         return f"{who(a)} {'+' if g > 0 else '−'}{span[:-3] if span.endswith(' 0h') else span}"
     lines = []
     if up:
-        lines.append(f"🏆 Top savers{' ' + covers if covers else ''}: " + " · ".join(entry(g, a) for g, a in up))
+        lines.append(f"🌱 Gave it the most time{' ' + covers if covers else ''}: " + " · ".join(entry(g, a) for g, a in up))
     if down:
-        lines.append(f"💀 Top killers{' ' + covers if covers else ''}: " + " · ".join(entry(g, a) for g, a in down))
+        lines.append(f"⏳ Took the most time{' ' + covers if covers else ''}: " + " · ".join(entry(g, a) for g, a in down))
     return lines
 
 
