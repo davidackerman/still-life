@@ -937,6 +937,7 @@ FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the boa
 FLIGHT_MIN_GENS, FLIGHT_MIN_GPS = 40, 6  # a shorter trip isn't a journey; never slower than this while it flies
 NOW_LINE, NOW_STEP, NOW_PUSH = "This universe is driven by your comments.", 5, 1.08  # the glider Short's first
 # beat: the board as it is now, full screen, a generation every NOW_STEP frames, closing in a little
+END_DIM = 0.3  # the ending: the same view behind what you can comment, darkened only this much, so its colors show
 
 
 def _flew(h: History, u: Universe, e: dict) -> int:
@@ -1289,8 +1290,10 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
             dark=1 - q, cue=("saved",) if k == int(0.9 * FPS) and "gave" in result else None,
             extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q)), minimap(u.grid, path, 1 - q, label=0)])
 
-    # the challenge, over the universe as it is now: beat it, before it dies; what you can comment
+    # the challenge, over the opening's colorful view of the universe now, easing back out to
+    # where the Short began (so it loops): beat it, before it dies; what you can comment
     now = tonight
+    k_end = len(frames)
     who = "Someone's glider" if not wild else "This glider"
     lines = [(f"{who} flew {flown:,} generations.", "demi", 52), ("Can you beat it?", "bold", 110),
              ("before this universe dies", "demi", 52)]
@@ -1302,9 +1305,11 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         add(now, block(lines[:1], TOP_Y - 130, a) + block(lines[1:2], TOP_Y - 25, a) + block(lines[2:], TOP_Y + 80, a)
             + block([("Your cells could save it. Or kill it.", "demi", 62)], BOTTOM_Y + 24, a),
             extras=[comment_stack(k, n, a, [f"{x},{y}" for x, y in render.quiet_spots(now.grid, len(EXAMPLES))], first=1)],
-            dim=0.82 * a)
+            dim=END_DIM * a, zoom=s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * (1 - ease(k / max(1, n - 1)))),
+            focus=look, band=(0, PH), free=True, dark=a)
     add_trails(frames[:k_flight], primer_now)
-    add_trails(frames[k_flight:], primer)
+    add_trails(frames[k_flight:k_end], primer)
+    add_trails(frames[k_end:], [(f.grid, f.paint, f.gen) for f in frames[:k_flight]])  # it carries on from the opening
     return frames
 
 
