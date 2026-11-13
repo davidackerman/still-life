@@ -754,10 +754,39 @@ def opening_move(h: History, since_gen: int, lead: str | None = None):
                 # the biggest first; between near-equals, one with a pattern's name reads better than a random patch
                 key = (round(abs(d) / 30), not e["command"].startswith("random"))
                 (saves if d > 0 else kills).append((key, g, e, f))
-    for pick in ((kills, saves) if lead == "kill" else (saves, kills)):
+    order = (kills, saves) if lead == "kill" else (saves, kills)
+    clear = _lands_clear(h, [t[1:3] for pick in order for t in pick], since_gen)
+    for pick in order:  # the biggest that looks like what it says; then the other kind's; then the biggest anyway
+        seen = [t for t in pick if clear.get((t[1], t[2]["command"]))]
+        if seen:
+            return max(seen, key=lambda t: t[0])[1:]
+    for pick in order:
         if pick:
             return max(pick, key=lambda t: t[0])[1:]
     return None
+
+
+# The opening names its comment ("glider 18,55 se blue"), so that comment has to show as
+# what it says: landing in the clear (no live cell within OPEN_CLEAR cells of it), and a
+# glider flying OPEN_GLIDER_GENS before it hits anything. Day 6's biggest kill was a glider
+# dropped onto a blinker: a blue blob, never a glider.
+OPEN_CLEAR, OPEN_GLIDER_GENS = 2, 8
+
+
+def _lands_clear(h: History, moves, since_gen: int) -> dict:
+    """{(gen, command): True if that move lands in the clear (and, a glider, flies on)}."""
+    flown = {(g, e["command"]): n for n, g, e, _ in flights(h, since_gen)}
+    out, u = {}, h.fresh()
+    for g, e in sorted(moves, key=lambda m: m[0]):
+        h.goto(u, g - 1)  # the board just before it lands
+        near = np.zeros(u.grid.shape, bool)
+        for x, y in e["cells"]:
+            ys = np.arange(y - OPEN_CLEAR, y + OPEN_CLEAR + 1) % u.grid.shape[0]
+            xs = np.arange(x - OPEN_CLEAR, x + OPEN_CLEAR + 1) % u.grid.shape[1]
+            near[np.ix_(ys, xs)] = True
+        flies = not e["command"].startswith("glider") or flown.get((g, e["command"]), 0) >= OPEN_GLIDER_GENS
+        out[(g, e["command"])] = flies and not (u.grid[near] > 0).any()
+    return out
 
 
 def _open_on(h: History, move, add) -> None:
