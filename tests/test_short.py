@@ -226,10 +226,25 @@ def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypa
     assert e["command"] == "glider 64,71 nw" and flown >= short.FLIGHT_MIN_GENS
     frames = short.build_flight(str(tmp_path))
     first = " ".join(t[0] for t in frames[0].texts)
-    assert "became this glider" in first and frames[0].band == (0, short.PH) and frames[0].gen == g
+    assert "driven by your comments" in first and frames[0].band == (0, short.PH)  # it opens on the board as it is now
+    assert frames[0].gen <= h.now_gen and frames[0].gen > g
+    lands = next(f for f in frames if any("became this glider" in t[0] for t in f.texts))
+    assert lands.gen == g and lands.band == (0, short.PH)  # then cuts to the glider as it lands
     counted = [int(t[0].replace(",", "")) for f in frames for t in f.texts if t[0].replace(",", "").isdigit()]
     assert counted[0] == 0 and max(counted) == flown  # the counter climbs to the crash
     assert any(t[0] == "Crash." for f in frames for t in f.texts)
     assert any(f.extras and f.dim > 0.5 for f in frames[-10:])  # it ends on what you can comment
     for fr in (frames[0], frames[len(frames) // 2], frames[-1]):
         assert len(short.compose(fr)) == short.PW * short.PH * 3
+
+
+def test_the_glider_short_picks_a_colored_glider_before_a_longer_plain_one(monkeypatch):
+    h = type("H", (), {"now_gen": 5000, "gen_seconds": 120})()
+    plain, purple, blue = ({"command": "glider 1,1 sw"}, {"command": "glider 2,2 se", "color": "purple"},
+                           {"command": "glider 3,3 ne", "color": "blue"})
+    trips = [(316, 100, plain, None), (60, 2000, purple, None), (44, 3000, blue, None), (20, 4000, {**blue}, None)]
+    monkeypatch.setattr(short, "flights", lambda h: trips)
+    assert short.pick_flight(h)[2] is purple  # the longest colored one that flew far enough
+    assert short.pick_flight(h, pick="glider 1,1 sw")[2] is plain
+    monkeypatch.setattr(short, "flights", lambda h: [trips[0], trips[3]])
+    assert short.pick_flight(h)[2] is plain  # none colored flew far enough: the longest plain one
