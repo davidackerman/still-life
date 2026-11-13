@@ -224,9 +224,13 @@ def test_the_glider_short_follows_one_glider_until_it_crashes(tmp_path, monkeypa
     h = short.History(str(tmp_path))
     flown, g, e, _ = short.flights(h)[0]
     assert e["command"] == "glider 64,71 nw" and flown >= short.FLIGHT_MIN_GENS
+    spotted, quiet = [], short.render.quiet_spots
+    monkeypatch.setattr(short.render, "quiet_spots", lambda *a: spotted.append(1) or quiet(*a))
     frames = short.build_flight(str(tmp_path))
+    assert len(spotted) == 1  # the ending's examples keep their spots, each its own
     first = " ".join(t[0] for t in frames[0].texts)
     assert "driven by your comments" in first and frames[0].band == (0, short.PH)  # it opens on the board as it is now
+    assert any("Some save it. Some kill it." in t[0] for f in frames[:short.FPS * 3] for t in f.texts)
     assert frames[0].gen <= h.now_gen and frames[0].gen > g
     lands = next(f for f in frames if any("became this glider" in t[0] for t in f.texts))
     assert lands.gen == g and lands.band == (0, short.PH)  # then cuts to the glider as it lands

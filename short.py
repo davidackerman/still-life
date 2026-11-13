@@ -928,15 +928,15 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
 # crash, then shows what that comment did to the universe's life. Everything in it
 # comes from the log.
 GLIDER_DIRS = {"ne": (1, -1), "nw": (-1, -1), "se": (1, 1), "sw": (-1, 1)}
-FLIGHT_START_GPS, FLIGHT_MIN_S, FLIGHT_EASE = 8, 5.0, 16  # its first pace (generations a second), the shortest
-# flight in seconds, and the generations it takes to ease into the crash's slow motion
+FLIGHT_START_GPS, FLIGHT_MIN_S, FLIGHT_AFTER = 10, 4.0, 24  # its first pace (generations a second), the shortest
+# flight in seconds, and the generations it plays on after the crash, at its top speed (it never slows for it)
 FLIGHT_MAX_AVG_GPS = 30  # a long flight takes longer instead of racing past
-FLIGHT_SLOW_GPS, FLIGHT_SLOW_BEFORE, FLIGHT_SLOW_AFTER = 6, 8, 10  # the crash in slow motion: gens around it
 FLIGHT_ZOOM, FLIGHT_Y, FLIGHT_LEAD = 1.25, 950, 110  # a bit closer than the board's full height (cells ~33 px); its height on
 # screen, shifted back along its path by FLIGHT_LEAD px so more of what lies ahead shows
 FLIGHT_MIN_GENS, FLIGHT_MIN_GPS = 40, 6  # a shorter trip isn't a journey; never slower than this while it flies
-NOW_LINE, NOW_STEP, NOW_PUSH = "This universe is driven by your comments.", 5, 1.08  # the glider Short's first
-# beat: the board as it is now, full screen, a generation every NOW_STEP frames, closing in a little
+NOW_LINES = ("This universe is driven by your comments.", "Some save it. Some kill it.")  # the glider Short's
+NOW_MORE_S, NOW_STEP, NOW_PUSH = 1.2, 5, 1.08  # first beat: the board as it is now, full screen, its second line in
+# from NOW_MORE_S, a generation every NOW_STEP frames, closing in a little (and back out by the end, so it loops)
 END_DIM = 0.3  # the ending: the same view behind what you can comment, darkened only this much, so its colors show
 
 
@@ -1064,12 +1064,17 @@ def tag(centre, r: float, alpha: float, text: str | None = None):
 MAP_X, MAP_Y, MAP_W = 40, 1250, 330  # the whole universe, small, at the bottom left
 
 
-def minimap(grid, path, alpha: float, label: float = 1.0):
-    """The whole board, small, with the glider's path so far (cells, unwrapped) and a ring where it is."""
+def minimap(grid, path, alpha: float, label: float = 1.0, paint=None):
+    """The whole board, small, in its colors, with the glider's path so far (cells, unwrapped) and a ring where it is."""
     Hh, Ww = grid.shape
     c = MAP_W / Ww
     mh = round(Hh * c)
-    mask = Image.fromarray((grid > 0).astype(np.uint8) * 255).resize((MAP_W, mh), Image.NEAREST)
+    on = grid > 0
+    layers = [(on if paint is None else on & (paint == 0), tuple(PHASE_COLOR["ALIVE"]), 150)]
+    if paint is not None:
+        layers += [(on & (paint == k), tuple(render.PAINT[name]), 235) for k, name in enumerate(commands.COLORS, 1)]
+    layers = [(Image.fromarray(m.astype(np.uint8) * 255).resize((MAP_W, mh), Image.NEAREST), col, op)
+              for m, col, op in layers if m.any()]
 
     def draw(d, to_canvas):
         if alpha <= 0.01:
@@ -1077,7 +1082,8 @@ def minimap(grid, path, alpha: float, label: float = 1.0):
         a = int(255 * alpha)
         d.rounded_rectangle((MAP_X - 8, MAP_Y - 8, MAP_X + MAP_W + 8, MAP_Y + mh + 8), radius=12,
                             fill=(6, 8, 10, int(215 * alpha)), outline=(70, 76, 92, a), width=2)
-        d.bitmap((MAP_X, MAP_Y), mask, fill=tuple(PHASE_COLOR["ALIVE"]) + (int(150 * alpha),))
+        for mask, col, op in layers:
+            d.bitmap((MAP_X, MAP_Y), mask, fill=col + (int(op * alpha),))
         pts = [(MAP_X + (x % Ww + 0.5) * c, MAP_Y + (y % Hh + 0.5) * c) for x, y in path]
         for px, py in pts[:-1]:
             d.ellipse((px - 1.8, py - 1.8, px + 1.8, py + 1.8), fill=(255, 255, 255, int(170 * alpha)))
@@ -1160,10 +1166,12 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         return life.mask([((cx + i) % W, (cy + j) % H) for i in range(-2, 3) for j in range(-2, 3)], (H, W))
 
     # first, the universe as it is now (every color in it is some comment's): a full screen
-    # of its most colorful part, already moving, with one sentence
+    # of its most colorful part, already moving; one sentence, then what comments do
     tonight = h.fresh()
     h.goto(tonight, h.now_gen)
-    n_open = rf(NOW_LINE)
+    main, more = [(NOW_LINES[0], "bold", 92)], [(NOW_LINES[1], "demi", 62)]
+    open_rows, k_main = block(main + more, TOP_Y, 1.0), len(block(main, TOP_Y, 1.0))  # placed together: nothing moves
+    n_open = max(rf(*NOW_LINES), int(NOW_MORE_S * FPS) + rf(NOW_LINES[1]))
     open_gen = max(0, h.now_gen - n_open // NOW_STEP)
     s0 = PH / BH  # screen px per board px with the board's whole height filling the screen
     across = int(PW / s0 / CELL)  # cells on screen, side to side
@@ -1182,7 +1190,9 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         if k and k % NOW_STEP == 0 and ou.generation < h.now_gen:
             h.goto(ou, ou.generation + 1)
         a = 1.0 if k < n_open - FADE else fade(k, n_open)  # the first frame is the thumbnail: the sentence there
-        add(ou, block([(NOW_LINE, "bold", 92)], TOP_Y, a), zoom=s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * ease(k / n_open)),
+        b = a * ease((k - NOW_MORE_S * FPS) / 10)
+        add(ou, [r[:5] + (a,) for r in open_rows[:k_main]] + [r[:5] + (b,) for r in open_rows[k_main:]],
+            zoom=s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * ease(k / n_open)),
             focus=look, band=(0, PH), free=True, dark=1.0)
     k_flight = len(frames)
 
@@ -1204,13 +1214,13 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     question = [("Will it save this universe, or kill it?", "demi", 56)]  # the reason to stay: answered at the end
     rows = block(lead + question, TOP_Y, 1.0)  # placed together, so the question stays put when the lead goes
     k_lead = len(block(lead, TOP_Y, 1.0))
-    # every line on screen long enough to read (rf): the lead, then the question (in from 1 s) until the crash
-    X = flown - FLIGHT_SLOW_BEFORE
+    # every line on screen long enough to read (rf): the lead, then the question (in from 1 s,
+    # and kept through the crash)
+    X = flown
     lead_s = max(3.0, rf(*[t for t, _, _ in lead]) / FPS - 0.5)
-    want = max(lead_s + 0.5, 1.0 + rf(question[0][0]) / FPS, FLIGHT_MIN_S, X / FLIGHT_MAX_AVG_GPS)
-    # its pace: slow at first (to see it), then quicker and quicker toward the hit: g0 (1 + k x/X)
-    # generations a second after x of them, k chosen so the flight takes `want`; it eases into
-    # the slow motion over its last FLIGHT_EASE generations
+    want = max(lead_s + 0.5, 0.5 + rf(question[0][0]) / FPS, FLIGHT_MIN_S, X / FLIGHT_MAX_AVG_GPS)
+    # its pace: slower at first (to see it), then quicker and quicker right into the hit:
+    # g0 (1 + k x/X) generations a second after x of them, k chosen so the flight takes `want`
     g0 = FLIGHT_START_GPS
     if X / g0 <= want:  # too short to speed up
         g0, k = max(FLIGHT_MIN_GPS, X / want), 0.0
@@ -1219,10 +1229,7 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         for _ in range(60):
             k = (lo + hi) / 2
             lo, hi = (k, hi) if X / (g0 * k) * np.log1p(k) > want else (lo, k)
-    pace = [g0 * (1 + k * min(x, X) / X) for x in range(flown + 1)]
-    for x in range(max(0, X - FLIGHT_EASE), X):
-        q = (x - (X - FLIGHT_EASE)) / FLIGHT_EASE
-        pace[x] = pace[x] * (1 - ease(q)) + FLIGHT_SLOW_GPS * ease(q)
+    pace = [g0 * (1 + k * min(x, X) / X) for x in range(flown + 1)]  # pace[flown]: its top speed, on through the crash
 
     def counter(n: int, a: float):
         return [(f"{n:,}", "bold", 120, (MAP_X + MAP_W + 330, MAP_Y + 70), "mm", a),
@@ -1233,13 +1240,12 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     hit = life.mask([((hx + i) % W, (hy + j) % H) for i in range(-5, 6) for j in range(-5, 6)], (H, W))
     t, i = 0.0, 0
     crash_at = None
-    while t < flown + FLIGHT_SLOW_AFTER:
-        slow = t >= flown - FLIGHT_SLOW_BEFORE
-        t += (FLIGHT_SLOW_GPS if slow else pace[min(flown, int(t))]) / FPS
+    while t < flown + FLIGHT_AFTER:
+        t += pace[min(flown, int(t))] / FPS
         h.goto(u, g + int(t))
         sec = i / FPS
         a_lead = 1.0 if sec < lead_s else max(0.0, 1 - (sec - lead_s) * 2)
-        a_q = min(1.0, max(0.0, (sec - 1.0) * 3)) * (1.0 if t < flown else max(0.0, 1 - (t - flown) / 4))
+        a_q = min(1.0, max(0.0, (sec - 1.0) * 3))
         texts = [x[:5] + (a_lead,) for x in rows[:k_lead] if a_lead > 0] + [x[:5] + (a_q,) for x in rows[k_lead:]]
         if t >= flown:
             if crash_at is None:
@@ -1251,11 +1257,11 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         ring_a = 1.0 if t < flown else max(0.35, 1 - (t - flown) / 14)
         map_a = min(1.0, max(0.0, (sec - lead_s) * 2))
         add(u, texts, zoom=zoom_full, focus=follow(t), band=(0, PH), free=True, dark=1.0,
-            highlight=near(t) if t < flown else (hit if t < flown + 6 else None),  # the impact flashes
+            highlight=near(t) if t < flown else (hit if t < flown + 10 else None),  # the impact flashes
             cue=("inject", float(c0[0])) if i == 0 else ("inject", float(at(flown)[0])) if i == crash_at else None,
             extras=[tag(at(t), r * boom, ring_a, said if t < flown else None),
                     minimap(u.grid, [at(x) for x in range(0, int(min(t, flown)) + 1, 4)], map_a,
-                            label=min(1.0, max(0.0, (lead_s + 5.0 - sec) * 2)))])
+                            label=min(1.0, max(0.0, (lead_s + 5.0 - sec) * 2)), paint=u.paint)])
         i += 1
 
     # what it did, pulling back to the whole board
@@ -1274,39 +1280,34 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
         else:
             result = f"{without}, it was due to die {moved_by} sooner."
     top = [(answer, "bold", 96), (result, "demi", 52)]  # the counter already said how far it flew
-    n = max(int(3.0 * FPS), rf(*[t for t, _, _ in top]) + int(0.9 * FPS))  # + the pull back
-    end_focus = follow(flown)
-    path = [at(x) for x in range(0, flown + 1, 4)]
-    for k in range(n):
-        if k % 5 == 0:
-            h.goto(u, u.generation + 1)
-        q = ease(k / (0.9 * FPS))
-        band_h, band_y = round(PH + (BAND_H - PH) * q), round(BAND_Y * q)
-        push = FLIGHT_ZOOM + (1 - FLIGHT_ZOOM) * q
-        a = min(1.0, (k + 1) / FADE, (n - k) / FADE)
-        add(u, block(top[:1], TOP_Y - 80, a) + block(top[1:], TOP_Y + 65, a),
-            zoom=band_h / BH * push * BW / BAND_W, band=(band_y, band_h), free=True,
-            focus=(end_focus[0] + (BW / 2 - end_focus[0]) * q, end_focus[1] + (BH / 2 - end_focus[1]) * q),
-            dark=1 - q, cue=("saved",) if k == int(0.9 * FPS) and "gave" in result else None,
-            extras=[tag(at(flown), r * 2.6 * (1 - 0.6 * q), 0.35 * (1 - q)), minimap(u.grid, path, 1 - q, label=0)])
 
-    # the challenge, over the opening's colorful view of the universe now, easing back out to
-    # where the Short began (so it loops): beat it, before it dies; what you can comment
+    # back to the universe now, in the opening's view: what it did, then the challenge (beat
+    # it, before it dies) and what you can comment, easing back out to where the Short began, so it loops
     now = tonight
     k_end = len(frames)
     who = "Someone's glider" if not wild else "This glider"
     lines = [(f"{who} flew {flown:,} generations.", "demi", 52), ("Can you beat it?", "bold", 110),
              ("before this universe dies", "demi", 52)]
-    n = max(5 * FPS, rf(*[t for t, _, _ in lines], "Your cells could save it. Or kill it."))
-    for k in range(n):
+    bottom = "Your cells could save it. Or kill it."
+    n_res = max(int(3.0 * FPS), rf(*[t for t, _, _ in top]))
+    n_end = max(5 * FPS, rf(*[t for t, _, _ in lines], bottom))
+    spots = [f"{x},{y}" for x, y in render.quiet_spots(now.grid, len(EXAMPLES))]  # each example its own, held throughout
+    total = n_res + n_end
+    for k in range(total):
         if k % 6 == 0:
             History.advance(now, now.generation + 1)
-        a = min(1.0, (k + 1) / FADE)
-        add(now, block(lines[:1], TOP_Y - 130, a) + block(lines[1:2], TOP_Y - 25, a) + block(lines[2:], TOP_Y + 80, a)
-            + block([("Your cells could save it. Or kill it.", "demi", 62)], BOTTOM_Y + 24, a),
-            extras=[comment_stack(k, n, a, [f"{x},{y}" for x, y in render.quiet_spots(now.grid, len(EXAMPLES))], first=1)],
-            dim=END_DIM * a, zoom=s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * (1 - ease(k / max(1, n - 1)))),
-            focus=look, band=(0, PH), free=True, dark=a)
+        zoom = s0 * BW / BAND_W * (1 + (NOW_PUSH - 1) * (1 - ease(k / (total - 1))))
+        if k < n_res:
+            a = min(1.0, (k + 1) / FADE, (n_res - k) / FADE)
+            add(now, block(top[:1], TOP_Y - 80, a) + block(top[1:], TOP_Y + 65, a), zoom=zoom, focus=look,
+                band=(0, PH), free=True, dark=1.0, cue=("saved",) if k == FADE and words.startswith("gave") else None)
+        else:
+            j = k - n_res
+            a = min(1.0, (j + 1) / FADE)
+            add(now, block(lines[:1], TOP_Y - 130, a) + block(lines[1:2], TOP_Y - 25, a) + block(lines[2:], TOP_Y + 80, a)
+                + block([(bottom, "demi", 62)], BOTTOM_Y + 24, a),
+                extras=[comment_stack(j, n_end, a, spots, first=1)],
+                dim=END_DIM * a, zoom=zoom, focus=look, band=(0, PH), free=True, dark=1.0)
     add_trails(frames[:k_flight], primer_now)
     add_trails(frames[k_flight:k_end], primer)
     add_trails(frames[k_end:], [(f.grid, f.paint, f.gen) for f in frames[:k_flight]])  # it carries on from the opening
