@@ -109,10 +109,29 @@ main.wide { max-width: 68rem; }
 .status { display: inline-flex; align-items: baseline; gap: .7rem; flex-wrap: wrap; }
 .left { font-weight: 700; font-size: 1.6rem; font-variant-numeric: tabular-nums; }
 @media (max-width: 40rem) { .left { font-size: 1.3rem; } }
-.soundbtn { position: absolute; top: .6rem; right: .6rem; z-index: 2; border: 1px solid rgba(255,255,255,.4); background: rgba(10,12,16,.8);
+.boardbtns { position: absolute; top: .6rem; right: .6rem; z-index: 4; display: flex; gap: .4rem; }
+.boardbtn { border: 1px solid rgba(255,255,255,.4); background: rgba(10,12,16,.8);
             color: #fff; border-radius: 999px; padding: .3rem .8rem; font: 600 .85rem/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; cursor: pointer; }
-.soundbtn:hover { border-color: #fff; }
-.soundbtn[aria-pressed="true"] { border-color: rgba(120,230,160,.7); }
+.boardbtn:hover { border-color: #fff; }
+.boardbtn svg { vertical-align: -1px; }
+.boardbtn .lbl { margin-left: .35rem; }
+@media (max-width: 40rem) { #full .lbl { display: none; } }  /* the icon alone, on a phone */
+#sound[aria-pressed="true"] { border-color: rgba(120,230,160,.7); }
+
+/* full screen: the board fills the screen, wrapping around (see fsLayout); the status on top */
+.live canvas.fsview { display: none; }
+html.fs-on, html.fs-on body { overflow: hidden; }
+.live.fs { position: fixed; inset: 0; z-index: 1000; margin: 0; background: #16191f; color: #e8e9ec;
+           --ALIVE: #78e6a0; --FLATLINING: #f05a5a; --CONTESTED: #fac850; --DIED: #9a9aa7; --muted: #b4b9c2; }
+.live.fs > :not(.statusbar):not(.boardwrap) { display: none; }
+.live.fs .boardwrap { position: absolute; inset: 0; }
+.live.fs #board { visibility: hidden; position: absolute; width: 1px; }  /* still drawn: the view copies it */
+.live.fs canvas.fsview { display: block; width: 100%; height: 100%; border-radius: 0; touch-action: none; cursor: grab; }
+.live.fs canvas.fsview:active { cursor: grabbing; }
+.live.fs .tags { border-radius: 0; }
+.live.fs .statusbar { position: absolute; top: 0; left: 0; right: 0; z-index: 3; margin: 0; padding: 1rem 1.2rem 3rem;
+                      pointer-events: none; background: linear-gradient(rgba(10,12,16,.92), rgba(10,12,16,0)); }
+.live.fs .boardbtns { top: auto; bottom: 1rem; right: 1rem; }
 .checked { color: var(--muted); font-size: .95rem; margin: .5rem 0 0; }
 
 /* sections below the board: a rule and room between them, so they read apart */

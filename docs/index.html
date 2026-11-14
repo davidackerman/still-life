@@ -20,8 +20,12 @@
   </div>
   <div class="boardwrap">
     <canvas id="board" width="1280" height="720" aria-label="The current grid"></canvas>
+    <canvas id="fsview" class="fsview" aria-hidden="true"></canvas>
     <div id="tags" class="tags" aria-live="polite"></div>
-    <button id="sound" class="soundbtn" aria-pressed="false">🔇 Turn on sound</button>
+    <div class="boardbtns">
+      <button id="full" class="boardbtn" aria-pressed="false" aria-label="Full screen"></button>
+      <button id="sound" class="boardbtn" aria-pressed="false">🔇 Turn on sound</button>
+    </div>
   </div>
   <div class="scrub">
     <button id="play" class="iconbtn" aria-label="Play the whole life">▶</button>
@@ -340,9 +344,8 @@ function rippleLabel(r) {
 }
 
 function drawRipples(rips) {
-  const box = $("tags"), scale = (box.clientWidth || canvas.width) / canvas.width;
+  const box = $("tags");
   box.textContent = "";
-  const placed = [];
   for (const r of rips) {
     ctx.save();
     ctx.globalAlpha = r.fade;
@@ -369,20 +372,117 @@ function drawRipples(rips) {
     if (eff) { const e = document.createElement("span"); e.className = `eff ${eff.cls}`; e.textContent = ` · ${eff.text}`; tag.appendChild(e); }
     if (status) { const e = document.createElement("span"); e.className = "eff gone"; e.textContent = status; tag.appendChild(e); }
     tag.title = `landed at gen ${r.grp.gen.toLocaleString()}`;
-    tag.style.left = `${Math.min(Math.max(ax, canvas.width * 0.14), canvas.width * 0.86) * scale}px`;
-    tag.style.top = `${ay * scale}px`;
+    tag.dataset.ax = ax; tag.dataset.ay = ay;
     box.appendChild(tag);
-    if (tag.getBoundingClientRect) {
-      for (let tries = 0; tries < 6; tries++) {
-        const a = tag.getBoundingClientRect();
-        const hit = placed.find((b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
-        if (!hit) break;
-        tag.style.top = `${parseFloat(tag.style.top) + (below ? 1 : -1) * (hit.bottom - hit.top + 4)}px`;
-      }
-      placed.push(tag.getBoundingClientRect());
+  }
+  placeTags();
+}
+
+// The labels, at their points on the board (on the page or full screen), kept clear of each other.
+function placeTags() {
+  const placed = [];
+  for (const tag of $("tags").children) {
+    const [x, y] = toView(+tag.dataset.ax, +tag.dataset.ay), below = tag.classList.contains("below");
+    tag.style.left = `${x}px`;
+    tag.style.top = `${y}px`;
+    if (!tag.getBoundingClientRect) continue;
+    for (let tries = 0; tries < 6; tries++) {
+      const a = tag.getBoundingClientRect();
+      const hit = placed.find((b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom);
+      if (!hit) break;
+      tag.style.top = `${parseFloat(tag.style.top) + (below ? 1 : -1) * (hit.bottom - hit.top + 4)}px`;
     }
+    placed.push(tag.getBoundingClientRect());
   }
 }
+
+// ---------------------------------------------------------------- full screen
+// The board fills the screen, as in the Shorts: its whole height shows (or its
+// whole width, on a screen wider than the board), and the other way it wraps
+// around, as the universe does, so there are no black bars. Drag to turn it.
+// The page's own canvas is still what gets drawn; the full-screen view copies it.
+const FS = { on: false, pan: 0 };  // pan: how far it's turned, as a fraction of the board
+const fsview = $("fsview"), fctx = fsview.getContext("2d"), liveEl = canvas.closest(".live");
+const mod = (a, m) => ((a % m) + m) % m;
+const FS_OFF = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span class="lbl">Full screen</span>';
+const FS_ON = '<span aria-hidden="true">✕</span><span class="lbl">Exit full screen</span>';
+
+function fsLayout() {
+  const vw = fsview.clientWidth || 1, vh = fsview.clientHeight || 1;
+  const s = Math.max(vh / canvas.height, vw / canvas.width);  // screen px per canvas px
+  const Ws = canvas.width * s, Hs = canvas.height * s, wrapX = Ws > vw + 0.5;
+  const p = mod(FS.pan, 1);
+  return { vw, vh, s, Ws, Hs, wrapX, ox: (vw - Ws) / 2 + (wrapX ? p * Ws : 0), oy: (vh - Hs) / 2 + (wrapX ? 0 : p * Hs) };
+}
+
+// A point on the board's canvas → px in the labels' box.
+function toView(ax, ay) {
+  if (!FS.on) {
+    const sc = ($("tags").clientWidth || canvas.width) / canvas.width;
+    return [Math.min(Math.max(ax, canvas.width * 0.14), canvas.width * 0.86) * sc, ay * sc];
+  }
+  const L = fsLayout();
+  let x = L.ox + ax * L.s, y = L.oy + ay * L.s;
+  if (L.wrapX) x = mod(x, L.Ws); else y = mod(y, L.Hs);  // the copy of the point that's on screen, if any
+  if (x >= 0 && x <= L.vw) x = Math.min(Math.max(x, L.vw * 0.14), L.vw * 0.86);
+  return [x, y];
+}
+
+function blitFs() {
+  if (!FS.on) return;
+  const L = fsLayout(), dpr = window.devicePixelRatio || 1;
+  const pw = Math.round(L.vw * dpr), phh = Math.round(L.vh * dpr);
+  if (fsview.width !== pw || fsview.height !== phh) { fsview.width = pw; fsview.height = phh; }
+  fctx.imageSmoothingEnabled = false;
+  fctx.fillStyle = "#16191f";
+  fctx.fillRect(0, 0, pw, phh);
+  const W = L.Ws * dpr, H = L.Hs * dpr, ox = L.ox * dpr, oy = L.oy * dpr;
+  if (L.wrapX) for (let x = mod(ox, W) - W; x < pw; x += W) fctx.drawImage(canvas, Math.round(x), Math.round(oy), Math.round(W), Math.round(H));
+  else for (let y = mod(oy, H) - H; y < phh; y += H) fctx.drawImage(canvas, Math.round(ox), Math.round(y), Math.round(W), Math.round(H));
+}
+
+function setFull(on) {
+  if (on === FS.on) return;
+  FS.on = on;
+  if (!on) {  // leave the browser's full screen too, if we're in it
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }
+  liveEl.classList.toggle("fs", on);
+  document.documentElement.classList.toggle("fs-on", on);
+  const b = $("full");
+  b.innerHTML = on ? FS_ON : FS_OFF;
+  b.setAttribute("aria-pressed", String(on));
+  b.setAttribute("aria-label", on ? "Exit full screen" : "Full screen");
+  if (on) Stats.track("fullscreen");
+  if (S) render();
+  placeTags();
+}
+$("full").innerHTML = FS_OFF;
+$("full").addEventListener("click", () => {
+  if (FS.on) { setFull(false); return; }
+  setFull(true);
+  // the browser's own full screen where it has one (not iPhone: there the page just fills the window)
+  const req = liveEl.requestFullscreen || liveEl.webkitRequestFullscreen;
+  try { const p = req && req.call(liveEl); if (p && p.catch) p.catch(() => {}); } catch (e) { /* stays page-filling */ }
+});
+for (const [ev, el] of [["fullscreenchange", "fullscreenElement"], ["webkitfullscreenchange", "webkitFullscreenElement"]])
+  document.addEventListener(ev, () => { if (!document[el]) setFull(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && FS.on) setFull(false); });
+window.addEventListener("resize", () => { blitFs(); placeTags(); });
+let drag = null;  // drag the board to turn it (it wraps)
+fsview.addEventListener("pointerdown", (e) => {
+  drag = { x: e.clientX, y: e.clientY, pan: FS.pan };
+  try { fsview.setPointerCapture(e.pointerId); } catch (err) { /* keeps working without capture */ }
+});
+fsview.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  const L = fsLayout();
+  FS.pan = mod(drag.pan + (L.wrapX ? (e.clientX - drag.x) / L.Ws : (e.clientY - drag.y) / L.Hs), 1);
+  blitFs();
+  placeTags();
+});
+for (const ev of ["pointerup", "pointercancel"]) fsview.addEventListener(ev, () => { drag = null; });
 
 function draw(gen) {
   const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
@@ -415,6 +515,7 @@ function draw(gen) {
     ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
   }
   drawRipples(rips);
+  blitFs();
   const ph = $("phase");
   ph.textContent = st.phase; ph.style.color = `var(--${st.phase})`;
   const left = lifeAt(gen);
@@ -880,6 +981,7 @@ if (VIDEO_URL) { $("video").href = VIDEO_URL; $("cta").hidden = false; }
 if (Stats.start()) $("statsnote").hidden = false;  // anonymous counting, only when configured
 for (const [sel, name] of [['a[href*="youtube.com"]', "to-youtube"], ['a[href*="github.com"]', "to-github"]])
   for (const a of document.querySelectorAll(sel)) a.addEventListener("click", () => Stats.track(name));
+if (new URLSearchParams(location.search).has("full")) setFull(true);  // ?full opens with the board filling the window
 const START = new URLSearchParams(location.search).get("gen");  // ?gen=1234 opens at that moment
 load().then(() => (START !== null ? jump(+START) : render()));
 setInterval(() => { if (!playing) render(); }, 1000);
