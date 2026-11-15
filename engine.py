@@ -104,7 +104,7 @@ class World:
     extra_read: dict = field(default_factory=dict)  # video id -> when its comments were last read
     comments_read_at: float = 0.0  # when the videos' comments were last read (the chat is read every run)
     views: dict = field(default_factory=dict)  # {"at": when, "counts": {slot: views}}: the last read of view counts
-    daily: dict = field(default_factory=dict)  # the daily Short: {"date", "day", "video"}
+    daily: dict = field(default_factory=dict)  # the latest daily Short: {"date", "slot", "day", "video"}
     death: dict | None = None
     retire_pending: list = field(default_factory=list)
 

@@ -169,16 +169,21 @@ Upload it in YouTube Studio, set its **Related video** to the main video (the
 only clickable link a Short can have), and add its ID to `EXTRA_VIDEO_IDS` so
 its comments play. Give it its own status comment as in step 6.
 
-**Daily Short** (`daily.py`): on the first run after 2 PM New York time (or any
-later run that day, up to midnight) the bot renders a recap of the last 24 hours (`python short.py
---since-hours 24` does the same locally): day N, the day's moves with the
-biggest zoomed in and what each did to its lifespan, and how its expected death
-moved. Set the repository variable `DAILY_SHORT`:
+**Daily Shorts** (`daily.py`): two a day, on the first run after noon and after
+8 PM New York time (or any later run before the next slot or midnight). Each is
+a recap (`python short.py --since-hours 24` does the same locally): day N, the
+moves since the slot before (the noon one covers 24 hours, the 8 PM one the 8
+hours since noon), the biggest zoomed in, what each did to its lifespan, and how
+its expected death moved. `daily.PLAN` can name another kind for a date or a
+slot: `flight` (a glider's journey, `short.py --flight`) or `rewind` (the week
+backward to the acorn, then the universe with no comments, `short.py --rewind`).
+Set the repository variable `DAILY_SHORT`:
 
 - `off` (default): nothing.
 - `dry`: render it and attach it to the run; nothing is uploaded.
 - `live`: upload it publicly, register it so its comments play, post its status
-  comment, and open an issue with its link. Setting its Related video, pinning
+  comment, and open an issue with its link. Setting its Related video (the live
+  stream: its viewers play more than anyone else's), pinning
   its status comment and picking its thumbnail frame are optional and Studio-only
   (the API can't).
 

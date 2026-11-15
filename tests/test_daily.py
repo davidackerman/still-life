@@ -112,7 +112,7 @@ def test_a_failure_is_alerted_and_not_retried_all_evening(d, monkeypatch):
     monkeypatch.setattr(short, "render_video", broken)
     ev = tick.run(d, LAUNCH + 11.2 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")
     tick.run(d, LAUNCH + 11.5 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")
-    assert len(calls) == 1 and any(e.get("alert", "").startswith("⚠️ Today's Short failed") for e in ev)
+    assert len(calls) == 1 and any(e.get("alert", "").startswith("⚠️ This slot's Short failed") for e in ev)
 
 
 def test_older_shorts_are_read_every_30_minutes():
@@ -179,3 +179,61 @@ def test_a_planned_day_posts_the_glider_short_with_its_title(d, monkeypatch):
     monkeypatch.setattr(short, "pick_flight", lambda h, pick=None: None)  # no glider flew far: the recap, as usual
     tick.run(d, when + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=render)
     assert calls[-1] == {} and yt.uploads[-1]["title"].startswith("This Short dies if nobody comments")
+
+
+def fake_render(calls):
+    def render(state_dir, out, since, **kw):
+        calls.append(kw)
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        open(out, "wb").write(b"mp4")
+        return out
+    return render
+
+
+def test_two_shorts_a_day_noon_and_8_pm(d):
+    yt, calls = DailyYT(), []
+    noon = LAUNCH + 5.2 * 3600  # 12:12 PM in New York (LAUNCH is 7 AM there)
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, noon, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    tick.run(d, noon + 3 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    assert len(yt.uploads) == 1 and state(d)["daily"]["slot"] == 12  # once a slot
+    tick.run(d, LAUNCH + 13.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
+             render_short=fake_render(calls))  # 8:06 PM
+    assert len(yt.uploads) == 2
+    first, second = yt.uploads
+    assert first["title"].endswith("Universe 1, Day 1 #GameOfLife") and "in the last 24 hours" in first["description"]
+    assert second["title"].endswith("Universe 1, Day 1, evening #GameOfLife")
+    assert "in the last 8 hours" in second["description"]
+    assert "still-life universe 1 day 1 slot 20" in second["description"]
+    assert "slot 20" not in first["description"] and "slot 12" not in second["description"]
+    s = state(d)
+    assert s["daily"]["slot"] == 20 and s["config"]["extra_videos"] == ["SHORT1", "SHORT2"]
+    assert yt.stream_titles == ["This stream dies if nobody chats · Game of Life, Universe 1, Day 1"]  # once a day
+    tick.run(d, LAUNCH + 15 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
+             render_short=fake_render(calls))  # 10 PM
+    assert len(yt.uploads) == 2
+
+
+def test_a_record_from_before_the_slots_covers_its_whole_day():
+    import daily
+    eight_pm = LAUNCH + 13.1 * 3600
+    s = {"universe": {"phase": "ALIVE"}, "daily": {"date": daily.today(eight_pm), "day": 1, "video": "X"}}
+    assert not daily.due(s, eight_pm)
+    s["daily"]["slot"] = 12
+    assert daily.due(s, eight_pm)
+    assert not daily.due(s, LAUNCH + 3600)  # 8 AM: before the first slot
+
+
+def test_a_planned_slot_posts_the_rewind_short(d, monkeypatch):
+    import daily
+    yt, calls = DailyYT(), []
+    noon = LAUNCH + 5.2 * 3600
+    monkeypatch.setattr(daily, "PLAN", {daily.today(noon): {12: "rewind"}})
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, noon, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    tick.run(d, LAUNCH + 13.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
+             render_short=fake_render(calls))
+    assert calls == [{"kind": "rewind"}, {}]  # the plan's slot, then the recap
+    assert yt.uploads[0]["title"] == "It started as 7 cells · Universe 1, Day 1 #GameOfLife"
+    assert yt.uploads[0]["description"].startswith("It started as 7 cells: this Short rewinds the whole week")
+    assert yt.uploads[1]["title"].startswith("This Short dies if nobody comments")

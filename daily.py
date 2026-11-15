@@ -1,9 +1,9 @@
-"""The daily Short: once a day, a recap of the last 24 hours, posted as a Short
+"""The daily Shorts: twice a day, a recap (or a planned kind of Short), posted as a Short
 whose comments feed the same universe.
 
-Runs inside the scheduled tick, on the first run after DAILY_HOUR_ET (2 PM in
-New York) each New York day; a late or failed run still posts it that day, up
-to midnight. DAILY_SHORT (a repository variable) decides what it does:
+Runs inside the scheduled tick, on the first run after each of SLOTS_ET (noon
+and 8 PM in New York); a late run still posts that slot's Short, until the next
+slot or midnight, and a failed one waits for the next slot. DAILY_SHORT (a repository variable) decides what it does:
 
     off   nothing (default)
     dry   render it, attach it to the workflow run, open an issue; no upload
@@ -25,10 +25,13 @@ import render
 from universe import ALIVE, DIED
 
 ET = ZoneInfo("America/New_York")
-# 2 PM in New York, all year: a Short's views come in its first ~5 hours and
-# stalled at midnight when it posted at 6 PM (23:00 UTC until 2026-11-12).
-DAILY_HOUR_ET = 14
-RECAP_HOURS = 24
+# Two Shorts a day, at noon and 8 PM in New York. Each Short is shown to about the
+# same number of people (unique reach 1,017-1,118 for the first six, whether 40% or
+# 97% of it was watched), its views all within ~5.5 hours, so a second Short is a
+# second audience; the slots are far enough apart that neither eats the other's
+# window. (One a day at 6 PM until 2026-11-12, then 2 PM until 2026-11-15.)
+SLOTS_ET = (12, 20)
+RECAP_HOURS = 24  # the first slot's recap; a later slot's covers the hours since the slot before it
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"
 
@@ -38,34 +41,66 @@ def today(now: float) -> str:
     return dt.datetime.fromtimestamp(now, ET).date().isoformat()
 
 
+def slot(now: float) -> int | None:
+    """The slot (its New York hour) that `now` falls in: the latest one begun today."""
+    hour = dt.datetime.fromtimestamp(now, ET).hour
+    begun = [s for s in SLOTS_ET if s <= hour]
+    return begun[-1] if begun else None
+
+
 def due(world_or_state, now: float) -> bool:
-    """The first run at or after DAILY_HOUR_ET on a New York day that hasn't had
-    one. Takes the World, or the state.json dict (as the workflow reads it)."""
+    """The first run in a slot that hasn't had its Short (posted, or tried and
+    failed). Takes the World, or the state.json dict (as the workflow reads it).
+    A record from before the slots (no "slot") covers its whole day."""
     if isinstance(world_or_state, dict):
-        phase, last = world_or_state["universe"]["phase"], (world_or_state.get("daily") or {}).get("date")
+        phase, last = world_or_state["universe"]["phase"], world_or_state.get("daily") or {}
     else:
-        phase, last = world_or_state.universe.phase, world_or_state.daily.get("date")
-    return phase != DIED and dt.datetime.fromtimestamp(now, ET).hour >= DAILY_HOUR_ET and last != today(now)
+        phase, last = world_or_state.universe.phase, world_or_state.daily or {}
+    s = slot(now)
+    if phase == DIED or s is None:
+        return False
+    return (last.get("date") or "", last.get("slot", 99)) < (today(now), s)
 
 
 def day_number(world) -> int:
     return int(world.universe.generation * world.gen_seconds // 86400) + 1
 
 
-def marker(world, day: int) -> str:
-    return f"still-life universe {world.universe_no} day {day}"
+def marker(world, day: int, at: int | None = None) -> str:
+    """Found in the description again if a run dies half way. One per slot: neither
+    slot's marker is part of the other's."""
+    return f"still-life universe {world.universe_no} day {day}" + (f" slot {at}" if at is not None else "")
 
 
 def stream_title(world, day: int) -> str:
     return f"This stream dies if nobody chats · Game of Life, Universe {world.universe_no}, Day {day}"
 
 
-# Which kind of Short posts on a New York date; on every other day, the recap.
-PLAN = {"2026-11-14": "flight"}  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
+# Which kind of Short posts on a New York date: a kind (the first slot's) or {slot: kind};
+# every other slot, the recap.
+PLAN = {"2026-11-14": "flight",  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
+        "2026-11-15": {12: "rewind"}}  # Sun Nov 15 (Day 8), noon: the week backward (short.build_rewind)
+
+
+def kind(now: float) -> str:
+    plan = PLAN.get(today(now))
+    if isinstance(plan, dict):
+        return plan.get(slot(now), "recap")
+    return plan if plan and slot(now) == SLOTS_ET[0] else "recap"
+
+
+def recap_hours(at: int | None) -> int:
+    k = SLOTS_ET.index(at) if at in SLOTS_ET else 0
+    return RECAP_HOURS if k == 0 else SLOTS_ET[k] - SLOTS_ET[k - 1]
+
+
+INTROS = {"flight": "this Short follows it across the universe until it hits something.",
+          "rewind": "this Short rewinds the whole week to the 7-cell acorn it began as, then shows the "
+                    "universe it would have been with no comments at all."}
 
 
 def snippet(world, day: int, count: int, mark: str, total: int | None = None, main: str | None = None,
-            headline: str | None = None) -> dict:
+            headline: str | None = None, kind: str = "flight", hours: int = RECAP_HOURS, evening: bool = False) -> dict:
     """The Short's title and description. The forecast in it is dated ("as of day 3"),
     so the description stays true after the forecast moves on."""
     u, G = world.universe, world.gen_seconds
@@ -81,9 +116,9 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
         fate = "it won't get stuck for weeks unless a comment changes that."
     countdown = f" The main video's title counts down live: https://youtu.be/{main}" if main else ""
     so_far = f" ({total:,} since it began)" if total is not None and total > count else ""
-    intro = f"{headline}: this Short follows it across the universe until it hits something.\n\n" if headline else ""
+    intro = f"{headline}: {INTROS.get(kind, INTROS['flight'])}\n\n" if headline else ""
     desc = (f"{intro}Day {day} of universe {world.universe_no}, a live Conway's Game of Life: {count} comment{'s' * (count != 1)} in the last "
-            f"24 hours{so_far}. As of day {day}, {fate}{countdown}\n\n"
+            f"{hours} hours{so_far}. As of day {day}, {fate}{countdown}\n\n"
             f"This Short is a replay: your comment lands in the live universe within minutes. Watch it happen on "
             f"the 24/7 live stream (type in its chat to play): {render.STREAM_URL}\n\n"
             f"Every comment adds cells (up to 3 moves per person every 2 minutes): glider x,y · block x,y · rpent x,y · acorn x,y · "
@@ -91,7 +126,8 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
-    return {"title": f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, Day {day} #GameOfLife",
+    when = f"Day {day}, evening" if evening else f"Day {day}"
+    return {"title": f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, {when} #GameOfLife",
             "description": desc,
             "tags": ["game of life", "conway's game of life", "cellular automata", "glider", "simulation",
                      "interactive", "live", "emergence"],
@@ -106,7 +142,10 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     out = out or OUT
     render_short = render_short or short.render_video
     day = day_number(world)
-    since = max(0, world.universe.generation - RECAP_HOURS * 3600 // world.gen_seconds)
+    at = slot(now)
+    evening = at != SLOTS_ET[0]
+    hours = recap_hours(at)
+    since = max(0, world.universe.generation - hours * 3600 // world.gen_seconds)
     from store import LOG, read_log
     # every comment read, counted or skipped: the same count as the status comments and the stream
     import engine
@@ -114,46 +153,51 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     count = sum(e.get("comments_new", 0) for e in entries if e["type"] == "tick" and e["gen_end"] > since)
     seen = engine.comment_counts(world, world.universe.generation)
     total = seen[0] if seen else sum(1 for e in entries if e["type"] == "injection")
-    headline = None
-    if PLAN.get(today(now)) == "flight":
+    headline, what = None, kind(now)
+    if what == "flight":
         trip = short.pick_flight(short.History(store.dir))
         if trip is not None:  # else no glider flew far enough: the usual recap
             headline = short.flight_title(trip)
+    elif what == "rewind":
+        headline = short.REWIND_TITLE
     if headline:
-        render_short(store.dir, out, since, kind="flight")
+        render_short(store.dir, out, since, kind=what)
     else:
+        what = "recap"
         render_short(store.dir, out, since)
-    mark = marker(world, day)
+    mark = marker(world, day, at)
+    name = f"Day {day} evening" if evening else f"Day {day}"
+    record = {"date": today(now), "slot": at, "day": day}
     if mode == "dry":
-        world.daily = {"date": today(now), "day": day, "video": None, "dry": True}
-        events = [{"type": "daily_short", "day": day, "dry_run": True,
-                   "alert": f"📼 Day {day} Short rendered (dry run, not uploaded)",
+        world.daily = {**record, "video": None, "dry": True}
+        events = [{"type": "daily_short", "day": day, "slot": at, "dry_run": True,
+                   "alert": f"📼 {name} Short rendered (dry run, not uploaded)",
                    "detail": "Watch it in this run's artifacts (Actions → the tick run → Artifacts → daily-short). "
-                             "To post one every day, set the repository variable DAILY_SHORT to live."}]
+                             "To post them, set the repository variable DAILY_SHORT to live."}]
         store.save(world, events)
         return events
     vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None),
-                                                               headline))
+                                                               headline, what, hours, evening))
     if vid not in world.extra_videos:
         world.extra_videos.append(vid)
-    world.video_names[vid] = f"the Day {day} Short"  # where its comments' moves came from, on the live page
-    world.daily = {"date": today(now), "day": day, "video": vid}
-    events = [{"type": "daily_short", "day": day, "video": vid}]
+    world.video_names[vid] = f"the {name} Short"  # where its comments' moves came from, on the live page
+    world.daily = {**record, "video": vid}
+    events = [{"type": "daily_short", "day": day, "slot": at, "kind": what, "video": vid}]
     store.save(world, events)  # recorded before anything else can fail: never posted twice
     try:
         yt.post_comment(vid, "This Short is alive. Latest changes to the universe will appear here in a few minutes.")
         tip = "Its status comment is posted; the bot keeps it up to date."
     except Exception as e:  # noqa: BLE001 - the Short still counts without it
         tip = f"Posting its status comment failed ({e!r}); the bot will pick up one you post by hand."
-    if hasattr(yt, "set_stream_title"):  # the 24/7 stream's title counts the days too
+    if not evening and hasattr(yt, "set_stream_title"):  # the 24/7 stream's title counts the days too
         try:
             yt.set_stream_title(stream_title(world, day))
         except Exception as e:  # noqa: BLE001 - only a title
             tip += f" Retitling the live stream failed ({e!r})."
-    events = [{"type": "daily_short", "day": day, "video": vid, "posted": True,
-               "alert": f"📼 Day {day} Short is live: https://youtube.com/shorts/{vid}",
+    events = [{"type": "daily_short", "day": day, "slot": at, "kind": what, "video": vid, "posted": True,
+               "alert": f"📼 {name} Short is live: https://youtube.com/shorts/{vid}",
                "detail": f"Its comments now feed the universe. {tip}\n\nOptional, in Studio (the API can't): "
-                         "set its Related video to the main video, pin its status comment, and pick its "
-                         "thumbnail frame."}]
+                         "set its Related video to the live stream (more of its viewers play there than "
+                         "anywhere else), pin its status comment, and pick its thumbnail frame."}]
     store.save(world, events)
     return events

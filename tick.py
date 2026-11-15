@@ -172,10 +172,10 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         import daily
         try:
             events += daily.maybe_post(world, store, yt, now, mode, render_short=render_short)
-        except Exception as e:  # noqa: BLE001 - no retry loop: tomorrow is another day
-            world.daily = {"date": daily.today(now), "error": repr(e)[:300]}
+        except Exception as e:  # noqa: BLE001 - no retry loop: the next slot is another try
+            world.daily = {"date": daily.today(now), "slot": daily.slot(now), "error": repr(e)[:300]}
             dev = [{"type": "daily_short", "error": repr(e)[:500],
-                    "alert": "⚠️ Today's Short failed (no retry until tomorrow)", "detail": f"{e!r}"[:1500]}]
+                    "alert": "⚠️ This slot's Short failed (no retry until the next slot)", "detail": f"{e!r}"[:1500]}]
             store.save(world, dev)
             events += dev
     return events

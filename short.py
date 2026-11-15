@@ -1370,12 +1370,149 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
     return frames
 
 
+# ---------------------------------------------------------------- the rewind Short
+# The whole board from the first frame (the teaser and Day 3, which opened that way, kept
+# 52.8% and 51.2% of viewers; Day 7's sparse, still opening kept 20.9%), then the week
+# backward to the 7-cell acorn, the universe it would have been with no comments, and
+# the real one again. About 20 s: the Shorts that held best were 20 s long.
+REWIND_S = 5.0  # the whole week, backward
+REWIND_STEP = 3  # the hook and the ending: a generation every 3 frames, as in the recap
+ACORN_ZOOM = 6.0
+LONE_PULL_S = 1.4  # pulling back from the acorn while the comment-free universe grows
+
+
+def people(state_dir: str) -> int:
+    """People who have made moves: the per-person scores (HMAC'd IDs, one entry each).
+    A few early moves have no author, so this never overcounts."""
+    import json
+    with open(os.path.join(state_dir, "state.json")) as fh:
+        return len(json.load(fh).get("scores") or {})
+
+
+def at_least(n: int) -> str:
+    """'Over 200', '150': a round floor that stays true as more people play."""
+    step = 100 if n >= 200 else 50 if n >= 100 else 10 if n >= 20 else 1
+    return f"Over {n // step * step}" if n % step else f"{n}"
+
+
+def lone_death(h: History) -> tuple[int, int] | None:
+    """(stuck, died) generations of the seed left alone: no comments at all."""
+    stuck = h.fresh().forecast_stuck(FORECAST_GENS)
+    return None if stuck is None else (stuck, stuck + h.genesis["flatline_gens"])
+
+
+def build_rewind(state_dir: str) -> list:
+    h = History(state_dir)
+    G, launch = h.gen_seconds, h.genesis["launch_time"]
+    whole = (BW / 2, BH / 2)
+    frames: list = []
+
+    def frame(u, texts=(), zoom=1.0, focus=whole, **kw):
+        f = ex.Frame(u, texts=texts, hud=False, zoom=zoom, dim=0.0, **kw)
+        f.focus, f.free, f.scrim = focus, False, 0.0
+        paint = getattr(u, "paint", None)
+        f.paint = paint.copy() if paint is not None and paint.any() else None
+        return f
+
+    now_gen = h.now_gen
+    lone = lone_death(h)
+    n_people = people(state_dir)
+
+    # 1. the hook, over the whole board as it was a minute ago, playing up to now
+    hook_top = [("THIS SHORT", "bold", 112), ("DIES", "bold", 196)]
+    hook_bottom = [("if nobody comments", "demi", 80)]
+    n_hook = max(int(2.7 * FPS), rf("THIS SHORT", "DIES", "if nobody comments"))
+    hook0 = max(0, now_gen - n_hook // REWIND_STEP)
+
+    # 2. the week backward: slow at first (you see it un-happen), fast, slow again into the acorn
+    n_rw = int(REWIND_S * FPS)
+    rw_gens = [round(now_gen * (1 - ease(i / (n_rw - 1)))) for i in range(n_rw)]
+    rw_top = [("Rewinding the week", "bold", 92)]
+
+    def day_label(g: int) -> list:
+        return [(f"Day {g * G // 86400 + 1} · {render._at(launch, g, G, '%a %b %d').replace(' 0', ' ')}",
+                 "demi", 72)]
+
+    # every frame of 1 and 2 is the real history: one pass forward, collected by generation
+    want: dict[int, list[int]] = {}
+    hook_gens = [min(now_gen, hook0 + i // REWIND_STEP) for i in range(n_hook)]
+    for k, g in enumerate(hook_gens + rw_gens):
+        want.setdefault(g, []).append(k)
+    slots: list = [None] * (n_hook + n_rw)
+    u = h.fresh()
+    for g in sorted(want):
+        h.goto(u, g)
+        for k in want[g]:
+            if k < n_hook:
+                a = 1.0 if k < n_hook - FADE else fade(k, n_hook)  # the first frame is the thumbnail
+                slots[k] = frame(u, block(hook_top, TOP_Y, a) + block(hook_bottom, BOTTOM_Y, a))
+            else:
+                i = k - n_hook
+                a = fade(i, n_rw)
+                slots[k] = frame(u, block(rw_top, TOP_Y, a) + block(day_label(g), BOTTOM_Y, a))
+    frames += slots
+    k_rw = n_hook
+
+    # 3. the acorn it started as; then that acorn left alone, growing with no comments,
+    # stuck, and dead (the universe's own colors: red when it's stuck, grey when it dies)
+    start = [("It started as 7 cells.", "bold", 92)]
+    n_acorn = rf(start[0][0])
+    acorn = centre(life.centered(h.genesis["seed"]))
+    lu = h.fresh()
+    k_lone = len(frames)
+    for i in range(n_acorn):
+        if i > n_acorn // 2 and i % 4 == 0:
+            History.advance(lu, lu.generation + 1)
+        zoom = 1 + (ACORN_ZOOM - 1) * ease(i / 18)
+        frames.append(frame(lu, block(start, TOP_Y, fade(i, n_acorn)), zoom=zoom, focus=acorn))
+    if lone is not None:
+        stuck, died = lone
+        when = render._at(launch, died, G, "%A")
+        alone = [("Left alone, it would", "bold", 88), (f"have died {when}.", "bold", 88)]
+        n_alone = rf(*[t for t, _, _ in alone]) + int(0.6 * FPS)  # and a beat on it, dead
+        g0, pull = lu.generation, int(LONE_PULL_S * FPS)
+        run = n_alone - int(0.9 * FPS)  # it reaches its death with time to see it
+        for i in range(n_alone):
+            p = min(1.0, i / run)
+            History.advance(lu, g0 + round((died - g0) * p ** 1.6))
+            zoom = 1 + (ACORN_ZOOM - 1) * (1 - ease(i / pull))
+            focus = (acorn[0] + (whole[0] - acorn[0]) * ease(i / pull), acorn[1] + (whole[1] - acorn[1]) * ease(i / pull))
+            frames.append(frame(lu, block(alone, TOP_Y, fade(i, n_alone)), zoom=zoom, focus=focus))
+    k_end = len(frames)
+
+    # 4. the real universe again, now, full of color, and the call to action
+    top = [(f"{at_least(n_people)} people", "bold", 96), ("kept it alive.", "bold", 96)]
+    bottom = [("Comment anything to join them.", "demi", 64), ("Live now on this channel", "demi", 50)]
+    n_end = rf(*[t for t, _, _ in top + bottom])
+    nu = h.fresh()
+    h.goto(nu, now_gen)
+    for i in range(n_end):
+        if i and i % REWIND_STEP == 0:
+            History.advance(nu, nu.generation + 1)
+        a = min(1.0, (i + 1) / FADE)  # no fade out: it loops back to the hook's board
+        frames.append(frame(nu, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y, a),
+                            cue=("saved",) if i == FADE else None))
+
+    primer, pu = [], h.fresh()
+    h.goto(pu, max(0, hook0 - life.TRAIL_GENS))
+    while pu.generation < hook0:
+        primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
+        h.goto(pu, pu.generation + 1)
+    add_trails(frames[:k_rw], primer)
+    add_trails(frames[k_lone:k_end])
+    add_trails(frames[k_end:], [(f.grid, f.paint, f.gen) for f in frames[:k_rw]])
+    return frames
+
+
+REWIND_TITLE = "It started as 7 cells"
+
+
 def render_video(state_dir: str, out: str, since_gen: int | None = None, preview: str | None = None,
                  kind: str = "recap", pick: str | None = None) -> str:
     """Render the Short (or, with `since_gen`, the recap since then; with kind="flight",
     the glider Short) to an MP4."""
     ex.SCALE = 1  # explainer's text helpers draw in pixels here
-    frames = build_flight(state_dir, pick) if kind == "flight" else None
+    frames = build_flight(state_dir, pick) if kind == "flight" else build_rewind(state_dir) if kind == "rewind" else None
     if frames is None:
         frames = build(state_dir, since_gen)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -1408,12 +1545,14 @@ def main() -> None:
     ap.add_argument("--since-hours", type=float, help="a recap of the last N hours (the daily Short)")
     ap.add_argument("--flight", action="store_true", help="the glider Short: the longest recent glider flight in the log")
     ap.add_argument("--pick", help='with --flight, this logged move instead (e.g. "glider 66,8 se")')
+    ap.add_argument("--rewind", action="store_true", help="the rewind Short: the week backward to the acorn")
     args = ap.parse_args()
     since = None
     if args.since_hours:
         h = History(args.state_dir)
         since = max(0, h.now_gen - int(args.since_hours * 3600 // h.gen_seconds))
-    render_video(args.state_dir, args.out, since, args.preview, "flight" if args.flight else "recap", args.pick)
+    kind = "flight" if args.flight else "rewind" if args.rewind else "recap"
+    render_video(args.state_dir, args.out, since, args.preview, kind, args.pick)
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
 
