@@ -46,6 +46,7 @@ CPS, LOOK_S, MIN_S, FADE = 17, 0.8, 1.8, 8  # the Shorts' reading pace (short.rf
 FORECAST_GENS = 30000
 WHITE, GREEN, RED = (255, 255, 255), (120, 230, 160), (255, 110, 110)
 ZOOM = 2.6  # a moment's close-up
+SEED_S = 8.0  # the seed left alone (the user wanted it longer than its words' 4 s)
 TAIL = 6  # frames more of time-lapse after a moment's words are read
 LIGHT = (222, 225, 232)
 # The last screen: how to play, as on the stream (stream.LEGEND): each move as a little film
@@ -439,8 +440,8 @@ class Week:
         died_at = stuck + seed.flatline_gens
         acorn = short.centre(life.centered(h.genesis["seed"]))
         lines = [("With no comments,", "bold", 96), (f"it would have died on {self.when(died_at, '%A')}.", "bold", 96)]
-        n = rf(*[t for t, _, _ in lines])
-        for i in range(n):  # the seed alone, fast: alive, stuck (red), dead (grey)
+        n = max(rf(*[t for t, _, _ in lines]), round(SEED_S * FPS))  # long enough to watch it grow, stick, die
+        for i in range(n):  # the seed alone: alive, stuck (red), dead (grey)
             p = (i + 1) / n
             g = round(stuck * ease(min(1.0, p / 0.45))) if p < 0.45 else \
                 stuck + round((died_at - stuck) * min(1.0, (p - 0.45) / 0.33))
