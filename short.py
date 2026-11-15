@@ -1481,7 +1481,8 @@ def build_rewind(state_dir: str) -> list:
     k_end = len(frames)
 
     # 4. the real universe again, now, full of color, and the call to action
-    top = [(f"{at_least(n_people)} people", "bold", 96), ("kept it alive.", "bold", 96)]
+    # not "kept it alive": some of their moves took time off its life
+    top = [(f"{at_least(n_people)} people have played.", "bold", 92), ("It's still alive.", "bold", 92)]
     bottom = [("Comment anything to join them.", "demi", 64), ("Live now on this channel", "demi", 50)]
     n_end = rf(*[t for t, _, _ in top + bottom])
     nu = h.fresh()
