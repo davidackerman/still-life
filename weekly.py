@@ -42,11 +42,11 @@ from universe import DIED
 W, H = short.BW, short.BH  # the board at 15 px a cell: 1920 x 1080, the frame
 FPS = ex.FPS
 ET = ZoneInfo("America/New_York")
-CPS, LOOK_S, MIN_S, FADE = 14, 1.2, 2.2, 10  # obituary.py's reading pace: a long video, read slower
+CPS, LOOK_S, MIN_S, FADE = 17, 0.8, 1.8, 8  # the Shorts' reading pace (short.rf): 14 cps felt slow here
 FORECAST_GENS = 30000
 WHITE, GREEN, RED = (255, 255, 255), (120, 230, 160), (255, 110, 110)
 ZOOM = 2.6  # a moment's close-up
-TAIL = 12  # frames more of time-lapse after a moment's words are read
+TAIL = 6  # frames more of time-lapse after a moment's words are read
 LIGHT = (222, 225, 232)
 # The last screen: how to play, as on the stream (stream.LEGEND): each move as a little film
 # beside what to type. (pattern, what to type, a second line)
@@ -344,7 +344,7 @@ class Week:
             gap = (e2["gen"] - g1) * G // 60
             what2 = "a message (any words)" if e2["command"].startswith("random") else quoted(e2)
             second = f"{gap} minutes later, {what2}:"
-            t2_at = lead + 4 * (e2["gen"] - g1)  # when it lands (a generation every 4 frames till then)
+            t2_at = lead + 2 * (e2["gen"] - g1)  # when it lands (a generation every 2 frames till then)
             n_cmd = 0
             n = t2_at + rf(top, r1, second, r2) + TAIL
         else:
@@ -353,9 +353,9 @@ class Week:
         start = g1 - 3
         if u.generation < start:
             h.goto(u, start)
-        # after the landing: a generation every 3 frames while the command is read, then every 2.
+        # after the landing: a generation every 2 frames while the command is read, then every frame.
         # The corner keeps the moment's own day and time while the board runs on.
-        every = 3 if pair else 2
+        every = 2 if pair else 1  # (the user found 3 and 2 slow, the gliders above all)
         tag = self.stamp(g1)
         g0 = None
         landed1 = landed2 = None
@@ -364,10 +364,10 @@ class Week:
             # the board: 3 generations into the landing, slow through it (and the answer), then a time-lapse
             if i < lead:
                 target = start + round(3 * (i + 1) / lead)
-            elif i < lead + 16 or (pair and u.generation < e2["gen"]):
-                target = g1 + (i - lead) // 4
+            elif i < lead + 8 or (pair and u.generation < e2["gen"]):
+                target = g1 + (i - lead) // 2
             elif i < lead + n_cmd:
-                target = u.generation + (i % 3 == 0)
+                target = u.generation + (i % 2 == 0)
             else:
                 target = u.generation + (i % every == 0)
             h.goto(u, max(u.generation, target))
@@ -470,7 +470,7 @@ class Week:
             cmd = ex1["command"]
             follow = np.array(short.GLIDER_DIRS[cmd.split()[-1]]) / 4 if cmd.startswith("glider") else np.zeros(2)
             for i in range(n):
-                if i % 3 == 0:
+                if i % 2 == 0:
                     lu.goto(v, v.generation + 1)
                     if v.generation >= last and t is None:
                         t = i
