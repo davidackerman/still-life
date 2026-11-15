@@ -85,7 +85,7 @@
    "de0f5eb43f84435f894576ae9b0f5fc3": 1794686106.0,
    "de6fb2c32b8851b80f2d24826be16a5f": 1794763965.49441,
    "ded8ce3313722e4b1b98a1b69e3066fe": 1794629031.462522,
-   "dee771d2851cc36ed298074c7cb8b408": 1794780442.596595,
+   "dee771d2851cc36ed298074c7cb8b408": 1794780501.871419,
    "e38f39d4de9e95016f007dcfcbd5d732": 1794607020.0,
    "e6f3555b495c6c8b635bf994b6c77038": 1794525903.0,
    "f36c80ea7cd0cdad4dcdbb8c22590544": 1794780036.0,
@@ -149,7 +149,7 @@
     "5549": 2,
     "5550": 3,
     "5551": 3,
-    "5552": 2
+    "5552": 3
    },
    "f36c80ea7cd0cdad4dcdbb8c22590544": {
     "5547": 1
@@ -291,6 +291,65 @@
     "land_gen": 5552,
     "published_at": 1794780442.596595,
     "video": -1
+   },
+   {
+    "author": "dee771d2851cc36ed298074c7cb8b408",
+    "cells": [
+     [
+      48,
+      61
+     ],
+     [
+      48,
+      63
+     ],
+     [
+      49,
+      61
+     ],
+     [
+      49,
+      62
+     ],
+     [
+      49,
+      63
+     ],
+     [
+      50,
+      61
+     ],
+     [
+      50,
+      63
+     ],
+     [
+      50,
+      64
+     ],
+     [
+      51,
+      62
+     ],
+     [
+      52,
+      60
+     ],
+     [
+      52,
+      61
+     ],
+     [
+      52,
+      63
+     ]
+    ],
+    "chat": true,
+    "command": "random 5x5 at 48,60",
+    "comment": "413aa33bb434fe8af5e8e2069aa939eb",
+    "land_gen": 5552,
+    "published_at": 1794780501.871419,
+    "video": -1
    }
   ],
   "seen": {
@@ -380,9 +439,9 @@
    "4026eea904cab1b3b2d4fa7874c05b25": 1794685997.0,
    "40ea06b3b3fc2dc19af99a7419d28366": 1794676791.949616,
    "4120e728a5c3d2e0a613729523b468c3": 1794528985.0,
+   "413aa33bb434fe8af5e8e2069aa939eb": 1794780501.871419,
    "414d19f78d61dc39a75bdcfe53690839": 1794650322.836688,
    "42168a7d25c2bf43cc1ab56f198e55d8": 1794777688.954634,
-   "43b3b88c8e95e19c491060c37c72b267": 1794521285.705765,
    "456c93b2c5ef9a17ca57a8eb0e7cce23": 1794740630.129987,
    "467b43c573c4ef279a8835f284d58de2": 1794632227.9159,
    "46c6f5cbb0a274b908f576e85dca904d": 1794606184.0,
@@ -652,13 +711,13 @@
  "chat": {
   "id": "KicKGFVDaDlvNWRHaGljek5jcTI5UXNSWjZwZxILN1QzRktxRTNWd00",
   "looked": 1794376407.298458,
-  "token": "GIGi6Zr-ipgDIImwkqD-ipgD"
+  "token": "GLuWjrL-ipgDIPipibz-ipgD"
  },
  "comments_read_at": 1794780389.086837,
  "comments_seen": {
   "day": 8,
-  "today": 112,
-  "total": 914
+  "today": 113,
+  "total": 915
  },
  "config": {
   "extra_videos": [
@@ -3024,11 +3083,11 @@
     "views": 839
    },
    "8": {
-    "at": 1794776900.778159,
-    "basis": "cb1f8889f75a86634f64f7dcc07852d0",
+    "at": 1794780521.1425076,
+    "basis": "71e42e9f9ddff43e8137ff78d92f462b",
     "id": "UgxmAMWUDHBTOhxCCOx4AaABAg",
-    "text": "8e7202d197622c9a481fe9c17fe6e2ec",
-    "views": 216
+    "text": "ed81ac5751faf9efde2100aa6b51a982",
+    "views": 396
    }
   },
   "pinned_core": "🟢 ALIVE · this video dies in ~1 day if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail, on the 24/7 live stream and on the live page (links at the bottom), and the title counts down to its death. Every comment adds cells (up to 3 moves per person every 2 minutes; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 5,551: 6 comments · 3d 9h → 1d 13h\n• gen 5,550: 5 comments · 1d 18h → 3d 9h\n• gen 5,550: random 5x5 at 82,41 · 4d 5h → 1d 18h\n• gen 5,550: random 5x5 at 56,23 · 2d 14h → 4d 5h\n• gen 5,549: acorn 37,63 · 6d 6h → 2d 14h\n• gen 5,549: acorn 38,0 cyan · 3d 22h → 6d 6h\n• gen 5,548: acorn 59,28 pink · 6d 11h → 3d 22h\n• gen 5,548: acorn 121,20 red · 2d 0h → 6d 11h\n\n📺 Watch it live, 24/7, with sound, and see your comment land: https://www.youtube.com/channel/UCh9o5dGhiczNcq29QsRZ6pg/live\nRewind every move: davidackerman.github.io/still-life",
@@ -3073,12 +3132,12 @@
   "gen": 5551
  },
  "log": {
-  "head": "746b6e8faa7354e0befbe7640f0f0445f3f7b96aab847cbf45687b4b04171f5d",
-  "seq": 4874
+  "head": "f2100891ac87d9c0e604b5294fa586510f93c6790987e6776ece4c91abf06ed0",
+  "seq": 4876
  },
  "quota": {
   "day": "2026-11-15",
-  "used": 5273
+  "used": 5338
  },
  "reply_counts": {
   "1129286fea3978c1b7c84499c47839f6": [
