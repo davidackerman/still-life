@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the week-one video: the universe's first seven days in about a minute and a half
+"""Render the week-one video: the universe's first seven days in about a minute
 (16:9, 1920x1080, on-screen text, procedural sound).
 
     python weekly.py                                  # out/week1.mp4 from state/
@@ -7,7 +7,7 @@
     python weekly.py --frames-only                    # just the timing and the facts
 
 The shape: the board today with its premise; the seed left alone, dying on its
-Wednesday; the rules in two screens; one real moment a day (the command, its
+Wednesday; the rules in two screens; three real moments from the week (the command, its
 cells landing, what it did to the forecast); the forecast today and what to do.
 
 Everything on screen is replayed from the log: the board, every move at its
@@ -31,8 +31,10 @@ from zoneinfo import ZoneInfo
 import numpy as np
 from PIL import Image, ImageDraw
 
+import commands
 import explainer as ex
 import life
+import render as rd
 import short
 from short import History
 from universe import DIED
@@ -45,6 +47,15 @@ FORECAST_GENS = 30000
 WHITE, GREEN, RED = (255, 255, 255), (120, 230, 160), (255, 110, 110)
 ZOOM = 2.6  # a moment's close-up
 TAIL = 12  # frames more of time-lapse after a moment's words are read
+LIGHT = (222, 225, 232)
+# The last screen: how to play, as on the stream (stream.LEGEND): each move as a little film
+# beside what to type. (pattern, what to type, a second line)
+HOWTO = [("glider_se", "glider x,y", "+ ne, nw, se or sw"), ("acorn", "acorn x,y", ""), ("rpent", "rpent x,y", ""),
+         ("block", "block x,y", ""), ("blinker", "blinker x,y", "")]
+HOWTO_BOX, HOWTO_CELL, HOWTO_RATE = 9, 16, 4  # films of 9 x 9 cells, 16 px a cell, 4 generations a second
+HOWTO_LINES = ["Comment anything.", "Even “hi” adds cells. Or aim a pattern:",
+               "x 0–127 across, y 0–71 down, from the top-left",
+               "Add a color:", "Or type in the live stream's chat on this channel."]
 
 
 def rf(*lines: str) -> int:
@@ -93,7 +104,7 @@ def scrim() -> np.ndarray:
     """A dark gradient behind the lower-third text."""
     global _scrim
     if _scrim is None:
-        a = np.clip((np.arange(H) - 560) / 300, 0, 1) * 0.78
+        a = np.clip((np.arange(H) - 680) / 400, 0, 1) * 0.5  # light: the words have their own outline
         _scrim = (a * 255).astype(np.uint8)
     return _scrim
 
@@ -137,7 +148,46 @@ def compose(f) -> bytes:
         tw = d.textlength(f.stamp, font=ex.font("demi", 40))
         d.rounded_rectangle((32, 30, 32 + tw + 48, 92), radius=14, fill=(8, 10, 14, 200))
         ex.text(d, (56, 61), f.stamp, "demi", 40, 1.0, anchor="lm", outline=False)
+    if getattr(f, "howto", None) is not None:
+        howto(d, *f.howto)
     return Image.alpha_composite(Image.alpha_composite(base, layer), words).convert("RGB").tobytes()
+
+
+def howto(d, i: int, a: float) -> None:
+    """The how-to-play card over the whole board (zoom 1, so the ruler's numbers are the
+    board's own columns and rows): what to type, each move's little film, the colors."""
+    c = short.CELL
+    for x in range(0, 128, 16):  # the ruler, as on the stream: aim by these
+        ex.text(d, (x * c + c / 2 + (6 if x == 0 else 0), 24), str(x), "demi", 30, a, fill=LIGHT)
+    ex.text(d, (W - 22, 24), "x", "demi", 30, a, fill=LIGHT)
+    for y in range(8, 72, 8):
+        ex.text(d, (26, y * c + c / 2), str(y), "demi", 30, a, fill=LIGHT)
+    ex.text(d, (26, H - 24), "y", "demi", 30, a, fill=LIGHT)
+    ex.text(d, (W // 2, 190), HOWTO_LINES[0], "bold", 104, a)
+    ex.text(d, (W // 2, 312), HOWTO_LINES[1], "bold", 62, a)
+    k = i * HOWTO_RATE // FPS
+    iw, col = HOWTO_BOX * HOWTO_CELL, 340
+    x0 = W // 2 - col * (len(HOWTO) - 1) / 2
+    for n, (pattern, name, sub) in enumerate(HOWTO):
+        cx, top = x0 + n * col, 380
+        left = cx - iw / 2
+        d.rounded_rectangle((left - 6, top - 6, left + iw + 5, top + iw + 5), radius=10,
+                            fill=(14, 16, 22, int(235 * a)), outline=(52, 56, 70, int(255 * a)), width=2)
+        film = rd.demo(pattern, HOWTO_BOX)
+        for cy, cx_ in np.argwhere(film[k % len(film)]):
+            px, py = left + cx_ * HOWTO_CELL, top + cy * HOWTO_CELL
+            d.rectangle((px, py, px + HOWTO_CELL - 2, py + HOWTO_CELL - 2), fill=GREEN + (int(255 * a),))
+        ex.text(d, (cx, top + iw + 50), name, "bold", 50, a)
+        if sub:
+            ex.text(d, (cx, top + iw + 100), sub, "demi", 34, a, fill=LIGHT)
+    ex.text(d, (W // 2, 750), HOWTO_LINES[2], "demi", 42, a, fill=LIGHT)
+    f = ex.font("bold", 50)  # "Add a color:" and each color in its own paint
+    parts = [(HOWTO_LINES[3] + "  ", WHITE)] + [(name + "  ", rd.PAINT[name]) for name in commands.COLORS]
+    x = W // 2 - sum(d.textlength(t, font=f) for t, _ in parts) / 2
+    for t, fill in parts:
+        ex.text(d, (x, 840), t.rstrip(), "bold", 50, a, fill=fill, anchor="lm")
+        x += d.textlength(t, font=f)
+    ex.text(d, (W // 2, 950), HOWTO_LINES[4], "demi", 52, a)
 
 
 def centre_text(lines, alpha: float, yc: int = H // 2):
@@ -152,19 +202,15 @@ def centre_text(lines, alpha: float, yc: int = H // 2):
 
 
 # ---------------------------------------------------------------- the week
-# One real moment a day, picked for being easy to see (named patterns, colors, a
+# Three real moments from the week (seven was too many), picked for being easy to see (named patterns, colors, a
 # glider's flight) and checked against the log: each move's cells must still be on
 # the board several generations after landing (Week.visible), else the render stops.
 #   ("one", gen, command)                         one move
 #   ("pair", gen, command, gen2, command2)        a move and the one that answered it
 PICKS = [
-    ("one", 220, "glider 16,61 sw"),          # Sun: the week's longest glider flight
-    ("one", 1208, "rpent 17,23"),             # Mon
-    ("one", 1771, "acorn 67,67"),             # Tue
+    ("one", 220, "glider 16,61 sw"),          # Sun: the week's longest glider flight, +8 days
     ("pair", 2829, "acorn 16,18", 2833, "random 5x5 at 118,11"),  # Wed: +9 days, then -9 days 8 minutes later
-    ("one", 3448, "glider 18,55 se"),         # Thu: blue, from a Short's comments
-    ("one", 4298, "acorn 112,44"),            # Fri: cyan, from the live chat
-    ("one", 4977, "acorn 11,11"),             # Sat: from the live chat
+    ("one", 4977, "acorn 11,11"),             # Sat: from the live chat, +9 days
 ]
 
 
@@ -412,7 +458,7 @@ class Week:
         History.advance(u, u.generation + 40)
         self.screen(u, [("Some moves give it more time to live.", "bold", 80), ("Some take time away.", "bold", 80)])
 
-        # 3. one moment a day, on one replay from the seed
+        # 3. three moments from the week, on one replay from the seed
         u = h.fresh()
         for pick in PICKS:
             self.moment(u, pick)
@@ -430,8 +476,14 @@ class Week:
             fate = [("With no more comments,", "bold", 80), ("it won't get stuck for weeks.", "bold", 80),
                     (f"(forecast as of {as_of})", "demi", 44)]
         self.screen(u, fate, dim=0.5)
-        self.screen(u, [("Comment anything.", "bold", 110), ("Even “hi” adds cells.", "bold", 76),
-                        ("Or type in the live stream's chat on this channel.", "demi", 50)], dim=0.5, last=True)
+        # the last screen: how to play, held for all its words, no fade out
+        n = rf(*HOWTO_LINES, *[t + " " + sub for _, t, sub in HOWTO], *commands.COLORS)
+        for i in range(n):
+            if i % 2 == 0:
+                History.advance(u, u.generation + 1)
+            a = min(1.0, (i + 1) / FADE)
+            self.add(u, dim=0.62 * a)
+            self.frames[-1].howto = (i, a)
         moves = sum(1 for e in self.moves if e["gen"] < week)
         self.facts = {"people": people, "gave": gave, "took": took, "seed_stuck": stuck, "seed_died": died_at,
                       "seed_stuck_at": self.when(stuck, "%a %b %-d %-I:%M %p ET"),
