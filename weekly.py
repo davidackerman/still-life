@@ -249,6 +249,25 @@ class Week:
             raise SystemExit(f"weekly.py: no effect logged for {e['command']!r} at {e['gen']}")
         return eff
 
+    def record(self, e: dict) -> str | None:
+        """Where a move ranks among the week's (the first 7 days'): "the week's biggest save",
+        "the week's 2nd biggest kill", or "Day 1's biggest save"; else None. From the log's
+        effect entries, the measure the leaderboard uses."""
+        d = effect_gens(self.effect(e))
+        if d == 0:
+            return None
+        week = 7 * 86400 // self.G
+        kind = "save" if d > 0 else "kill"
+        rivals = [x for x in self.h.effects.values() if x["gen"] < week and effect_gens(x) * d > 0]
+        rank = 1 + sum(1 for x in rivals if abs(effect_gens(x)) > abs(d))
+        if rank <= 3:
+            return f"the week's {('', '2nd ', '3rd ')[rank - 1]}biggest {kind}"
+        day = e["gen"] * self.G // 86400
+        lo, hi = day * 86400 // self.G, (day + 1) * 86400 // self.G
+        if not any(lo <= x["gen"] < hi and abs(effect_gens(x)) > abs(d) for x in rivals):
+            return f"Day {day + 1}'s biggest {kind}"
+        return None
+
     def visible(self, e: dict, after: int = 4) -> int:
         """Live cells around where a move landed, `after` generations later (its own replay)."""
         h = History(self.dir)
@@ -315,9 +334,13 @@ class Week:
         # the words. One move: its command, then (once read) what it did, big.
         # A pair: the first move and its result, then the answer and its result as it lands.
         top = quoted(e1)
+        tag1 = self.record(e1)
         lead = 8  # frames punching in before it lands
         if pair:
             r2, c2 = result(self.effect(e2), G)
+            tag2 = self.record(e2)
+            r1 = f"{r1} · {tag1}" if tag1 else r1  # one line each: "+9 days · the week's biggest save"
+            r2 = f"{r2} · {tag2}" if tag2 else r2
             gap = (e2["gen"] - g1) * G // 60
             what2 = "a message (any words)" if e2["command"].startswith("random") else quoted(e2)
             second = f"{gap} minutes later, {what2}:"
@@ -326,7 +349,7 @@ class Week:
             n = t2_at + rf(top, r1, second, r2) + TAIL
         else:
             n_cmd = rf(top) - FADE  # the command alone, read before the result shows
-            n = lead + n_cmd + rf(top, r1) + TAIL
+            n = lead + n_cmd + rf(top, r1, tag1 or "") + TAIL
         start = g1 - 3
         if u.generation < start:
             h.goto(u, start)
@@ -370,17 +393,19 @@ class Week:
             a_in = min(1.0, (i + 1) / 6, a_out)
             if pair:
                 a2 = min(1.0, max(0.0, (i - t2) / 6), a_out) if t2 is not None else 0.0
-                texts = [(top, "bold", 64, (W // 2, 690), "mm", a_in), (r1, "bold", 84, (W // 2, 775), "mm", a_in, c1),
-                         (second, "bold", 52, (W // 2, 880), "mm", a2), (r2, "bold", 84, (W // 2, 962), "mm", a2, c2)]
+                texts = [(top, "bold", 64, (W // 2, 690), "mm", a_in), (r1, "bold", 72, (W // 2, 775), "mm", a_in, c1),
+                         (second, "bold", 52, (W // 2, 880), "mm", a2), (r2, "bold", 72, (W // 2, 962), "mm", a2, c2)]
             else:
                 a_res = min(1.0, max(0.0, (i - lead - n_cmd) / 6), a_out)
-                texts = [(top, "bold", 76, (W // 2, 790), "mm", a_in), (r1, "bold", 132, (W // 2, 925), "mm", a_res, c1)]
+                texts = [(top, "bold", 76, (W // 2, 770), "mm", a_in), (r1, "bold", 132, (W // 2, 900), "mm", a_res, c1)]
+                if tag1:
+                    texts.append((tag1, "bold", 56, (W // 2, 1012), "mm", a_res, c1))
             cue = ("inject", float(np.mean([c[0] for c in e1["cells"]]))) if i in (t1, t2) else None
             if i in (t1, t2):
                 self.landings.append(len(self.frames) + 4)
             self.add(u, texts, zoom=z, focus=focus, stamp=tag, flash=flash, low=a_in, cue=cue)
         shown = {"day": self.when(g1, "%a %b %-d"), "time": self.when(g1), "gen": g1, "command": quoted(e1),
-                 "result": r1, "effect": self.effect(e1), "via": e1.get("via")}
+                 "result": r1 if pair or not tag1 else f"{r1} · {tag1}", "effect": self.effect(e1), "via": e1.get("via")}
         if pair:
             shown["then"] = {"gen": e2["gen"], "words": second, "result": r2, "effect": self.effect(e2),
                              "command": e2["command"]}
@@ -456,7 +481,8 @@ class Week:
                          focus=(px + ox, py + oy - 0.1 * H / z), flash=fl, stamp=self.stamp(last))
         u = copy.deepcopy(now)
         History.advance(u, u.generation + 40)
-        self.screen(u, [("Some moves give it more time to live.", "bold", 80), ("Some take time away.", "bold", 80)])
+        self.screen(u, [("Some moves give it more time to live.", "bold", 80), ("Some take time away.", "bold", 80),
+                        ("A few of the week's biggest:", "demi", 56)])
 
         # 3. three moments from the week, on one replay from the seed
         u = h.fresh()
