@@ -51,7 +51,7 @@ def slot(now: float) -> int | None:
 def due(world_or_state, now: float) -> bool:
     """The first run in a slot that hasn't had its Short (posted, or tried and
     failed). Takes the World, or the state.json dict (as the workflow reads it).
-    A record from before the slots (no "slot") covers its whole day."""
+    A record from before the slots (no "slot") counts as the first slot."""
     if isinstance(world_or_state, dict):
         phase, last = world_or_state["universe"]["phase"], world_or_state.get("daily") or {}
     else:
@@ -59,7 +59,7 @@ def due(world_or_state, now: float) -> bool:
     s = slot(now)
     if phase == DIED or s is None:
         return False
-    return (last.get("date") or "", last.get("slot", 99)) < (today(now), s)
+    return (last.get("date") or "", last.get("slot", SLOTS_ET[0])) < (today(now), s)
 
 
 def day_number(world) -> int:
@@ -79,7 +79,7 @@ def stream_title(world, day: int) -> str:
 # Which kind of Short posts on a New York date: a kind (the first slot's) or {slot: kind};
 # every other slot, the recap.
 PLAN = {"2026-11-14": "flight",  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
-        "2026-11-15": {12: "rewind"}}  # Sun Nov 15 (Day 8), noon: the week backward (short.build_rewind)
+        "2026-11-15": {20: "rewind"}}  # Sun Nov 15 (Day 8), 8 PM: the week backward (short.build_rewind)
 
 
 def kind(now: float) -> str:

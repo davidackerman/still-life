@@ -214,13 +214,14 @@ def test_two_shorts_a_day_noon_and_8_pm(d):
     assert len(yt.uploads) == 2
 
 
-def test_a_record_from_before_the_slots_covers_its_whole_day():
+def test_a_record_from_before_the_slots_counts_as_the_first_slot():
     import daily
-    eight_pm = LAUNCH + 13.1 * 3600
+    afternoon, eight_pm = LAUNCH + 7.5 * 3600, LAUNCH + 13.1 * 3600  # 2:30 PM, 8:06 PM in New York
     s = {"universe": {"phase": "ALIVE"}, "daily": {"date": daily.today(eight_pm), "day": 1, "video": "X"}}
-    assert not daily.due(s, eight_pm)
-    s["daily"]["slot"] = 12
+    assert not daily.due(s, afternoon)  # posted at 2 PM the old way: noon's slot is done
     assert daily.due(s, eight_pm)
+    s["daily"]["slot"] = 20
+    assert not daily.due(s, eight_pm)
     assert not daily.due(s, LAUNCH + 3600)  # 8 AM: before the first slot
 
 
