@@ -149,6 +149,22 @@ def test_each_person_gets_three_moves_a_generation_the_next_nine_wait_and_the_re
     admit(s, [], T0 + (2 * 60 + 10) * 60, KEY, launch_time=T0)  # two hours on, the counts are gone
     assert not s.per_gen
 
+def test_each_person_lands_one_eraser_a_generation_the_next_three_wait_and_the_rest_are_skipped():
+    s = Admission()
+    black = [C(f"b{i}", "u1", 0, f"glider {10 + i},10 black") for i in range(6)]
+    c = admit(s, black + [C("add", "u1", 0), C("other", "u2", 0, "glider 5,5 black")], T0 + 5 * 60, KEY, launch_time=T0)
+    assert c["accepted"] == 6 and c["rejected"] == {"over_erase_limit": 2}
+    mine = [q for q in s.queue if q["author"] == keyed(KEY, "author", "u1")]
+    assert [q.get("land_gen", 0) for q in mine if q.get("erase")] == [0, 1, 2, 3]  # one a generation, three waiting
+    assert [q for q in mine if not q.get("erase")][0].get("land_gen") is None  # adding still has room
+    assert [q for q in s.queue if q["comment"] == k("other")][0]["erase"]  # u2 erases in its own generation
+    s = Admission.from_dict(s.to_dict())  # it holds across runs
+    c = admit(s, [C("b9", "u1", 1, "block 3,3 black")], T0 + 6 * 60, KEY, launch_time=T0)
+    assert c["rejected"] == {"over_erase_limit": 1}
+    admit(s, [], T0 + (2 * 60 + 10) * 60, KEY, launch_time=T0)  # two hours on, the counts are gone
+    assert not s.erases
+
+
 def test_a_scheduled_move_waits_for_its_time_and_each_person_can_schedule_ten():
     s = Admission()
     c = admit(s, [C("s1", "u1", 0, "rpent 1 hr")], T0 + 60, KEY, launch_time=T0)

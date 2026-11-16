@@ -39,6 +39,7 @@ import life
 AUTHOR_COOLDOWN_S = 0  # 0 = off; was 3600 (one per author per hour) until 2026-11-09
 MOVES_PER_GEN = 3  # each person's moves that land per generation (2 minutes); 0 = no limit
 WAIT_GENS = 3  # past that, a move may wait this many generations for its turn (up to 9 more)
+ERASES_PER_GEN = 1  # each person's erasers ("glider 40,20 black") that land per generation; the rest wait, then are dropped
 MAX_SCHEDULED = 10  # moves one person can have scheduled for later ("rpent 1 hr") at once
 KEEP_GENS = 60  # how long (in generations: 2 hours) each person's per-generation counts are kept
 MAX_PER_RUN = 200  # was 20 until 2026-11-11, when a flood made moves wait and land late
@@ -77,17 +78,20 @@ class Admission:
     last_accepted: dict[str, float] = field(default_factory=dict)  # keyed author -> publishedAt epoch
     queue: list[dict] = field(default_factory=list)  # accepted, not yet applied
     per_gen: dict[str, dict] = field(default_factory=dict)  # keyed author -> {generation (str): moves accepted}
+    erases: dict[str, list] = field(default_factory=dict)  # keyed author -> generations their erasers land in
 
     def to_dict(self) -> dict:
         return {"seen": dict(sorted(self.seen.items())),
                 "last_accepted": dict(sorted(self.last_accepted.items())),
                 "queue": list(self.queue),
-                "per_gen": {a: dict(sorted(g.items(), key=lambda kv: int(kv[0]))) for a, g in sorted(self.per_gen.items())}}
+                "per_gen": {a: dict(sorted(g.items(), key=lambda kv: int(kv[0]))) for a, g in sorted(self.per_gen.items())},
+                "erases": {a: sorted(g) for a, g in sorted(self.erases.items())}}
 
     @classmethod
     def from_dict(cls, d: dict) -> "Admission":
         return cls(dict(d.get("seen", {})), dict(d.get("last_accepted", {})), list(d.get("queue", [])),
-                   {a: dict(g) for a, g in (d.get("per_gen") or {}).items()})
+                   {a: dict(g) for a, g in (d.get("per_gen") or {}).items()},
+                   {a: list(g) for a, g in (d.get("erases") or {}).items()})
 
     def prune(self, now: float) -> None:
         cutoff = now - RETENTION_S
@@ -113,6 +117,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
     oldest = gen_of(now) - KEEP_GENS
     state.per_gen = {a: kept for a, g in state.per_gen.items()
                      if (kept := {n: c for n, c in g.items() if int(n) >= oldest})}
+    state.erases = {a: kept for a, g in state.erases.items() if (kept := [n for n in g if n >= oldest])}
     counts = {"new": 0, "new_chat": 0, "accepted": 0, "rejected": {}}
     window_start = now - FETCH_WINDOW_S
     fresh = {}
@@ -137,18 +142,25 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
         if not reason and cmd.delay_s and sum(1 for q in state.queue
                                               if q["author"] == author and q.get("scheduled")) >= MAX_SCHEDULED:
             reason = "too_many_scheduled"
-        if not reason and limit:
+        if not reason and (limit or cmd.erase):
             mine = state.per_gen.get(author, {})
-            while mine.get(str(land), 0) >= limit and land < own + WAIT_GENS:
+            erased = state.erases.get(author, []) if cmd.erase else []
+            moves_full = lambda g: bool(limit) and mine.get(str(g), 0) >= limit  # noqa: E731
+            erases_full = lambda g: erased.count(g) >= ERASES_PER_GEN  # noqa: E731
+            while (moves_full(land) or erases_full(land)) and land < own + WAIT_GENS:
                 land += 1
-            if mine.get(str(land), 0) >= limit:
+            if moves_full(land):
                 reason = "over_per_generation_limit"
+            elif erases_full(land):
+                reason = "over_erase_limit"
         if reason:
             counts["rejected"][reason] = counts["rejected"].get(reason, 0) + 1
             continue
         state.last_accepted[author] = max(c.epoch, last or c.epoch)
         mine = state.per_gen.setdefault(author, {})
         mine[str(land)] = mine.get(str(land), 0) + 1
+        if cmd.erase:
+            state.erases.setdefault(author, []).append(land)
         state.queue.append({"comment": kid, "author": author, "published_at": c.epoch,
                             "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells], "chat": c.video < 0,
                             "video": c.video,  # which of our videos (an index), for "from the Day 5 Short"

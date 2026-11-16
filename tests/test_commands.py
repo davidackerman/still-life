@@ -168,7 +168,8 @@ def test_black_with_a_named_pattern_erases_instead():
         e = commands.parse("c1", text)
         assert e.erase and e.cells == plain.cells and e.desc == plain.desc and e.color is None  # erasing: no paint
     assert commands.parse("c1", "block black").erase  # a bare pattern, at the comment's spot
-    assert commands.parse("c1", "cells 3,4 5,6 black").erase
+    swath = commands.parse("c1", "cells 3,4 5,6 black")  # not a pattern: it adds its cells as usual
+    assert swath.kind == "cells" and not swath.erase
     later = commands.parse("c1", "rpent 10,10 black in 1h")
     assert later.erase and later.delay_s == 3600
     assert not commands.parse("c1", "glider 40,20 blue").erase

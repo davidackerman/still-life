@@ -31,7 +31,7 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of it
 | a pattern's name on its own: `block`, `glider ne`, `acorn` | that pattern, at a spot picked from your comment |
 | anything else | a 5×5 random patch made from your comment |
 | add `red`, `orange`, `yellow`, `blue`, `purple`, `pink` or `cyan` | your cells in that color, on the live stream and in the Shorts |
-| add `black` to a pattern: `glider 40,20 black`, `block black` | erases instead: the living cells under that shape die (only dead, so life can grow back into them). A comment that names no pattern never erases |
+| add `black` to a pattern: `glider 40,20 black`, `block black` | erases instead: the living cells under that shape die (only dead, so life can grow back into them). Only the five patterns erase, one per person every 2 minutes (more wait their turn); a comment that names no pattern never erases |
 | add a time: `rpent 40,30 in 1h`, `hi in 30 min` | the move lands that much later (up to a day ahead, 10 scheduled per person); the stream shows what's coming up |
 
 `x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Comment as often as you like: up to 3 moves per person land each generation (every 2 minutes), the next 9 wait their turn over the following few minutes, and the rest are skipped. The bot checks every few minutes and lands each move at the generation you posted it. Cells are only ever added, except by `black`, and deleting a comment doesn't undo it.
@@ -51,6 +51,7 @@ Each change is also flagged ✨ on the [live page](https://davidackerman.github.
 - **Thu Nov 12, 1:31 PM:** extra moves wait their turn instead of being skipped
 - **Thu Nov 12, 3:06 PM:** schedule a move: add a time, like `rpent 40,30 in 1h`
 - **Mon Nov 16, 11:29 AM:** the future: at :15 and :45 the stream plays how it dies if nobody comments
+- **Mon Nov 16, 3:26 PM:** black erases: `glider 40,20 black` kills the living cells under that shape (one eraser per person every 2 minutes)
 
 ## How it lives and dies
 

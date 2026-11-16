@@ -37,11 +37,12 @@ the first one wins) paints the move's cells. Paint is only how cells look: it
 never changes which cells live (see life.paint_step). Unpainted cells are
 green; dead ones are the dark background.
 
-"black" with a named pattern or cells ("glider 40,20 black", "block black",
-"cells 3,4 5,6 black") erases instead: the living cells under the shape die
-(they are only dead: life can grow back into them). A comment that says
-black but names no pattern is the usual random patch, adding cells, so
-nobody erases a 5x5 by accident.
+"black" with a named pattern ("glider 40,20 black", "block black") erases
+instead: the living cells under the shape die (they are only dead: life can
+grow back into them). Only the five patterns erase, at most 7 cells a move:
+a comment that says black but names none (a random patch, or "cells") adds
+cells as usual, so nobody erases by accident or a 25-cell swath at once.
+(admission also lets each person land one eraser per generation.)
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ _PAIR_RE = re.compile(_COORD, re.ASCII)
 COLORS = ("red", "orange", "yellow", "blue", "purple", "pink", "cyan")  # paint 1..7 (0: unpainted)
 _COLOR_RE = re.compile(rf"\b({'|'.join(COLORS)})\b", re.IGNORECASE | re.ASCII)
 ERASE = "black"  # with a named pattern: its cells die instead (Command.erase)
+ERASERS = ("glider", "block", "blinker", "rpent", "acorn")  # what "black" works with (not cells, not a random patch)
 _ERASE_RE = re.compile(rf"\b{ERASE}\b", re.IGNORECASE | re.ASCII)
 MAX_DELAY_S = 24 * 3600  # a move can be scheduled up to a day ahead
 _DELAY_RE = re.compile(r"\b(?:in\s+)?([0-9]{1,4})\s*(hours?|hrs?|h|minutes?|mins?|m)\b", re.IGNORECASE | re.ASCII)
@@ -152,7 +154,7 @@ def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
     valid = [(pos, cmd) for pos, cmd in _candidates(words, shape) if cmd is not None]
     cmd = (min(valid, key=lambda pc: pc[0])[1] if valid
            else bare_pattern(comment_id, words, shape) or random_patch(comment_id, text, shape))
-    if cmd.kind != "random" and _ERASE_RE.search(words):  # only a named shape erases: never by accident
+    if cmd.kind in ERASERS and _ERASE_RE.search(words):  # only a named pattern erases: never by accident
         return replace(cmd, erase=True, delay_s=delay)
     c = _COLOR_RE.search(text)
     return replace(cmd, color=c.group(1).lower() if c else None, delay_s=delay)
