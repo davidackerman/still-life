@@ -637,3 +637,42 @@ def test_an_erasers_shape_is_outlined_where_its_cells_died_and_fades():
     faint = stream.board_rgb(g, "ALIVE", None, ghost=ghost, ghost_a=0.3)
     assert int(faint[10 * cell + 1, 10 * cell + cell // 2].astype(int).sum()) < int(img[10 * cell + 1, 10 * cell + cell // 2].astype(int).sum())
     assert np.array_equal(stream.board_rgb(g, "ALIVE", None, ghost=ghost, ghost_a=0.0), stream.board_rgb(g, "ALIVE", None))
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="needs ffmpeg")
+def test_the_tall_stream_goes_to_a_file_at_its_own_size(state_dir, tmp_path):
+    import os
+    import subprocess
+    import vertical
+    repo = tmp_path / "repo"
+    shutil.copytree(state_dir, repo / "state")
+    out = str(tmp_path / "tall.flv")
+    assert stream.stream(str(repo), out, None, 1.0, False, 1500, sound=False, tall=True) == 0
+    size = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                           "-of", "csv=p=0", out], capture_output=True, text=True).stdout.strip()
+    assert size == f"{vertical.TW},{vertical.TH}" and os.path.getsize(out) > 10_000
+    assert "vertical.py" in vertical.CODE and "vertical.py" not in stream.CODE  # its changes restart only the tall one
+
+
+def test_the_tall_frame_shows_the_board_the_moves_and_each_banner(state_dir):
+    import vertical
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    screen = stream.Screen(snap)
+    e = [x for x in snap.new if x.get("cells")] or [{"command": "glider 64,71 nw", "cells": [[64, 71], [65, 71]]}]
+    screen.tags.append(stream.Tag(render_move(e[0]), [tuple(c) for c in e[0]["cells"]], LAUNCH + 3699))
+    im = vertical.compose(screen, LAUNCH + 3700)
+    assert im.size == (vertical.TW, vertical.TH)
+    slot = LAUNCH // stream.REWIND_EVERY_S * stream.REWIND_EVERY_S + stream.REWIND_EVERY_S
+    screen.rewind = stream.Rewind(state_dir, slot, snap.u.generation)
+    screen.rewind.advance(slot + 5)
+    got = vertical._banner_lines(screen, slot + 5)
+    assert got["line1"].startswith(("REWIND", "NEW")) and "_banner" not in vars(screen)  # the wide one's own, untouched
+    assert vertical.compose(screen, slot + 5).size == (vertical.TW, vertical.TH)
+    screen.rewind, screen.future = None, stream.Future(snap, LAUNCH + 3700)
+    assert vertical._banner_lines(screen, LAUNCH + 3710)["line1"].startswith(("THE FUTURE", "STUCK", "IT"))
+    assert vertical.compose(screen, LAUNCH + 3710).size == (vertical.TW, vertical.TH)
+
+
+def render_move(e):
+    import render
+    return render.move_label(e)

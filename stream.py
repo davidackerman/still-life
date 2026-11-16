@@ -1250,9 +1250,10 @@ class Puller(threading.Thread):
     """Every PULL_S: if GitHub has a new commit, git pull, then load the state if
     the log grew. Notices new code."""
 
-    def __init__(self, repo: str, state_dir: str, seq: int, pull: bool):
+    def __init__(self, repo: str, state_dir: str, seq: int, pull: bool, code: tuple = CODE):
         super().__init__(daemon=True)
         self.repo, self.state_dir, self.seq, self.pull = repo, state_dir, seq, pull
+        self.files = code  # a change to these is new code: restart
         self.pending: Snapshot | None = None
         self.restart = False
         self.lock = threading.Lock()
@@ -1261,7 +1262,7 @@ class Puller(threading.Thread):
     def _code(self) -> str | None:
         if not self.pull:
             return None
-        r = subprocess.run(["git", "-C", self.repo, "rev-parse", *[f"HEAD:{p}" for p in CODE]],
+        r = subprocess.run(["git", "-C", self.repo, "rev-parse", *[f"HEAD:{p}" for p in self.files]],
                            capture_output=True, text=True)
         return r.stdout if r.returncode == 0 else None
 
@@ -1308,14 +1309,14 @@ class Puller(threading.Thread):
         return snap
 
 
-def ffmpeg_cmd(out: str, bitrate_k: int, audio_fd: int | None = None) -> list[str]:
-    """Video from stdin; audio from the pipe `audio_fd` (16-bit stereo PCM), or silence."""
+def ffmpeg_cmd(out: str, bitrate_k: int, audio_fd: int | None = None, size: tuple[int, int] = (SW, SH)) -> list[str]:
+    """Video from stdin (frames of `size`); audio from the pipe `audio_fd` (16-bit stereo PCM), or silence."""
     b = f"{bitrate_k}k"
     audio = (["-thread_queue_size", "64", "-probesize", "32", "-analyzeduration", "0",  # don't wait for seconds of it
               "-f", "s16le", "-ar", str(stream_audio.SR), "-ac", "2", "-i", f"pipe:{audio_fd}"]
              if audio_fd is not None else ["-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate={stream_audio.SR}"])
     return ["ffmpeg", "-y", "-hide_banner", "-nostats", "-loglevel", "warning",
-            "-thread_queue_size", "16", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{SW}x{SH}",
+            "-thread_queue_size", "16", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}",
             "-framerate", str(IN_FPS), "-i", "-", *audio,
             "-map", "0:v", "-map", "1:a", "-shortest",
             # YouTube: H.264, CBR, a keyframe every 2 s, AAC audio
@@ -1331,10 +1332,15 @@ def redact(line: str, secret: str | None) -> str:
 
 
 def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull: bool, bitrate_k: int,
-           sound: bool = True, rewinds: bool = True) -> int:
+           sound: bool = True, rewinds: bool = True, tall: bool = False) -> int:
+    """`tall`: the vertical version (vertical.py), for YouTube's Dual stream, as its own process."""
     state_dir = os.path.join(repo, "state")
     snap = load(state_dir)
     screen = Screen(snap)
+    draw, size, code = screen.compose, (SW, SH), CODE
+    if tall:
+        import vertical
+        draw, size, code = (lambda now: vertical.compose(screen, now)), (vertical.TW, vertical.TH), vertical.CODE
     audio_r = audio = None
     if sound:
         screen.sound = stream_audio.Soundtrack()
@@ -1346,9 +1352,9 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
         except (ImportError, OSError):
             pass
         audio = os.fdopen(audio_w, "wb", buffering=0)
-    puller = Puller(repo, state_dir, snap.seq, pull)
+    puller = Puller(repo, state_dir, snap.seq, pull, code)
     puller.start()
-    proc = subprocess.Popen(ffmpeg_cmd(out, bitrate_k, audio_r), stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+    proc = subprocess.Popen(ffmpeg_cmd(out, bitrate_k, audio_r, size), stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                             pass_fds=(audio_r,) if sound else ())
     if audio_r is not None:
         os.close(audio_r)  # ffmpeg has its own copy
@@ -1385,7 +1391,8 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
                 os._exit(1)
     threading.Thread(target=watchdog, daemon=True).start()
 
-    log(f"streaming universe #{snap.universe_no} from gen {snap.u.generation} ({snap.u.phase})")
+    log(f"streaming universe #{snap.universe_no} from gen {snap.u.generation} ({snap.u.phase})"
+        + (f", tall ({size[0]}x{size[1]}, {OUT_FPS} fps)" if tall else ""))
     t0, n, data, last_key, behind = time.monotonic(), 0, b"", None, 0.0
     try:
         while not puller.restart and (seconds is None or n < seconds * IN_FPS):
@@ -1400,7 +1407,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
                 behind = 0.0
             k = screen.key(now)
             if not data or k != last_key or screen.animating(now):
-                data, last_key = screen.compose(now).tobytes(), k
+                data, last_key = draw(now).tobytes(), k
             if audio:
                 try:
                     sound_q.put(screen.sound.chunk(per_frame), timeout=10)
@@ -1444,6 +1451,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-pull", action="store_true", help="use the checkout as it is")
     ap.add_argument("--bitrate", type=int, default=5500, help="video kbit/s (YouTube's 1080p minimum is 5000)")
     ap.add_argument("--no-sound", action="store_true", help="a silent track (also: STREAM_SOUND=off)")
+    ap.add_argument("--tall", action="store_true", help="the vertical version (vertical.py), with the vertical key")
     args = ap.parse_args(argv)
 
     if args.preview:
@@ -1458,7 +1466,11 @@ def main(argv=None) -> int:
             screen.tags.append(Tag(render.move_label(e) + suffix, [tuple(c) for c in e["cells"]], now - 0.5 - 0.5 * i,
                                    bool(e.get("erase"))))
         os.makedirs(os.path.dirname(os.path.abspath(args.preview)), exist_ok=True)
-        screen.compose(now).save(args.preview)
+        if args.tall:
+            import vertical
+            vertical.compose(screen, now).save(args.preview)
+        else:
+            screen.compose(now).save(args.preview)
         print(args.preview)
         return 0
 
@@ -1468,7 +1480,7 @@ def main(argv=None) -> int:
         print("set STREAM_KEY (YouTube Studio → Go live → Stream key) or pass --out", file=sys.stderr)
         return 2
     sound = not args.no_sound and os.environ.get("STREAM_SOUND", "on").strip().lower() not in ("0", "off", "false", "no")
-    return stream(args.repo, out, secret, args.seconds, not args.no_pull, args.bitrate, sound)
+    return stream(args.repo, out, secret, args.seconds, not args.no_pull, args.bitrate, sound, tall=args.tall)
 
 
 if __name__ == "__main__":
