@@ -351,6 +351,37 @@ def test_the_rewind_is_counted_down_and_the_graph_and_labels_follow_the_past(sta
     assert len(seen) == len(r.big) >= 1 and all(" · " in s for s in seen)  # 'glider … · 2d → 5d'
 
 
+def test_the_future_races_into_the_loop_goes_grey_and_a_move_ends_it(state_dir):
+    slot = ((LAUNCH + 3700) // stream.REWIND_EVERY_S + 1) * stream.REWIND_EVERY_S + stream.FUTURE_AT_S
+    assert stream.future_slot(slot + 1) == slot and stream.future_slot(slot + stream.FUTURE_S + 1) is None
+    assert stream.future_slot(slot - stream.FUTURE_AT_S) is None  # :00 and :30 are the rewind's
+    snap = stream.load(state_dir, now=slot - 1)
+    stuck = snap.u.forecast_stuck(stream.FORECAST_GENS)
+    assert stuck is not None
+    snap.forecast = {"stuck_gen": stuck}
+    screen = stream.Screen(snap)
+    screen.tick(slot + 0.1, state_dir)
+    f, t, parts = screen.future, slot + 0.1, []
+    assert f is not None and f.to == stuck and f.dies == stuck + snap.u.flatline_gens
+    while screen.future is not None:
+        parts.append(f.part(t))
+        if len(parts) % 50 == 0:
+            assert screen.compose(t).size == (stream.SW, stream.SH)  # the banner, every part
+        t += 0.1
+        screen.tick(t, state_dir)
+    assert parts[0] == "race" and "loop" in parts and parts[-1] == "dies"
+    assert f.u.generation >= stuck and f.u.phase == stream.DIED  # into the loop, then grey
+    assert snap.u.generation < stuck and snap.u.phase == "ALIVE"  # the live board never moved on
+    screen.tick(t + 1, state_dir)
+    assert screen.future is None  # once a slot
+    old = stream.load(state_dir, now=slot - 1)  # someone comments while it plays: that future is gone
+    screen = stream.Screen(old)
+    screen.tick(slot + 1, state_dir)
+    assert screen.future is not None
+    screen.swap(stream.load(state_dir, after_seq=0, now=slot - 1), slot + 2, state_dir)
+    assert screen.future is None
+
+
 def test_the_panel_shows_a_replays_moves_as_they_land(state_dir):
     now = LAUNCH + 3700
     old = stream.load(state_dir, now=now)

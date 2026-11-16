@@ -49,6 +49,7 @@ Each change is also flagged ✨ on the [live page](https://davidackerman.github.
 - **Thu Nov 12, 11:16 AM:** tails: cells fade out as they die
 - **Thu Nov 12, 1:31 PM:** extra moves wait their turn instead of being skipped
 - **Thu Nov 12, 3:06 PM:** schedule a move: add a time, like `rpent 40,30 in 1h`
+- **Mon Nov 16, 11:29 AM:** the future: at :15 and :45 the stream plays how it dies if nobody comments
 
 ## How it lives and dies
 

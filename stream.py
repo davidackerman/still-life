@@ -22,6 +22,7 @@ for the same restart, and so it does if no frame has gone out for 15 s.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -62,6 +63,11 @@ STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the s
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
 REWIND_LIT = 30  # generations a comment's cells stay white during the rewind
 REWIND_TAGS, REWIND_TAG_S = 10, 3.0  # during the rewind, the moves that changed the most get a label
+# Its future if nobody comments, at :15 and :45 (between the rewinds): the board races
+# into the loop the forecast says it gets stuck in (to FUTURE_RACE of the way), the
+# loop plays (to FUTURE_LOOP), then it goes grey as it dies.
+FUTURE_AT_S, FUTURE_S = 15 * 60, 40.0
+FUTURE_RACE, FUTURE_LOOP, FUTURE_LOOP_GEN_S = 0.55, 0.85, 0.4
 REWIND_NEWS_S = 4.0  # ...and its banner says what was new (docs/changes.json) as it passes when it came
 # The instant replay of new moves: the board as it was, each move landing, the generations since.
 REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
@@ -456,6 +462,72 @@ def rewind_slot(now: float) -> float | None:
     return slot if now - slot < REWIND_S else None
 
 
+def future_slot(now: float) -> float | None:
+    """When the look at the future running at `now` began (at :15 and :45), or None."""
+    slot = (now - FUTURE_AT_S) // REWIND_EVERY_S * REWIND_EVERY_S + FUTURE_AT_S
+    return slot if now - slot < FUTURE_S else None
+
+
+class Future:
+    """Its future if nobody comments: a copy of the live board raced ahead into the
+    loop the bot's forecast says it gets stuck in, the loop playing, then grey: it
+    dies FLATLINE hours into the loop. (Already stuck: the loop, then grey at its
+    deadline.) No moves land in it: it's the future with nobody commenting. A move
+    arriving ends it (Screen.swap)."""
+
+    def __init__(self, snap: Snapshot, start: float):
+        u = snap.u
+        self.start, self.launch, self.G = start, snap.launch, snap.gen_seconds
+        self.stuck_now = u.phase == FLATLINING
+        self.from_gen, self.dies = u.generation, death_gen(snap)
+        if self.stuck_now:
+            self.stuck = u.generation
+        else:
+            self.stuck = (snap.forecast or {}).get("stuck_gen")
+            if self.stuck is not None:
+                self.stuck = max(self.stuck, u.generation)
+        # no loop within the forecast: race three days on, and say so
+        self.to = self.stuck if self.stuck is not None else u.generation + 3 * 86400 // self.G
+        self.race = 1.0 if self.stuck is None else 0.0 if self.stuck_now else FUTURE_RACE
+        self.u = copy.deepcopy(u)
+        self.u.paint = snap.paint.copy() if snap.paint is not None and snap.paint.any() else None
+        self.trail, self.frame = life.Trail(u.grid.shape), 0
+        self.tags: list[Tag] = []
+
+    def done(self, now: float) -> bool:
+        return now >= self.start + FUTURE_S
+
+    def part(self, now: float) -> str:
+        """'race' (into the loop), 'loop', or 'dies' (grey)."""
+        p = (now - self.start) / FUTURE_S
+        if p < self.race:
+            return "race"
+        return "loop" if p < FUTURE_LOOP else "dies"
+
+    def advance(self, now: float, sound=None) -> None:
+        t = max(0.0, now - self.start)
+        q = t / (self.race * FUTURE_S) if self.race else 1.0
+        if q < 1:  # fast at first, easing into the loop
+            target = self.from_gen + round((self.to - self.from_gen) * (1 - (1 - q) ** 2))
+        else:  # the loop, a generation at a time
+            target = self.to + int((t - self.race * FUTURE_S) / FUTURE_LOOP_GEN_S)
+        if self.part(now) == "dies":
+            self.u.phase = DIED  # grey (and still): how it ends, a day into the loop, not simulated that far
+        moved = False
+        while self.u.generation < target and self.u.phase != DIED:
+            before = self.u.grid
+            self.u.advance_to(self.u.generation + 1)
+            if self.u.paint is not None:
+                self.u.paint = life.paint_step(before, self.u.grid, self.u.paint)
+            moved = True
+        if moved:
+            self.frame += 1
+            self.trail.see(self.u.grid, self.frame, self.u.paint)
+
+    def lit_mask(self) -> np.ndarray | None:
+        return None
+
+
 class Rewind:
     """The story so far: the universe from its first cells to now in REWIND_S,
     replayed from the log with the bot's own rules (it ends on the live board)."""
@@ -609,6 +681,8 @@ class Screen:
         self.replay: Replay | None = None
         self.after_replay: Snapshot | None = None  # the new snapshot, shown once its moves have played
         self.rewound_at: float | None = None  # the slot of the last rewind (one per slot)
+        self.future: Future | None = None
+        self.futured_at: float | None = None  # the slot of the last look at the future
         self._chrome = None  # (key, the frame without the board), see compose
         self._demos: list[tuple] = []  # (x, y, film) of the legend's little films, placed by _legend
 
@@ -624,6 +698,9 @@ class Screen:
         if not same:
             self.tags = []
         moves = [e for e in snap.new if e.get("cells")]
+        if self.future and moves:  # someone commented: that future is gone
+            self.future = None
+            self._changed(now)
         if state_dir and same and moves and self.rewind is None and snap.u.phase != DIED:
             try:
                 self.replay = Replay(state_dir, moves, now, snap.u.generation, lambda e, t: self._tag(snap, e, t))
@@ -661,7 +738,7 @@ class Screen:
         before, gen = (self.snap.u.grid.copy(), self.snap.u.generation) if self.sound else (None, 0)
         if step(self.snap, now):
             self._changed(now)
-            if self.sound and not self.rewind and not self.replay:
+            if self.sound and not self.rewind and not self.replay and not self.future:
                 self.sound.generation(before, self.snap.u.grid, self.snap.u.generation - gen)
         if self.replay:
             if self.after_replay is not None:
@@ -683,8 +760,22 @@ class Screen:
             if self.rewind.done(now):
                 self.rewind = None
                 self._changed(now)  # crossfade back to the live board
+        fslot = future_slot(now)
+        if (state_dir and fslot is not None and self.future is None and self.rewind is None and self.replay is None
+                and fslot != self.futured_at and self.snap.u.phase in (ALIVE, FLATLINING)):
+            self.futured_at = fslot
+            try:
+                self.future = Future(self.snap, fslot)
+                log(f"future: gen {self.future.from_gen:,} to {self.future.to:,} if nobody comments")
+            except Exception as e:  # noqa: BLE001 - not this time; the live board goes on
+                log(f"future failed: {e!r}")
+        if self.future:
+            self.future.advance(now)
+            if self.future.done(now):
+                self.future = None
+                self._changed(now)
         if self.sound:
-            playing = self.rewind or self.replay
+            playing = self.rewind or self.replay or self.future
             self.sound.set_phase(playing.u.phase if playing else self.snap.u.phase)
 
     def panel(self) -> Snapshot:
@@ -698,7 +789,8 @@ class Screen:
         self.changed_at = now
 
     def animating(self, now: float) -> bool:
-        return (self.rewind is not None or self.replay is not None or now - self.changed_at < FADE_S
+        return (self.rewind is not None or self.replay is not None or self.future is not None
+                or now - self.changed_at < FADE_S
                 or any(now - t.t0 < RIPPLE_S for t in self.tags))
 
     def key(self, now: float):
@@ -708,7 +800,7 @@ class Screen:
         return (id(self.snap), u.generation, u.phase, int(now), live, int(now * DEMO_RATE))
 
     def board(self, now: float) -> np.ndarray:
-        playing = self.rewind or self.replay
+        playing = self.rewind or self.replay or self.future
         if playing:
             r = playing.u
             self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None),
@@ -775,6 +867,8 @@ class Screen:
             y0 = self._replay_y0(shape)
             self._moves(d, now, shape, avoid=self._banner_rows(shape, y0))
             self._replay_banner(d, now, shape, y0)
+        elif self.future:  # no move labels: nobody has commented in the future it shows
+            self._future_banner(d, now, shape)
         else:
             self._moves(d, now, shape)
         return im
@@ -805,6 +899,29 @@ class Screen:
             line1 = f"NEW · {r.news_shown[0]}"
         line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, int(r.start + REWIND_S - now))} s"
         self._banner(d, shape, top + 18, line1, line2, (now - r.start) / REWIND_S)
+
+    def _future_banner(self, d, now: float, shape) -> None:
+        """What the future shows: when it gets there, the loop, the day it dies."""
+        f = self.future
+        top = geometry(shape)[2]
+        at = lambda g: render._at(f.launch, g, f.G, "%a %I:%M %p").replace(" 0", " ")  # noqa: E731
+        live = f"live again in {max(0, int(f.start + FUTURE_S - now))} s"
+        part = f.part(now)
+        if f.stuck is None:
+            line1 = "THE FUTURE · if nobody comments"
+            line2 = f"{at(f.u.generation)} · no loop in sight for {FORECAST_GENS * f.G // 86400} days · {live}"
+        elif part == "race":
+            line1, line2 = "THE FUTURE · if nobody comments", f"{at(f.u.generation)} · {live}"
+        elif part == "loop":
+            hours = f.u.flatline_gens * f.G // 3600
+            if f.stuck_now:
+                line1, line2 = "IT'S STUCK IN A LOOP", f"a comment can break it · {live}"
+            else:
+                line1, line2 = f"STUCK IN A LOOP · {at(f.stuck)}", f"then {hours} hours to break it · {live}"
+        else:
+            line1 = f"IT DIES · {at(f.dies)}" if f.dies is not None else "IT DIES"
+            line2 = f"unless someone comments or chats · {live}"
+        self._banner(d, shape, top + 18, line1, line2, (now - f.start) / FUTURE_S)
 
     def _banner(self, d, shape, y0: int, line1: str, line2: str, frac: float) -> None:
         cell, left, top = geometry(shape)
