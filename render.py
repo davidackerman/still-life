@@ -263,8 +263,18 @@ def coarse_left(secs: float) -> str:
 
 
 def move_text(e: dict) -> str:
-    """A logged move as you'd type it: 'glider 10,20 se', 'glider 10,20 se blue'."""
+    """A logged move as you'd type it: 'glider 10,20 se', 'glider 10,20 se blue',
+    'glider 10,20 se black' (an eraser)."""
+    if e.get("erase"):
+        return f"{e['command']} {commands.ERASE}"
     return e["command"] + (f" {e['color']}" if e.get("color") else "")
+
+
+def move_label(e: dict) -> str:
+    """A move's label where it lands: as typed, and an eraser says what it erased."""
+    if e.get("erase") and "killed" in e:
+        return move_text(e) + (f" · erased {e['killed']} cell{'s' * (e['killed'] != 1)}" if e["killed"] else " · erased nothing")
+    return move_text(e)
 
 
 def event_line(ev: dict) -> str | None:

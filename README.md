@@ -31,9 +31,10 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of it
 | a pattern's name on its own: `block`, `glider ne`, `acorn` | that pattern, at a spot picked from your comment |
 | anything else | a 5×5 random patch made from your comment |
 | add `red`, `orange`, `yellow`, `blue`, `purple`, `pink` or `cyan` | your cells in that color, on the live stream and in the Shorts |
+| add `black` to a pattern: `glider 40,20 black`, `block black` | erases instead: the living cells under that shape die (only dead, so life can grow back into them). A comment that names no pattern never erases |
 | add a time: `rpent 40,30 in 1h`, `hi in 30 min` | the move lands that much later (up to a day ahead, 10 scheduled per person); the stream shows what's coming up |
 
-`x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Comment as often as you like: up to 3 moves per person land each generation (every 2 minutes), the next 9 wait their turn over the following few minutes, and the rest are skipped. The bot checks every few minutes and lands each move at the generation you posted it. Cells are only ever added, and deleting a comment doesn't undo it.
+`x` is 0–127 and `y` is 0–71, from the top-left; patterns wrap around the edges. Comment as often as you like: up to 3 moves per person land each generation (every 2 minutes), the next 9 wait their turn over the following few minutes, and the rest are skipped. The bot checks every few minutes and lands each move at the generation you posted it. Cells are only ever added, except by `black`, and deleting a comment doesn't undo it.
 
 A color is only paint: the game plays out exactly the same with or without it. Painted cells keep their color as they move, and a newborn cell takes the color most of its three parents have, so a colored glider stays colored as it flies.
 

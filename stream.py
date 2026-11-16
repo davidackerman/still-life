@@ -75,8 +75,10 @@ REWIND_SOUND, REPLAY_SOUND = 0.15, 0.3  # their notes' level: they play many at 
 FADE_S = 0.6  # crossfade between generations
 TRAIL_STEPS = 8  # the newest tails fade on in 8 steps through a live generation (life.Trail)
 RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
+GHOST = (150, 156, 172)  # an eraser's shape ("glider 40,20 black"), outlined where its cells died, fading over GLOW_S
 SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
+ERASE_INK = (8, 9, 12)  # "black" in the legend: black letters, outlined so they show on the dark panel
 LEGEND = [("glider_se", "glider", "x,y ne|nw|se|sw"), ("block", "block", "x,y"), ("blinker", "blinker", "x,y"),
           ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), (None, "cells", "x,y x,y …")]  # (pattern, what to type)
 DEMO_BOX, DEMO_CELL, DEMO_RATE = 9, 5, 4  # the legend's little films: 9 x 9 cells of 5 px, 4 generations a second
@@ -393,6 +395,7 @@ class Tag:
     text: str
     cells: list  # (x, y)
     t0: float
+    erase: bool = False  # an eraser's: its cells are outlined (GHOST), not lit
 
 
 def geometry(shape) -> tuple[int, int, int]:
@@ -403,10 +406,11 @@ def geometry(shape) -> tuple[int, int, int]:
 
 
 def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.ndarray | None = None,
-              trail: tuple | None = None) -> np.ndarray:
+              trail: tuple | None = None, ghost: np.ndarray | None = None, ghost_a: float = 1.0) -> np.ndarray:
     """The board as pixels: each cell's color worked out on the small grid, then
     scaled up once, with the grid lines painted over (strided writes; no
-    full-size masks, so a frame stays cheap with the tails on)."""
+    full-size masks, so a frame stays cheap with the tails on). `ghost`: an
+    eraser's cells, outlined where they are dead, at strength `ghost_a`."""
     h, w = grid.shape
     cell = geometry(grid.shape)[0]
     cells = np.empty((h, w, 3), np.uint8)
@@ -432,6 +436,12 @@ def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.nd
     for k in (0, cell - 1):  # each cell's edge: the grid lines
         img[k::cell, :] = GRID
         img[:, k::cell] = GRID
+    if ghost is not None and ghost_a > 0:  # where an eraser hit: the outline of its shape (a few cells)
+        ink = (np.array(BG, float) + (np.array(GHOST, float) - BG) * min(1.0, ghost_a)).astype(np.uint8)
+        for y, x in zip(*np.nonzero((ghost == 1) & ~alive)):
+            y0, x0, y1, x1 = y * cell + 1, x * cell + 1, (y + 1) * cell - 2, (x + 1) * cell - 2
+            img[y0, x0:x1 + 1] = img[y1, x0:x1 + 1] = ink
+            img[y0:y1 + 1, x0] = img[y0:y1 + 1, x1] = ink
     return img
 
 
@@ -570,8 +580,8 @@ class Rewind:
             for e in self.h.batches[g]:
                 eff = self.big.get((g, e["command"]))
                 if eff and e["cells"]:
-                    text = render.move_text(e) + render.effect_suffix(eff, self.u.flatline_gens, self.h.gen_seconds)
-                    self.tags.append(Tag(text, [tuple(c) for c in e["cells"]], now))
+                    text = render.move_label(e) + render.effect_suffix(eff, self.u.flatline_gens, self.h.gen_seconds)
+                    self.tags.append(Tag(text, [tuple(c) for c in e["cells"]], now, bool(e.get("erase"))))
         self.tags = [t for t in self.tags if now - t.t0 < REWIND_TAG_S]
         while self.news and self.news[0][0] <= self.u.generation:
             self.news_shown = (self.news.pop(0)[1], now)
@@ -635,6 +645,7 @@ class Replay:
             t += pause(g) * squeeze
         self.start, self.end, self.label = start, t, label
         self.lit: list = []  # the new moves' cells, drawn white
+        self.ghost: list = []  # the new erasers' cells, outlined
         self.shown = self.first - 1  # the last generation played (before the first: none yet)
         self.trail = life.Trail(self.u.grid.shape, *life.LIVE_TRAIL)  # the live board's past: its tails
         self.trail.see(self.u.grid, self.u.generation, getattr(self.u, "paint", None))
@@ -657,7 +668,7 @@ class Replay:
             self.trail.see(self.u.grid, g, getattr(self.u, "paint", None))
             for e in self.new.get(g, []):
                 tags.append(self.label(e, t))
-                self.lit += [tuple(c) for c in e["cells"]]
+                (self.ghost if e.get("erase") else self.lit).extend(tuple(c) for c in e["cells"])
                 if sound and e["cells"]:
                     sound.landed(e["cells"][0][0], self.u.grid.shape[1], REPLAY_SOUND)
             if sound:
@@ -666,6 +677,9 @@ class Replay:
 
     def lit_mask(self) -> np.ndarray | None:
         return mask_of(self.lit, self.u.grid.shape)
+
+    def ghost_mask(self) -> np.ndarray | None:
+        return mask_of(self.ghost, self.u.grid.shape)
 
 
 class Screen:
@@ -724,7 +738,7 @@ class Screen:
     def _tag(snap: Snapshot, e: dict, t0: float) -> Tag:
         eff = snap.effects.get((e["gen"], e["command"]))
         suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
-        return Tag(render.move_text(e) + suffix, [tuple(c) for c in e["cells"]], t0)
+        return Tag(render.move_label(e) + suffix, [tuple(c) for c in e["cells"]], t0, bool(e.get("erase")))
 
     def _end_replay(self, now: float) -> None:
         r, self.replay = self.replay, None
@@ -803,12 +817,16 @@ class Screen:
         playing = self.rewind or self.replay or self.future
         if playing:
             r = playing.u
+            ghost = playing.ghost_mask() if hasattr(playing, "ghost_mask") else None
             self.cur, self.cur_key = board_rgb(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None),
-                                               playing.trail.layer(r.grid)), None
+                                               playing.trail.layer(r.grid), ghost), None
             return self.cur
         u = self.snap.u
         self.tags = [t for t in self.tags if now - t.t0 < max(TAG_S, GLOW_S)]
-        glowing = [c for t in self.tags if now - t.t0 < GLOW_S for c in t.cells]
+        glowing = [c for t in self.tags if now - t.t0 < GLOW_S and not t.erase for c in t.cells]
+        erasers = [t for t in self.tags if now - t.t0 < GLOW_S and t.erase]
+        ghost = mask_of([c for t in erasers for c in t.cells], u.grid.shape) if u.phase != DIED else None
+        ghost_a = round(1 - (now - max(t.t0 for t in erasers)) / GLOW_S, 1) if erasers else 0.0  # fades in 10 steps
         lit = None
         if glowing and u.phase != DIED:
             lit = np.zeros(u.grid.shape, np.uint8)
@@ -817,10 +835,10 @@ class Screen:
         # the newest tails fade on through the generation, in TRAIL_STEPS steps
         since = (now - self.snap.launch) / self.snap.gen_seconds - u.generation
         frac = min(TRAIL_STEPS - 1, max(0, int(since * TRAIL_STEPS))) / TRAIL_STEPS
-        k = (id(self.snap), u.generation, u.phase, len(glowing), frac)
+        k = (id(self.snap), u.generation, u.phase, len(glowing), frac, len(erasers), ghost_a)
         if k != self.cur_key or self.cur is None:
             tails = self.snap.trail.layer(u.grid, frac) if self.snap.trail is not None else None
-            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint, tails), k
+            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint, tails, ghost, ghost_a), k
         a = (now - self.changed_at) / FADE_S
         if self.prev is not None and self.prev.shape == self.cur.shape and 0 <= a < 1:
             return (self.prev * (1 - a) + self.cur * a).astype(np.uint8)
@@ -1104,11 +1122,13 @@ class Screen:
         f18 = font("regular", 18)
         for first in ("one move per message, up to 3 per person every 2 min", "up to 3 moves per person every 2 min"):
             parts = [(first + "   ·   add a color: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
+            parts += [("  ·   ", MUTED), (commands.ERASE, ERASE_INK), (" erases", MUTED)]  # "glider 40,20 black"
             parts += [(f"  ·   every move so far: {render.LIVE_ADDRESS}", MUTED)]
             if sum(d.textlength(s, font=f18) for s, _ in parts) <= width:
                 break
         for s, color in parts:
-            d.text((x0, mid + 40), s, font=f18, fill=color, anchor="lm")
+            ink = {"stroke_width": 1, "stroke_fill": LIGHT} if color == ERASE_INK else {}
+            d.text((x0, mid + 40), s, font=f18, fill=color, anchor="lm", **ink)
             x0 += d.textlength(s, font=f18)
 
     def _films(self, d, now: float) -> None:
@@ -1421,7 +1441,8 @@ def main(argv=None) -> int:
         for i, e in enumerate([e for e in entries if e["type"] == "injection"][-3:]):  # as if just committed
             eff = effects.get((e["gen"], e["command"]))
             suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
-            screen.tags.append(Tag(e["command"] + suffix, [tuple(c) for c in e["cells"]], now - 0.5 - 0.5 * i))
+            screen.tags.append(Tag(render.move_label(e) + suffix, [tuple(c) for c in e["cells"]], now - 0.5 - 0.5 * i,
+                                   bool(e.get("erase"))))
         os.makedirs(os.path.dirname(os.path.abspath(args.preview)), exist_ok=True)
         screen.compose(now).save(args.preview)
         print(args.preview)

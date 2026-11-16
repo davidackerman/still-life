@@ -36,6 +36,12 @@ A color word anywhere in the text (red orange yellow blue purple pink cyan;
 the first one wins) paints the move's cells. Paint is only how cells look: it
 never changes which cells live (see life.paint_step). Unpainted cells are
 green; dead ones are the dark background.
+
+"black" with a named pattern or cells ("glider 40,20 black", "block black",
+"cells 3,4 5,6 black") erases instead: the living cells under the shape die
+(they are only dead: life can grow back into them). A comment that says
+black but names no pattern is the usual random patch, adding cells, so
+nobody erases a 5x5 by accident.
 """
 
 from __future__ import annotations
@@ -59,6 +65,8 @@ _BARE_RE = re.compile(r"\b(glider|block|blinker|rpent|acorn)\b(?!\s*[-+]?\s*\d)(
 _PAIR_RE = re.compile(_COORD, re.ASCII)
 COLORS = ("red", "orange", "yellow", "blue", "purple", "pink", "cyan")  # paint 1..7 (0: unpainted)
 _COLOR_RE = re.compile(rf"\b({'|'.join(COLORS)})\b", re.IGNORECASE | re.ASCII)
+ERASE = "black"  # with a named pattern: its cells die instead (Command.erase)
+_ERASE_RE = re.compile(rf"\b{ERASE}\b", re.IGNORECASE | re.ASCII)
 MAX_DELAY_S = 24 * 3600  # a move can be scheduled up to a day ahead
 _DELAY_RE = re.compile(r"\b(?:in\s+)?([0-9]{1,4})\s*(hours?|hrs?|h|minutes?|mins?|m)\b", re.IGNORECASE | re.ASCII)
 
@@ -70,6 +78,7 @@ class Command:
     desc: str  # canonical text, e.g. "glider 10,20 se" or "random 5x5 at 3,4"
     color: str | None = None  # a word from COLORS, or None (unpainted)
     delay_s: int = 0  # scheduled to land this long after it was posted (0: at once)
+    erase: bool = False  # "black": the cells under it die instead of coming alive
 
 
 def _in_range(x: int, y: int, shape) -> bool:
@@ -143,5 +152,7 @@ def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
     valid = [(pos, cmd) for pos, cmd in _candidates(words, shape) if cmd is not None]
     cmd = (min(valid, key=lambda pc: pc[0])[1] if valid
            else bare_pattern(comment_id, words, shape) or random_patch(comment_id, text, shape))
+    if cmd.kind != "random" and _ERASE_RE.search(words):  # only a named shape erases: never by accident
+        return replace(cmd, erase=True, delay_s=delay)
     c = _COLOR_RE.search(text)
     return replace(cmd, color=c.group(1).lower() if c else None, delay_s=delay)

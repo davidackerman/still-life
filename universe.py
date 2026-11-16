@@ -18,7 +18,9 @@ Phases:
 
 History (hashes since the last board-changing injection) is what cycle
 detection searches. An injection that adds no new live cells changes nothing:
-no history reset, no phase change.
+no history reset, no phase change. An erasing one ("erase": True, a comment
+saying black) sets its cells dead instead; it changes the board only if one
+of them was alive.
 """
 
 from __future__ import annotations
@@ -86,9 +88,10 @@ class Universe:
     def inject(self, injections: list[dict]) -> list[dict]:
         """Apply a batch of injections at the current generation (before stepping).
 
-        Each injection is a dict with at least "cells": [[x, y], ...]. Returns
-        events: one "injection" event per input (with changed/hash_after),
-        plus at most one phase event for the batch as a whole.
+        Each injection is a dict with at least "cells": [[x, y], ...], and
+        "erase": True if its cells die instead. Returns events: one "injection"
+        event per input (with changed/hash_after, and an eraser's "killed": the
+        live cells it erased), plus at most one phase event for the batch as a whole.
         """
         if self.phase == DIED:
             raise RuntimeError("cannot inject into a dead universe")
@@ -97,11 +100,13 @@ class Universe:
         h, w = self.grid.shape
         for inj in injections:
             prev = self.grid.copy()
+            erase = bool(inj.get("erase"))
             for x, y in inj["cells"]:
-                self.grid[y % h, x % w] = 1
+                self.grid[y % h, x % w] = 0 if erase else 1
             changed = bool((self.grid != prev).any())
-            events.append({"type": "injection", "gen": self.generation, **inj,
-                           "changed": changed, "hash_after": self.hash.hex()})
+            events.append({"type": "injection", "gen": self.generation, **inj, "changed": changed,
+                           **({"killed": int((prev != self.grid).sum())} if erase else {}),
+                           "hash_after": self.hash.hex()})
         if np.array_equal(self.grid, before):
             return events  # nothing new on the board: nothing else happens
         h_now = self.hash
@@ -204,7 +209,14 @@ class Universe:
 
 
 # Fields inject() adds to an injection event; stripped to recover its input.
-RESULT_FIELDS = ("type", "gen", "changed", "hash_after")
+RESULT_FIELDS = ("type", "gen", "changed", "killed", "hash_after")
+
+
+def move_input(e: dict) -> dict:
+    """What inject() takes from a logged injection (or a queued move): its cells,
+    and whether they die instead."""
+    return {"command": e["command"], "cells": e["cells"], "run_at": e["run_at"],
+            **({"erase": True} if e.get("erase") else {})}
 
 
 def replay(seed_grid: np.ndarray, flatline_gens: int, batches, final_gen: int):

@@ -254,3 +254,50 @@ def test_forecast_is_read_only_and_only_for_alive():
     h, gen = a.hash, a.generation
     a.forecast_stuck(100)
     assert (a.hash, a.generation, a.phase) == (h, gen, ALIVE)
+
+
+def erase(cells, cid="eraser"):
+    return {**inj(cells, cid), "erase": True}
+
+
+def test_an_eraser_kills_the_living_cells_under_it_and_nothing_else():
+    u = Universe(board(("block", 4, 4), ("block", 20, 20)), F)
+    u.advance_to(3)
+    ev = u.inject([erase([(4, 4), (5, 4), (9, 9)])])  # two live cells of the first block, one empty
+    hit = [e for e in ev if e["type"] == "injection"][0]
+    assert hit["changed"] and hit["killed"] == 2 and hit["erase"] is True
+    assert u.grid[4, 4] == 0 and u.grid[4, 5] == 0 and u.grid[5, 4] == 1 and u.grid[20, 20] == 1
+    assert u.history_base == 3  # the board changed: cycle detection starts again from here
+    miss = u.inject([erase([(30, 30)])])
+    assert [(e["changed"], e["killed"]) for e in miss if e["type"] == "injection"] == [(False, 0)]
+
+
+def test_an_eraser_breaks_a_loop_like_any_move_and_can_bring_it_closer_to_death():
+    u = flatlining()
+    alive_now = [(int(x), int(y)) for y, x in zip(*np.nonzero(u.grid))]
+    ev = u.inject([erase(alive_now[:1])])
+    assert phases(ev) == [(2, CONTESTED, "injection")]
+    u = flatlining()
+    ev = u.inject([erase(alive_now)])  # everything erased: an empty board is stuck at once
+    assert u.grid.sum() == 0 and phases(ev) == [(2, CONTESTED, "injection")]
+    ev = u.advance_to(4)
+    assert u.phase == FLATLINING
+
+
+def test_replay_roundtrip_with_an_eraser():
+    import commands
+    seed = life.mask(life.centered("acorn"))
+    u = Universe(seed, 720)
+    log, batches = [], []
+    for gen, text in ((200, "cells {} black"), (201, "acorn 60,30"), (400, "glider {} black")):
+        log += u.advance_to(gen)
+        ys, xs = np.nonzero(u.grid)  # aim at living cells, so it erases something
+        c = commands.parse(f"id{gen}", text.format(f"{xs[0]},{ys[0]}"))
+        ev = u.inject([{"comment_id": f"id{gen}", "command": c.desc, "cells": [list(xy) for xy in c.cells],
+                        "run": gen, **({"erase": True} if c.erase else {})}])
+        log += ev
+        batches.append((gen, [e for e in ev if e["type"] == "injection"]))
+    log += u.advance_to(3000)
+    assert any(e.get("killed") for e in log if e["type"] == "injection")
+    r, replayed = replay(seed, 720, batches, 3000)
+    assert replayed == log and r.hash == u.hash

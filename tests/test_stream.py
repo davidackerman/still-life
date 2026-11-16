@@ -3,6 +3,7 @@ never lets the stream key into its messages."""
 import datetime as dt
 import shutil
 
+import numpy as np
 import pytest
 
 import stream
@@ -457,6 +458,7 @@ const job = JSON.parse(fs.readFileSync(process.argv[3], "utf8")), out = {};
 if (job.log) {  // the page's replay of the log, then 10 generations stepped on as the page does live
   const TL = new History.Timeline(History.parse(fs.readFileSync(job.log, "utf8")));
   let grid = TL.gridAt(job.gen), paint = TL.paintAt(job.gen);
+  out.grid = Array.from(grid);
   out.paint = Array.from(paint);
   for (let n = 0; n < 10; n++) {
     const next = LifeCore.step(grid, TL.h, TL.w);
@@ -523,6 +525,47 @@ def test_the_live_page_paints_the_same_cells_as_the_bot_and_finds_what_each_move
     assert got["step"] == life.paint_step(g, life.step(g), paint).ravel().tolist()
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="needs node to run the live page's JavaScript")
+def test_black_erases_the_same_cells_for_the_bot_the_log_the_live_page_and_the_stream(tmp_path, monkeypatch):
+    import replay
+    import render
+    import short
+    for k in ("SEED", "GEN_SECONDS", "FLATLINE_HOURS"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("LAUNCH_TIME", str(int(LAUNCH)))
+    d = tmp_path / "state"
+    # a red acorn, then a black block over it a few generations on, then a comment that only says black
+    acorn = "acorn 70,40 red"
+    yt = FakeYT([Comment("c1", "u1", iso(LAUNCH + 900), acorn)])
+    for t in range(0, 1800, 600):
+        tick.run(str(d), LAUNCH + t, lambda w: yt, KEY, thumb_path=None)
+    h = short.History(str(d))
+    u = h.fresh()
+    h.goto(u, h.now_gen)
+    ys, xs = np.nonzero(u.grid)
+    aim = f"block {xs[0]},{ys[0]}"
+    yt.comments += [Comment("c2", "u2", iso(LAUNCH + 1900), f"{aim} black"),
+                    Comment("c3", "u3", iso(LAUNCH + 1950), "black cats are cool")]
+    for t in range(1800, 4800, 600):
+        tick.run(str(d), LAUNCH + t, lambda w: yt, KEY, thumb_path=None)
+    replay.verify(str(d))  # the public log still replays to the bot's state
+    h = short.History(str(d))
+    moves = [e for g in sorted(h.batches) for e in h.batches[g]]
+    eraser = next(e for e in moves if e.get("erase"))
+    assert eraser["changed"] and eraser["killed"] > 0 and render.move_text(eraser) == f"{aim} black"
+    assert "erased" in render.move_label(eraser)
+    said = next(e for e in moves if e is not eraser and e["command"].startswith("random"))
+    assert not said.get("erase")  # no pattern named: it added cells as usual
+    u = h.fresh()
+    h.goto(u, h.now_gen)
+    got = run_page(tmp_path, {"log": str(d / "log.jsonl"), "gen": h.now_gen, "g0": eraser["gen"]})
+    assert got["grid"] == u.grid.ravel().tolist() and got["paint"] == u.paint.ravel().tolist()
+    snap = stream.load(str(d), now=LAUNCH + 4800)  # stepped on to the wall clock
+    h.goto(u, snap.u.generation)
+    assert snap.u.generation > eraser["gen"] and np.array_equal(snap.u.grid, u.grid)
+    assert stream.Screen(snap).compose(LAUNCH + 4800).size == (stream.SW, stream.SH)
+
+
 def render_paint(name):
     import render
     return render.PAINT[name]
@@ -579,3 +622,18 @@ console.log(JSON.stringify(out));
     got = json.loads(subprocess.run(["node", str(script), docs], capture_output=True, text=True, check=True).stdout)
     for n in names:
         assert got[n] == [f.ravel().tolist() for f in render.demo(n, 9)], n
+
+
+def test_an_erasers_shape_is_outlined_where_its_cells_died_and_fades():
+    g = np.zeros((72, 128), np.uint8)
+    g[10, 11] = 1  # one cell of the shape still alive (it was not hit, or came back)
+    ghost = np.zeros_like(g)
+    ghost[10, 10] = ghost[10, 11] = 1
+    cell, = stream.geometry(g.shape)[:1]
+    img = stream.board_rgb(g, "ALIVE", None, ghost=ghost)
+    assert tuple(img[10 * cell + 1, 10 * cell + cell // 2]) == stream.GHOST  # the dead one: outlined
+    assert tuple(img[10 * cell + cell // 2, 10 * cell + cell // 2]) != stream.GHOST  # hollow
+    assert tuple(img[10 * cell + 1, 11 * cell + cell // 2]) != stream.GHOST  # the live one: drawn as usual
+    faint = stream.board_rgb(g, "ALIVE", None, ghost=ghost, ghost_a=0.3)
+    assert int(faint[10 * cell + 1, 10 * cell + cell // 2].astype(int).sum()) < int(img[10 * cell + 1, 10 * cell + cell // 2].astype(int).sum())
+    assert np.array_equal(stream.board_rgb(g, "ALIVE", None, ghost=ghost, ghost_a=0.0), stream.board_rgb(g, "ALIVE", None))

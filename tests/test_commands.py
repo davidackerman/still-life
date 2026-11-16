@@ -160,3 +160,22 @@ def test_a_time_in_a_message_schedules_its_move(text, delay, kind):
     cmd = commands.parse("c1", text)
     assert cmd.delay_s == delay and cmd.kind == kind
     assert commands.parse("c1", "rpent 40,30 in 1h").desc == "rpent 40,30"  # the time is not a coordinate
+
+
+def test_black_with_a_named_pattern_erases_instead():
+    plain = commands.parse("c1", "glider 40,20")
+    for text in ("glider 40,20 black", "BLACK glider 40,20", "glider 40,20 black red"):
+        e = commands.parse("c1", text)
+        assert e.erase and e.cells == plain.cells and e.desc == plain.desc and e.color is None  # erasing: no paint
+    assert commands.parse("c1", "block black").erase  # a bare pattern, at the comment's spot
+    assert commands.parse("c1", "cells 3,4 5,6 black").erase
+    later = commands.parse("c1", "rpent 10,10 black in 1h")
+    assert later.erase and later.delay_s == 3600
+    assert not commands.parse("c1", "glider 40,20 blue").erase
+
+
+def test_black_without_a_pattern_never_erases():
+    for text in ("black cats are cool", "hi black", "glider 40,20 blackbird", "blackout block 3,4"):
+        assert not commands.parse("c1", text).erase, text
+    hi = commands.parse("c9", "black cats are cool")  # the usual random patch: it adds cells
+    assert hi.kind == "random" and hi.color is None

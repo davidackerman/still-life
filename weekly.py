@@ -94,7 +94,7 @@ def result(eff: dict, gen_seconds: int) -> tuple[str, tuple]:
 
 def quoted(e: dict) -> str:
     """A move as what someone typed: “acorn 16,18 red”."""
-    return "“" + e["command"] + (f" {e['color']}" if e.get("color") else "") + "”"
+    return "“" + rd.move_text(e) + "”"
 
 
 # ---------------------------------------------------------------- drawing

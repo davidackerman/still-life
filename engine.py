@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 import admission
 import commands
 import render
-from universe import ALIVE, DIED, GEN_SECONDS, Universe, target_generation
+from universe import ALIVE, DIED, GEN_SECONDS, Universe, move_input, target_generation
 
 # Writes cost 50 units each and are most of the daily quota, so they are paced by
 # the clock, not by how often the bot runs.
@@ -233,8 +233,7 @@ def effects_from_log(entries: list[dict]) -> list[dict]:
         if e["type"] != "tick":
             segment.append(e)
             continue
-        inj = [{"command": x["command"], "cells": x["cells"], "run_at": x["run_at"]}
-               for x in segment if x["type"] == "injection"]
+        inj = [move_input(x) for x in segment if x["type"] == "injection"]
         if inj:
             out += [x for x in comment_effects(u, inj) if x]
             u.inject(inj)
@@ -503,7 +502,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             via = lambda q: "chat" if q.get("chat") else (  # noqa: E731 - where the move came from
                 vids[q["video"]] if isinstance(q.get("video"), int) and 0 <= q["video"] < len(vids) else None)
             items = [{"command": q["command"], "cells": q["cells"], "run_at": run_at, **({"via": via(q)} if via(q) else {}),
-                      **({"color": q["color"]} if q.get("color") else {})} for q in group]  # paint: only its look
+                      **({"color": q["color"]} if q.get("color") else {}),  # paint: only its look
+                      **({"erase": True} if q.get("erase") else {})} for q in group]  # "black": its cells die
             f = world.forecast
             known = f["stuck_gen"] if f and f["key"] == [u.history_base, u.phase] else False
             effects = comment_effects(u, items, known)
@@ -515,7 +515,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
                 who[id(ev)] = ("chat:" if q.get("chat") else "") + q["author"]
                 if ev["changed"]:
                     world.last_changer = {"comment": q["comment"], "author": q["author"],
-                                          "gen": ev["gen"], "command": q["command"]}
+                                          "gen": ev["gen"], "command": render.move_text(q)}
             k = 0
             for ev in inj_events:  # each comment's effect follows it in the log
                 events.append(ev)
@@ -527,7 +527,7 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             if done and u.phase == ALIVE:  # the last effect's forecast is the new forecast
                 world.forecast = {"key": [u.history_base, u.phase], "stuck_gen": done[-1]["after"],
                                   "horizon": u.generation + FORECAST_GENS}
-            world.highlight.update(tuple(c) for q in group for c in q["cells"])
+            world.highlight.update(tuple(c) for q in group if not q.get("erase") for c in q["cells"])  # new life only
         events += u.advance_to(target)
 
     if world.recent is None:

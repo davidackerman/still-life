@@ -35,7 +35,7 @@ import life
 import render
 from render import BG, GRID, HIGHLIGHT, PHASE_COLOR
 from store import read_log
-from universe import DIED, Universe
+from universe import DIED, Universe, move_input
 
 PW, PH = 1080, 1920
 CELL = 15  # board image: 128 x 72 cells -> 1920 x 1080
@@ -444,15 +444,15 @@ class History:
             g = min(due)
             self.advance(u, g)
             batch = self.batches[g]
-            u.inject([{"command": e["command"], "cells": e["cells"], "run_at": e["run_at"]} for e in batch])
+            u.inject([move_input(e) for e in batch])
             paint = getattr(u, "paint", None)
             for e in batch:
-                if paint is not None and e.get("color") in commands.COLORS:
-                    k = commands.COLORS.index(e["color"]) + 1
+                if paint is not None and (e.get("erase") or e.get("color") in commands.COLORS):
+                    k = 0 if e.get("erase") else commands.COLORS.index(e["color"]) + 1  # an eraser's cells: dead, unpainted
                     for x, y in e["cells"]:
                         paint[y % paint.shape[0], x % paint.shape[1]] = k
             self.applied.add(g)
-            cells += [tuple(c) for e in batch for c in e["cells"]]
+            cells += [tuple(c) for e in batch if not e.get("erase") for c in e["cells"]]  # new life, to light up
         self.advance(u, target)
         return cells
 
@@ -603,7 +603,7 @@ def build(state_dir: str, since_gen: int | None = None) -> list:
             cells = [tuple(c) for e in batch for c in e["cells"]]
             piece = main_piece([tuple(c) for c in batch[-1]["cells"]])
             lit = life.mask(cells)
-            caption = f"a comment: {batch[-1]['command']}" + (f" (+{len(batch) - 1} more)" if len(batch) > 1 else "")
+            caption = f"a comment: {render.move_text(batch[-1])}" + (f" (+{len(batch) - 1} more)" if len(batch) > 1 else "")
             hold, z = int(2.4 * FPS), 2.6
             for i in range(hold):
                 if i > 10 and i % 4 == 0:  # let it be seen where it landed, then let it move
@@ -1175,7 +1175,7 @@ def flights(h: History, since_gen: int = 0) -> list:
     """Every logged glider after `since_gen`, as (generations flown, gen, move, effect), longest first."""
     out, u = [], h.fresh()
     for g in sorted(x for x in h.batches if since_gen < x <= h.now_gen):
-        movers = [e for e in h.batches[g] if e["command"].startswith("glider") and e.get("cells")]
+        movers = [e for e in h.batches[g] if e["command"].startswith("glider") and e.get("cells") and not e.get("erase")]
         if movers:
             h.goto(u, g)
             out += [(_flew(h, u, e), g, e, h.effects.get((g, e["command"]))) for e in movers]

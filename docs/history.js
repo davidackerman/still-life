@@ -1,6 +1,7 @@
 // Rebuild the universe's past from the public log (state/log.jsonl), in the
 // browser. Same rules and order as the bot: at each generation, logged
-// injections are OR-ed in first, then the grid steps to the next generation.
+// injections are OR-ed in first (an eraser's, saying black, set dead), then the
+// grid steps to the next generation.
 // Keeps a snapshot every SNAP generations so scrubbing is instant. It also keeps
 // the paint (the colors people gave their moves) exactly as life.paint_step does.
 "use strict";
@@ -45,7 +46,8 @@ const History = (() => {
         if (!injections.has(e.gen)) injections.set(e.gen, []);
         const effect = effects.get(`${e.gen}|${e.command}`) || null;
         injections.get(e.gen).push({ ...e, effect });
-        events.push({ gen: e.gen, kind: "comment", command: e.command, changed: e.changed, effect, via: e.via });
+        events.push({ gen: e.gen, kind: "comment", command: e.command, changed: e.changed, effect, via: e.via,
+                      erase: !!e.erase, killed: e.killed });
       } else if (e.type === "phase") {
         events.push({ gen: e.gen, kind: "phase", to: e.to, reason: e.reason, deadline: e.deadline_gen });
       } else if (e.type === "tick") {
@@ -125,18 +127,24 @@ const History = (() => {
       this.snaps.set(0, this.cur);
     }
 
-    // That generation's moves, OR-ed in; a move with a color paints its cells.
+    // That generation's moves, OR-ed in; a move with a color paints its cells, and
+    // an eraser's (it said black) die instead, as universe.inject.
     inject(gen, grid, paint) {
       const batch = this.injections.get(gen);
       if (!batch) return { grid, paint };
       const out = grid.slice();
       for (const inj of batch) {
-        const k = COLORS.indexOf(inj.color) + 1;
+        const k = inj.erase ? 0 : COLORS.indexOf(inj.color) + 1;
         if (k && !paint) paint = new Uint8Array(this.h * this.w);  // (a paint passed in is always a fresh copy)
         for (const [x, y] of inj.cells) {
           const i = (y % this.h) * this.w + (x % this.w);
-          out[i] = 1;
-          if (k) paint[i] = k;
+          if (inj.erase) {
+            out[i] = 0;
+            if (paint) paint[i] = 0;
+          } else {
+            out[i] = 1;
+            if (k) paint[i] = k;
+          }
         }
       }
       return { grid: out, paint };

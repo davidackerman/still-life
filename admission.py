@@ -153,6 +153,7 @@ def admit(state: Admission, new_comments: list[Comment], now: float, key: bytes,
                             "command": cmd.desc, "cells": [list(xy) for xy in cmd.cells], "chat": c.video < 0,
                             "video": c.video,  # which of our videos (an index), for "from the Day 5 Short"
                             **({"color": cmd.color} if cmd.color else {}),
+                            **({"erase": True} if cmd.erase else {}),  # "black": its cells die instead
                             **({"land_gen": land} if land != gen_of(c.epoch) else {}),  # scheduled, or waiting its turn
                             **({"scheduled": True} if cmd.delay_s else {})})
         counts["accepted"] += 1
