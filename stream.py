@@ -1120,10 +1120,16 @@ class Screen:
             d.text((x, mid), args, font=fr, fill=MUTED, anchor="lm")
             x += d.textlength(args, font=fr) + 30
         f18 = font("regular", 18)
-        for first in ("one move per message, up to 3 per person every 2 min", "up to 3 moves per person every 2 min"):
+        # the fullest wording that fits the board's width (the server's font is wider than a Mac's):
+        # the long rule, then the short one, then the live page's address alone, then without it
+        for first, tail in (("one move per message, up to 3 per person every 2 min", "every move so far: "),
+                            ("up to 3 moves per person every 2 min", "every move so far: "),
+                            ("up to 3 moves per person every 2 min", ""),
+                            ("up to 3 moves per person every 2 min", None)):
             parts = [(first + "   ·   add a color: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
             parts += [("  ·   ", MUTED), (commands.ERASE, ERASE_INK), (" erases", MUTED)]  # "glider 40,20 black"
-            parts += [(f"  ·   every move so far: {render.LIVE_ADDRESS}", MUTED)]
+            if tail is not None:
+                parts += [(f"  ·   {tail}{render.LIVE_ADDRESS}", MUTED)]
             if sum(d.textlength(s, font=f18) for s, _ in parts) <= width:
                 break
         for s, color in parts:
