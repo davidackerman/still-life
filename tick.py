@@ -44,6 +44,8 @@ ALERTS_PATH = os.path.join("out", "alerts.json")  # posted as GitHub issues by t
 
 
 SLOW_EXTRA_S = 30 * 60  # Shorts older than the newest three: comments read every 30 minutes
+# What the live page calls each hand-uploaded video (EXTRA_VIDEO_IDS) a move came from
+HAND_UPLOADS = {"m-JcepjW41U": "the teaser Short", "iCukC64w-wQ": "the week-one video"}
 COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come every 1-5 for the chat: deploy/kick.py)
 
 
@@ -209,8 +211,8 @@ def main(argv=None) -> int:
         main = world.video_id or video_id  # universe #2 on lives on the obituary video
         names = world.video_names  # what the live page calls each video a move came from
         names.setdefault(main, "the main video")
-        for v in extra_ids:
-            names.setdefault(v, "the teaser Short")
+        for v in extra_ids:  # the videos uploaded by hand (EXTRA_VIDEO_IDS)
+            names.setdefault(v, HAND_UPLOADS.get(v, "a video on this channel"))
         for i, v in enumerate(world.extra_videos):  # (the daily Shorts so far, one a day from Day 2)
             names.setdefault(v, f"the Day {i + 2} Short")
         due = now - world.comments_read_at >= COMMENTS_EVERY_S  # the chat is read every run
