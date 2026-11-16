@@ -31,9 +31,11 @@ ET = ZoneInfo("America/New_York")
 # second audience; the slots are far enough apart that neither eats the other's
 # window. (One a day at 6 PM until 2026-11-12, then 2 PM until 2026-11-15.)
 SLOTS_ET = (12, 20)
-# Only these slots' Shorts notify subscribers: two notices a day would wear thin, and
-# the noon one is for strangers anyway (the Shorts feed shows it to them either way).
-NOTIFY_SLOTS = (20,)
+# These slots' Shorts go out to subscribers (their subscriptions feed and a notification).
+# Noon was left out on 2026-11-16 and got 1 view in its first 36 minutes, none from the
+# Shorts feed (earlier Shorts: 9-88 in 30), so both do: the API's notifySubscribers=False
+# seems to keep a Short out of the subscriptions feed too, the early viewers every Short had.
+NOTIFY_SLOTS = SLOTS_ET
 RECAP_HOURS = 24  # the first slot's recap; a later slot's covers the hours since the slot before it
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"

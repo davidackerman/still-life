@@ -213,7 +213,7 @@ def test_two_shorts_a_day_noon_and_8_pm(d):
     assert "in the last 8 hours" in second["description"]
     assert "still-life universe 1 day 1 slot 20" in second["description"]
     assert "slot 20" not in first["description"] and "slot 12" not in second["description"]
-    assert yt.notified == [False, True]  # only the 8 PM Short tells subscribers
+    assert yt.notified == [True, True]  # both go out to subscribers
     s = state(d)
     assert s["daily"]["slot"] == 20 and s["config"]["extra_videos"] == ["SHORT1", "SHORT2"]
     assert yt.stream_titles == ["This stream dies if nobody chats · Game of Life, Universe 1, Day 1"]  # once a day
@@ -269,7 +269,7 @@ def test_noon_is_the_stranger_and_8_pm_the_countdown_each_falling_back_to_the_re
     assert first["title"] == "One comment gave this universe 9 more days to live #GameOfLife"  # no day count
     assert second["title"] == "This universe has 4 days left #GameOfLife"
     assert first["description"].startswith("One comment gave this universe 9 more days to live: every comment")
-    assert "live stream" in second["description"] and yt.notified == [False, True]
+    assert "live stream" in second["description"] and yt.notified == [True, True]
     monkeypatch.setattr(short, "opening_move", lambda h, since, lead=None: None)  # nothing moved it much
     monkeypatch.setattr(short, "countdown", lambda h, now=None, stuck_now=None: None)  # no loop in sight
     tick.run(d, noon + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
