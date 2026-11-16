@@ -929,7 +929,19 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
     say = add_chip or add  # the comment bubbles carry on under the moves and the stakes
     _moves(h, u, shown, head, say, h.now_gen, effect_text)
 
-    # the stakes: where its death stands now
+    _stakes(h, now, stuck_now, u, say)
+    if end_chips:
+        end_chips()
+
+
+def _stakes(h: History, now: Universe, stuck_now, u: Universe, say) -> None:
+    """Where its death stands now. Alive: its real future, fast, into the loop and
+    grey ("and dies Sat Nov 21"). Stuck, or a loop broken: the deadline, over `u`
+    playing on."""
+    import render as rd
+    G, F = h.gen_seconds, now.flatline_gens
+    launch = h.genesis["launch_time"]
+
     def death_day(stuck):
         return rd._at(launch, stuck + F, G, "%a %b %d")
     if now.phase == "ALIVE" and stuck_now is not None:  # its real future: into the loop, then grey
@@ -963,8 +975,149 @@ def _recap(h: History, now: Universe, since_gen: int, add, stuck_now, add_chip=N
             if i % 4 == 0:
                 h.goto(u, u.generation + 1)
             say(u, block(top, TOP_Y, fade(i, n)) + block(bottom, BOTTOM_Y, fade(i, n)))
-    if end_chips:
-        end_chips()
+
+
+# ---------------------------------------------------------------- the stranger and the countdown
+# Two daily Shorts made for people who have never seen this universe (almost all of a
+# Short's viewers: 657 new to 3 returning on the teaser). Short, one idea each, and
+# ending on "comment, and watch it land live" (the Related video link is the stream).
+# The stranger (noon): what one real comment did. The countdown (8 PM): how long it has.
+
+
+def stranger_title(move, gen_seconds: int) -> str:
+    """'One comment gave this universe 9 more days to live' (or took them): the stranger Short's headline."""
+    _, _, f = move
+    words = effect_words(f["before"], f["after"], gen_seconds)
+    if words.startswith("gave it "):
+        return "One comment gave this universe " + words.removeprefix("gave it ")
+    return "One comment took " + words.removeprefix("took ").removesuffix(" off its life") + " off this universe's life"
+
+
+def _frames(add_to: list):
+    whole = (BW / 2, BH / 2)
+
+    def add(u, texts=(), zoom=1.0, focus=whole, extras=(), **kw):
+        band, free, dark = kw.pop("band", None), kw.pop("free", False), kw.pop("scrim", 0.0)
+        f = ex.Frame(u, texts=texts, hud=False, zoom=zoom, dim=kw.pop("dim", 0.0), extras=extras, **kw)
+        f.focus, f.free, f.scrim = focus, free, dark
+        if band:
+            f.band = band
+        paint = getattr(u, "paint", None)
+        f.paint = paint.copy() if paint is not None and paint.any() else None
+        add_to.append(f)
+    return add
+
+
+STRANGER_WHAT = [("This is Conway's Game of Life.", "bold", 80), ("Every comment adds cells to it.", "demi", 64)]
+WATCH_LIVE = ("Live now: the link below", "demi", 50)  # the Short's Related video link: the stream
+
+
+def build_stranger(state_dir: str, since_gen: int) -> list | None:
+    """The noon Short, about 15 s: the period's biggest real save or kill ("One comment
+    gave this Short 9 more days to live", over a full screen of board, the comment where
+    it landed), what this is, and "Your turn". None if nothing moved its fate much."""
+    h = History(state_dir)
+    move = opening_move(h, since_gen)
+    if move is None:
+        return None
+    frames: list = []
+    add = _frames(frames)
+    _open_on(h, move, add)
+    u = h.fresh()
+    h.goto(u, frames[-1].gen)
+    n = rf(*[t for t, _, _ in STRANGER_WHAT])
+    for i in range(n):
+        if i % 4 == 0:
+            h.goto(u, u.generation + 1)
+        add(u, block(STRANGER_WHAT, TOP_Y, fade(i, n)))
+    top = [("Your turn.", "bold", 104), ("Comment anything.", "bold", 84)]
+    bottom = [("Then watch it land live.", "demi", 64), WATCH_LIVE]
+    n = rf(*[t for t, _, _ in top + bottom])
+    for i in range(n):
+        if i % 4 == 0:
+            h.goto(u, u.generation + 1)
+        a = min(1.0, (i + 1) / FADE)  # no fade out: it loops
+        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y, a))
+    primer, pu = [], h.fresh()
+    h.goto(pu, max(0, frames[0].gen - life.TRAIL_GENS))
+    while pu.generation < frames[0].gen:
+        primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
+        h.goto(pu, pu.generation + 1)
+    add_trails(frames, primer)
+    return frames
+
+
+def time_left(seconds: float) -> str:
+    """'4 days', '30 hours', '45 minutes': rounded down, so a countdown never claims more time than it has."""
+    if seconds >= 2 * 86400:
+        return f"{int(seconds // 86400)} days"
+    if seconds >= 2 * 3600:
+        return f"{int(seconds // 3600)} hours"
+    n = max(1, int(seconds // 60))
+    return f"{n} minute{'s' * (n != 1)}"
+
+
+def countdown(h: History, now: Universe | None = None, stuck_now=None) -> tuple[list, str] | None:
+    """The countdown Short's hook lines and headline, from where its death stands now:
+    'This universe has 4 days left' (alive), 'dies in 7 hours' (stuck), 'could die in
+    7 hours' (a comment broke its loop). None when no loop is in sight within the
+    forecast: no urgency to claim."""
+    if now is None:
+        now = h.fresh()
+        h.goto(now, h.now_gen)
+        stuck_now = now.forecast_stuck(FORECAST_GENS) if now.phase == "ALIVE" else None
+    G = h.gen_seconds
+    if now.phase == "ALIVE":
+        if stuck_now is None:
+            return None
+        left = time_left((stuck_now + now.flatline_gens - now.generation) * G)
+        return [("This universe has", "bold", 96), (f"{left} left.", "bold", 150)], f"This universe has {left} left"
+    if now.phase in ("FLATLINING", "CONTESTED") and now.deadline_gen is not None:
+        left = time_left(max(1, now.deadline_gen - now.generation) * G)
+        verb = "dies" if now.phase == "FLATLINING" else "could die"
+        return [(f"This universe {verb}", "bold", 96), (f"in {left}.", "bold", 150)], f"This universe {verb} in {left}"
+    return None
+
+
+def build_countdown(state_dir: str) -> list | None:
+    """The 8 PM Short, about 20 s: how long it has, over the whole board moving
+    (its band, as the teaser that kept the most viewers); its real future, into the
+    loop and grey; then "Your comment changes that", and the live chat."""
+    h = History(state_dir)
+    now = h.fresh()
+    h.goto(now, h.now_gen)
+    stuck_now = now.forecast_stuck(FORECAST_GENS) if now.phase == "ALIVE" else None
+    hook = countdown(h, now, stuck_now)
+    if hook is None:
+        return None
+    lines, _ = hook
+    frames: list = []
+    add = _frames(frames)
+    sub_line = [("if nobody comments", "demi", 80)] if now.phase == "ALIVE" else [("unless a comment saves it", "demi", 72)]
+    n = max(int(2.7 * FPS), rf(*[t for t, _, _ in lines + sub_line]))
+    u = copy.deepcopy(now)
+    for i in range(n):
+        if i % 3 == 0 and i:  # moving from the first frame (the thumbnail), slowly enough to see
+            History.advance(u, u.generation + 1)
+        a = 1.0 if i < n - FADE else fade(i, n)
+        add(u, block(lines, TOP_Y, a) + block(sub_line, BOTTOM_Y, a))
+    _stakes(h, now, stuck_now, copy.deepcopy(now), add)
+    top = [("Your comment", "bold", 104), ("changes that.", "bold", 104)]
+    bottom = [("Comment, or join the live chat.", "demi", 64), WATCH_LIVE]
+    n = rf(*[t for t, _, _ in top + bottom])
+    u = copy.deepcopy(now)
+    for i in range(n):
+        if i and i % 3 == 0:
+            History.advance(u, u.generation + 1)
+        a = min(1.0, (i + 1) / FADE)  # no fade out: it loops back to the hook's board
+        add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y, a))
+    primer, pu = [], h.fresh()
+    h.goto(pu, max(0, now.generation - life.TRAIL_GENS))
+    while pu.generation < now.generation:
+        primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
+        h.goto(pu, pu.generation + 1)
+    add_trails(frames, primer)
+    return frames
 
 
 # ---------------------------------------------------------------- a glider's flight
@@ -1513,7 +1666,15 @@ def render_video(state_dir: str, out: str, since_gen: int | None = None, preview
     """Render the Short (or, with `since_gen`, the recap since then; with kind="flight",
     the glider Short) to an MP4."""
     ex.SCALE = 1  # explainer's text helpers draw in pixels here
-    frames = build_flight(state_dir, pick) if kind == "flight" else build_rewind(state_dir) if kind == "rewind" else None
+    frames = None
+    if kind == "flight":
+        frames = build_flight(state_dir, pick)
+    elif kind == "rewind":
+        frames = build_rewind(state_dir)
+    elif kind == "stranger" and since_gen is not None:
+        frames = build_stranger(state_dir, since_gen)
+    elif kind == "countdown":
+        frames = build_countdown(state_dir)
     if frames is None:
         frames = build(state_dir, since_gen)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
@@ -1547,12 +1708,15 @@ def main() -> None:
     ap.add_argument("--flight", action="store_true", help="the glider Short: the longest recent glider flight in the log")
     ap.add_argument("--pick", help='with --flight, this logged move instead (e.g. "glider 66,8 se")')
     ap.add_argument("--rewind", action="store_true", help="the rewind Short: the week backward to the acorn")
+    ap.add_argument("--stranger", action="store_true", help="with --since-hours: the noon Short (one comment's save or kill)")
+    ap.add_argument("--countdown", action="store_true", help="the 8 PM Short: how long it has left")
     args = ap.parse_args()
     since = None
     if args.since_hours:
         h = History(args.state_dir)
         since = max(0, h.now_gen - int(args.since_hours * 3600 // h.gen_seconds))
-    kind = "flight" if args.flight else "rewind" if args.rewind else "recap"
+    kind = ("flight" if args.flight else "rewind" if args.rewind else "stranger" if args.stranger
+            else "countdown" if args.countdown else "recap")
     render_video(args.state_dir, args.out, since, args.preview, kind, args.pick)
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 

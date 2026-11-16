@@ -50,6 +50,12 @@ class DailyYT:
         return "UgS"
 
 
+@pytest.fixture(autouse=True)
+def recap_by_default(monkeypatch):
+    import daily
+    monkeypatch.setattr(daily, "DEFAULT_KINDS", {})  # written for the recap; the newer kinds have their own tests
+
+
 @pytest.fixture
 def d(monkeypatch, tmp_path):
     for k in ("SEED", "GEN_SECONDS", "FLATLINE_HOURS"):
@@ -240,3 +246,41 @@ def test_a_planned_slot_posts_the_rewind_short(d, monkeypatch):
     assert yt.uploads[0]["title"] == "It started as 7 cells · Universe 1, Day 1 #GameOfLife"
     assert yt.uploads[0]["description"].startswith("It started as 7 cells: this Short rewinds the whole week")
     assert yt.uploads[1]["title"].startswith("This Short dies if nobody comments")
+
+
+def test_noon_is_the_stranger_and_8_pm_the_countdown_each_falling_back_to_the_recap(d, monkeypatch):
+    import daily
+    import short
+    monkeypatch.setattr(daily, "DEFAULT_KINDS", {12: "stranger", 20: "countdown"})
+    noon, evening = LAUNCH + 5.2 * 3600, LAUNCH + 13.1 * 3600
+    assert daily.kind(noon) == "stranger" and daily.kind(evening) == "countdown"
+    monkeypatch.setattr(daily, "PLAN", {daily.today(noon): {20: "rewind"}})
+    assert daily.kind(noon) == "stranger" and daily.kind(evening) == "rewind"  # a plan still wins its slot
+    monkeypatch.setattr(daily, "PLAN", {})
+    move = (40, {"command": "acorn 1,1", "cells": [[1, 1]]}, {"before": 100, "after": 100 + 9 * 720})
+    monkeypatch.setattr(short, "opening_move", lambda h, since, lead=None: move)
+    monkeypatch.setattr(short, "countdown", lambda h, now=None, stuck_now=None: ([], "This universe has 4 days left"))
+    yt, calls = DailyYT(), []
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, noon, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    tick.run(d, evening, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    assert calls == [{"kind": "stranger"}, {"kind": "countdown"}]
+    first, second = yt.uploads
+    assert first["title"] == "One comment gave this universe 9 more days to live #GameOfLife"  # no day count
+    assert second["title"] == "This universe has 4 days left #GameOfLife"
+    assert first["description"].startswith("One comment gave this universe 9 more days to live: every comment")
+    assert "live stream" in second["description"] and yt.notified == [False, True]
+    monkeypatch.setattr(short, "opening_move", lambda h, since, lead=None: None)  # nothing moved it much
+    monkeypatch.setattr(short, "countdown", lambda h, now=None, stuck_now=None: None)  # no loop in sight
+    tick.run(d, noon + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    tick.run(d, evening + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    assert calls[-2:] == [{}, {}] and all(u["title"].startswith("This Short dies") for u in yt.uploads[-2:])
+
+
+def test_the_stranger_title_says_what_one_comment_did():
+    import short
+    G = 120
+    assert short.stranger_title((1, {}, {"before": 100, "after": 100 + 9 * 720}), G) == \
+        "One comment gave this universe 9 more days to live"
+    assert short.stranger_title((1, {}, {"before": 100 + 30 * 30, "after": 100}), G) == \
+        "One comment took 1 day off this universe's life"

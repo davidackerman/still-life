@@ -258,3 +258,18 @@ def test_the_glider_short_picks_a_colored_glider_before_a_longer_plain_one(monke
     assert short.pick_flight(h, pick="glider 1,1 sw")[2] is plain
     monkeypatch.setattr(short, "flights", lambda h: [trips[0], trips[3]])
     assert short.pick_flight(h)[2] is plain  # none colored flew far enough: the longest plain one
+
+
+def test_the_countdown_says_how_long_it_has_rounded_down_and_nothing_without_a_loop():
+    from types import SimpleNamespace as NS
+    h = NS(gen_seconds=120)
+    alive = NS(phase="ALIVE", generation=1000, flatline_gens=720, deadline_gen=None)
+    day = 720  # generations in a day
+    assert short.countdown(h, alive, 1000 + int(3.75 * day))[1] == "This universe has 4 days left"  # 4d 18h: not 5
+    assert short.countdown(h, alive, 1000 + day // 4)[1] == "This universe has 30 hours left"
+    assert short.countdown(h, alive, None) is None  # no loop in sight: no urgency to claim
+    stuck = NS(phase="FLATLINING", generation=1000, flatline_gens=720, deadline_gen=1000 + 7 * 30)
+    assert short.countdown(h, stuck)[1] == "This universe dies in 7 hours"
+    broke = NS(phase="CONTESTED", generation=1000, flatline_gens=720, deadline_gen=1000 + 20)
+    assert short.countdown(h, broke)[1] == "This universe could die in 40 minutes"
+    assert short.time_left(90) == "1 minute"

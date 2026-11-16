@@ -79,17 +79,24 @@ def stream_title(world, day: int) -> str:
     return f"This stream dies if nobody chats · Game of Life, Universe {world.universe_no}, Day {day}"
 
 
+# Each slot's kind of Short, unless PLAN says otherwise: noon, the stranger (what one real
+# comment did, for people who've never seen this universe); 8 PM, the countdown (how
+# long it has, and the live chat). Either falls back to the recap when it has nothing
+# true to say (nothing moved its fate much; no loop in sight). From 2026-11-16.
+DEFAULT_KINDS = {12: "stranger", 20: "countdown"}
 # Which kind of Short posts on a New York date: a kind (the first slot's) or {slot: kind};
-# every other slot, the recap.
+# every other slot, its DEFAULT_KINDS kind.
 PLAN = {"2026-11-14": "flight",  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
         "2026-11-15": {20: "rewind"}}  # Sun Nov 15 (Day 8), 8 PM: the week backward (short.build_rewind)
 
 
 def kind(now: float) -> str:
-    plan = PLAN.get(today(now))
-    if isinstance(plan, dict):
-        return plan.get(slot(now), "recap")
-    return plan if plan and slot(now) == SLOTS_ET[0] else "recap"
+    plan, s = PLAN.get(today(now)), slot(now)
+    if isinstance(plan, dict) and s in plan:
+        return plan[s]
+    if isinstance(plan, str) and s == SLOTS_ET[0]:
+        return plan
+    return DEFAULT_KINDS.get(s, "recap")
 
 
 def recap_hours(at: int | None) -> int:
@@ -97,7 +104,11 @@ def recap_hours(at: int | None) -> int:
     return RECAP_HOURS if k == 0 else SLOTS_ET[k] - SLOTS_ET[k - 1]
 
 
-INTROS = {"flight": "this Short follows it across the universe until it hits something.",
+INTROS = {"stranger": "every comment on this Short adds cells to a live Game of Life universe, and some change "
+                      "how long it lives.",
+          "countdown": "if nobody comments, it gets stuck in a loop, and 24 hours later it dies. Every comment "
+                       "adds cells and can change that.",
+          "flight": "this Short follows it across the universe until it hits something.",
           "rewind": "this Short rewinds the whole week to the 7-cell acorn it began as, then shows the "
                     "universe it would have been with no comments at all."}
 
@@ -130,7 +141,10 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
     when = f"Day {day}, evening" if evening else f"Day {day}"
-    return {"title": f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, {when} #GameOfLife",
+    title = f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, {when} #GameOfLife"
+    if headline and kind in ("stranger", "countdown"):  # for strangers: what happened, not the channel's day count
+        title = f"{headline} #GameOfLife"
+    return {"title": title,
             "description": desc,
             "tags": ["game of life", "conway's game of life", "cellular automata", "glider", "simulation",
                      "interactive", "live", "emergence"],
@@ -163,6 +177,12 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
             headline = short.flight_title(trip)
     elif what == "rewind":
         headline = short.REWIND_TITLE
+    elif what == "stranger":  # the period's biggest real save or kill; none moved it much: the recap
+        move = short.opening_move(short.History(store.dir), since)
+        headline = short.stranger_title(move, world.gen_seconds) if move else None
+    elif what == "countdown":  # how long it has; no loop in sight: the recap (no urgency to claim)
+        hook = short.countdown(short.History(store.dir))
+        headline = hook[1] if hook else None
     if headline:
         render_short(store.dir, out, since, kind=what)
     else:
