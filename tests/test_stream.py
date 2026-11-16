@@ -333,6 +333,9 @@ def test_the_rewind_is_counted_down_and_the_graph_and_labels_follow_the_past(sta
     assert stream.curve_until(pts, 50) == [(0, 100), (50, 50), (50, 80)]  # the jump has happened
     assert stream.curve_until(pts, 75) == [(0, 100), (50, 50), (50, 80), (75, 55.0)]
     assert stream.curve_until(pts, 200) == pts
+    assert stream.curve_from(pts, 75) == [(75, 55.0), (100, 30)]
+    lo, hi, mean = stream.typical(pts, 0, 100, 2)[1]  # 50 to 100: the jump to 80, then down to 30
+    assert (lo, hi) == (30, 80) and 50 < mean < 60
     snap = stream.load(state_dir, now=LAUNCH + 3700)
     screen = stream.Screen(snap)
     screen.rewind = r = stream.Rewind(state_dir, slot, snap.u.generation)

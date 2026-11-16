@@ -48,6 +48,10 @@ from universe import ALIVE, CONTESTED, DIED, FLATLINING, Universe, target_genera
 SW, SH = 1920, 1080
 BOARD_X, BOARD_Y, BOARD_W, BOARD_H = 56, 60, 1408, 792  # the board's box (128 x 72 at 11 px)
 COL_X, COL_W = 1500, 380  # the column on the right
+# The time-left graph: the last RECENT_H hours, every move drawn, take the right
+# RECENT_SHARE of it; the whole life before that is drawn smoothed on the left
+# (move by move it crowded: hundreds of moves a day in a few hundred pixels).
+RECENT_H, RECENT_SHARE = 6, 0.45
 # Frames drawn per second; ffmpeg repeats them up to OUT_FPS. Encoding is most
 # of the work (about half a fast core at 30 fps, a quarter at 10): STREAM_FPS=15
 # if the machine falls behind (YouTube's guidance is 30).
@@ -325,6 +329,24 @@ def curve_until(pts: list, g: float) -> list:
     if out and nxt and out[-1][0] < g:
         (g0, v0), (g1, v1) = out[-1], nxt
         out.append((g, v0 + (v1 - v0) * (g - g0) / (g1 - g0)))
+    return out
+
+
+def curve_from(pts: list, g: float) -> list:
+    """The time-left curve from generation `g` on, starting exactly there."""
+    return [(g, curve_until(pts, g)[-1][1])] + [p for p in pts if p[0] > g]
+
+
+def typical(pts: list, g0: float, g1: float, n: int) -> list[tuple[float, float, float]]:
+    """The time-left curve from generation g0 to g1 in n equal slices (one per
+    pixel): each slice's (lowest, highest, average)."""
+    gs = np.array([p[0] for p in pts], float)
+    vs = np.array([p[1] for p in pts], float)
+    edges = np.linspace(g0, g1, n + 1)
+    out = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        both = np.concatenate([vs[(gs >= a) & (gs < b)], np.interp([a, b], gs, vs)])
+        out.append((float(both.min()), float(both.max()), float(np.interp(np.linspace(a, b, 24), gs, vs).mean())))
     return out
 
 
@@ -983,9 +1005,11 @@ class Screen:
 
     def _graph(self, d) -> None:
         """Time left, from launch to now: falling steadily, jumping at each move
-        (green: it bought time; red: it took time away). While a rewind or a
-        replay plays, the past is drawn up to where it has got to, the rest
-        faintly, and each jump flashes as its move lands."""
+        (green: it bought time; red: it took time away). The last RECENT_H hours
+        show every move, on the right; the life before that is smoothed on the
+        left (see RECENT_H). While a rewind plays, the whole life is drawn move by
+        move instead, up to where it has got to, the rest faintly, each jump
+        flashing as its move lands; while a replay plays, the same on the right."""
         snap = self.panel() if not self.replay else (self.after_replay or self.snap)
         pts, jumps = time_left_curve(snap)
         playing = self.rewind or self.replay
@@ -1003,8 +1027,11 @@ class Screen:
         top_days = max(1.0, max(p[1] for p in pts) / day)
         every = next(s for s in (1, 2, 5, 10, 20, 50) if top_days / s <= 4)
         top = math.ceil(top_days / every) * every * day
-        span = max(1, pts[-1][0])
-        X = lambda g: px0 + (px1 - px0) * g / span  # noqa: E731
+        now_gen = pts[-1][0]
+        # Where the detailed part starts: launch while a rewind plays (or the life is young)
+        g_cut = 0 if self.rewind else max(0, now_gen - RECENT_H * 3600 / snap.gen_seconds)
+        x_cut = px0 if g_cut <= 0 else round(px0 + (px1 - px0) * (1 - RECENT_SHARE))
+        X = lambda g: x_cut + (px1 - x_cut) * (g - g_cut) / max(1, now_gen - g_cut)  # noqa: E731
         Y = lambda v: py1 - (py1 - py0) * v / top  # noqa: E731
         f = font("regular", 15)
         for k in range(0, int(top / day / every) + 1):
@@ -1013,6 +1040,22 @@ class Screen:
             d.text((px0 - 6, yy), f"{k * every}d", font=f, fill=MUTED, anchor="rm")
         color = PHASE_COLOR[playing.u.phase if playing else snap.u.phase]
         up = lambda b, a: PHASE_COLOR[ALIVE] if b > a else (240, 90, 90)  # noqa: E731
+        if g_cut > 0:  # the life before: one pixel each, its range faint, its average the line
+            k = (id(snap), round(g_cut), x_cut - px0)
+            if getattr(self, "_typical", (None,))[0] != k:
+                self._typical = (k, typical(pts, 0, g_cut, x_cut - px0))
+            line = []
+            for i, (lo, hi, mean) in enumerate(self._typical[1]):
+                d.line((px0 + i, Y(hi), px0 + i, py1), fill=color + (22,))
+                d.line((px0 + i, Y(hi), px0 + i, Y(lo)), fill=color + (70,))
+                line.append((px0 + i, Y(mean)))
+            d.line(line, fill=color + (230,), width=2)
+            pts, jumps = curve_from(pts, g_cut), [j for j in jumps if j[0] >= g_cut]
+            d.line(line[-1:] + [(X(g_cut), Y(pts[0][1]))], fill=color + (120,), width=1)
+            d.line((x_cut, py0 - 4, x_cut, py1), fill=(90, 96, 110), width=1)
+            d.text((x_cut, py1 + 6), f"{RECENT_H}h ago", font=f, fill=MUTED, anchor="mt")
+            if upto is not None:
+                upto = max(upto, g_cut)
         if upto is not None:  # the whole story, faintly, under the part played so far
             xy = [(X(g), Y(v)) for g, v in pts]
             d.polygon(xy + [(xy[-1][0], py1), (xy[0][0], py1)], fill=color + (12,))
@@ -1043,7 +1086,11 @@ class Screen:
             d.rounded_rectangle((int(lx - 6), int(ly - 2), int(lx + tw + 6), int(ly + 20)), radius=5, fill=(5, 6, 9, 220))
             d.text((lx, ly), label, font=fb, fill=WHITE, anchor="lt")
         launched = render._at(snap.launch, 0, snap.gen_seconds, "%a %b %d")  # 'Sun Nov 8'
-        d.text((px0, py1 + 6), f"launched {launched}", font=f, fill=MUTED, anchor="lt")
+        label = f"launched {launched}"
+        cut_label = d.textlength(f"{RECENT_H}h ago", font=f)
+        if g_cut > 0 and px0 + d.textlength(label, font=f) + 12 > x_cut - cut_label / 2:
+            label = launched  # the server's font is wider: clear of 'Nh ago'
+        d.text((px0, py1 + 6), label, font=f, fill=MUTED, anchor="lt")
         d.text((px1, py1 + 6), "now", font=f, fill=MUTED, anchor="rt")
 
 
