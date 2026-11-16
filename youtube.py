@@ -476,9 +476,10 @@ class YouTube:
         ).execute()
 
     # ------------------------------------------------------------ death sequence
-    def upload_video(self, path: str, snippet: dict, privacy: str = "public") -> str:
-        """Resumable upload; returns the new video's ID. (Uploads from unverified API
-        projects are not restricted to private, per the videos.insert docs, 2026-11-08.)"""
+    def upload_video(self, path: str, snippet: dict, privacy: str = "public", notify: bool = True) -> str:
+        """Resumable upload; returns the new video's ID. `notify`: tell subscribers about it.
+        (Uploads from unverified API projects are not restricted to private, per the
+        videos.insert docs, 2026-11-08.)"""
         from googleapiclient.http import MediaFileUpload
 
         body = {"snippet": snippet,
@@ -487,7 +488,7 @@ class YouTube:
                            "publicStatsViewable": True}}
         media = MediaFileUpload(path, mimetype="video/mp4", chunksize=16 * 1024 * 1024, resumable=True)
         req = self.service.videos().insert(part="snippet,status", body=body, media_body=media,
-                                           notifySubscribers=True)
+                                           notifySubscribers=notify)
         resp = None
         while resp is None:
             _, resp = req.next_chunk(num_retries=5)

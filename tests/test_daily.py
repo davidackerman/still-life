@@ -20,7 +20,7 @@ class DailyYT:
 
     def __init__(self):
         self.comments, self.uploads, self.posted, self.existing = [], [], [], {}
-        self.stream_titles = []
+        self.stream_titles, self.notified = [], []
 
     def fetch_comments(self, since, watch=(), now=None):
         return list(self.comments)
@@ -38,8 +38,9 @@ class DailyYT:
         self.stream_titles.append(title)
         return "LIVE1"
 
-    def upload_video(self, path, snippet):
+    def upload_video(self, path, snippet, notify=True):
         self.uploads.append(snippet)
+        self.notified.append(notify)
         vid = f"SHORT{len(self.uploads)}"
         self.existing[snippet["description"].rsplit("(", 1)[1].rstrip(")")] = vid
         return vid
@@ -206,6 +207,7 @@ def test_two_shorts_a_day_noon_and_8_pm(d):
     assert "in the last 8 hours" in second["description"]
     assert "still-life universe 1 day 1 slot 20" in second["description"]
     assert "slot 20" not in first["description"] and "slot 12" not in second["description"]
+    assert yt.notified == [False, True]  # only the 8 PM Short tells subscribers
     s = state(d)
     assert s["daily"]["slot"] == 20 and s["config"]["extra_videos"] == ["SHORT1", "SHORT2"]
     assert yt.stream_titles == ["This stream dies if nobody chats · Game of Life, Universe 1, Day 1"]  # once a day

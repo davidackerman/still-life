@@ -31,6 +31,9 @@ ET = ZoneInfo("America/New_York")
 # second audience; the slots are far enough apart that neither eats the other's
 # window. (One a day at 6 PM until 2026-11-12, then 2 PM until 2026-11-15.)
 SLOTS_ET = (12, 20)
+# Only these slots' Shorts notify subscribers: two notices a day would wear thin, and
+# the noon one is for strangers anyway (the Shorts feed shows it to them either way).
+NOTIFY_SLOTS = (20,)
 RECAP_HOURS = 24  # the first slot's recap; a later slot's covers the hours since the slot before it
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"
@@ -177,7 +180,8 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
         store.save(world, events)
         return events
     vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None),
-                                                               headline, what, hours, evening))
+                                                               headline, what, hours, evening),
+                                                       notify=at in NOTIFY_SLOTS)
     if vid not in world.extra_videos:
         world.extra_videos.append(vid)
     world.video_names[vid] = f"the {name} Short"  # where its comments' moves came from, on the live page
