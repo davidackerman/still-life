@@ -78,7 +78,8 @@ RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells l
 GHOST = (150, 156, 172)  # an eraser's shape ("glider 40,20 black"), outlined where its cells died, fading over GLOW_S
 SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
-ERASE_INK = (8, 9, 12)  # "black" in the legend: black letters, outlined so they show on the dark panel
+ERASE_INK = (0, 0, 0)  # "black" in the legend: a black chip (CHIP_EDGE around it) with white letters
+CHIP_EDGE = (96, 102, 118)
 LEGEND = [("glider_se", "glider", "x,y ne|nw|se|sw"), ("block", "block", "x,y"), ("blinker", "blinker", "x,y"),
           ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), (None, "cells", "x,y x,y …")]  # (pattern, what to type)
 DEMO_BOX, DEMO_CELL, DEMO_RATE = 9, 5, 4  # the legend's little films: 9 x 9 cells of 5 px, 4 generations a second
@@ -1128,13 +1129,20 @@ class Screen:
                             ("up to 3 moves per person every 2 min", None)):
             parts = [(first + "   ·   add a color: ", MUTED)] + [(c + " ", render.PAINT[c]) for c in commands.COLORS]
             parts += [("  ·   ", MUTED), (commands.ERASE, ERASE_INK), (" erases", MUTED)]  # "glider 40,20 black"
+            chip = 12  # the black chip's padding, beside its word
             if tail is not None:
                 parts += [(f"  ·   {tail}{render.LIVE_ADDRESS}", MUTED)]
-            if sum(d.textlength(s, font=f18) for s, _ in parts) <= width:
+            if sum(d.textlength(s, font=f18) for s, _ in parts) + chip <= width:
                 break
         for s, color in parts:
-            ink = {"stroke_width": 1, "stroke_fill": LIGHT} if color == ERASE_INK else {}
-            d.text((x0, mid + 40), s, font=f18, fill=color, anchor="lm", **ink)
+            if color == ERASE_INK:  # "black" as a black swatch: light letters on a black chip, like a color's own ink
+                tw = d.textlength(s, font=f18)
+                d.rounded_rectangle((x0, mid + 40 - 12, x0 + tw + 12, mid + 40 + 12), radius=5,
+                                    fill=ERASE_INK, outline=CHIP_EDGE)
+                d.text((x0 + 6, mid + 40), s, font=f18, fill=WHITE, anchor="lm")
+                x0 += tw + 12
+                continue
+            d.text((x0, mid + 40), s, font=f18, fill=color, anchor="lm")
             x0 += d.textlength(s, font=f18)
 
     def _films(self, d, now: float) -> None:
