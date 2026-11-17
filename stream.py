@@ -60,10 +60,14 @@ IN_FPS, OUT_FPS = 10, int(os.environ.get("STREAM_FPS", "30"))
 PRESET = os.environ.get("X264_PRESET", "veryfast")  # the preset barely matters for this picture
 LOOK = os.environ.get("STREAM_LOOK", "3d").strip().lower()  # "3d": the board as lit blocks on a tipped floor (board3d.py); "flat"
 RISE_STEPS = 6  # in 3D, a new generation's cells rise (and dying ones sink) in this many steps over FADE_S
-# In 3D the screen times its own drawing: when the board takes longer than this (the
-# median of the last LOOK_SAMPLES), it draws simpler from then on: without the smoothing,
-# then without the glow, then flat. A frame is 1/IN_FPS = 0.1 s, all of it included.
-LOOK_BUDGET_S, LOOK_SAMPLES = 0.06, 10
+# In 3D the screen times its own drawing. The live board changes only every few seconds
+# (a generation, a tail fading on, a move): when one takes longer than LOOK_BUDGET_S (the
+# median of the last LOOK_SAMPLES) it draws simpler from then on: without the smoothing,
+# then without the glow, then flat. While the past or a future plays (a new board every
+# frame) the board is drawn plain (no smoothing, no glow) and only as often as it can be
+# without the stream falling behind: the frames between show the last one (PLAY_SHARE).
+LOOK_BUDGET_S, LOOK_SAMPLES = 0.25, 10
+PLAY_SHARE = 0.6  # at most this share of the time goes to drawing the playing board
 PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it pulls only then)
 STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
@@ -718,6 +722,8 @@ class Screen:
         self._grid_before = None
         self.simpler = 0  # 3D drawn simpler because it was slow: 1 no smoothing, 2 no glow either (3: flat)
         self._costs: list[float] = []
+        self._play_cost = 0.0  # what a playing board took to draw (smoothed), and when the last one was drawn
+        self._play_at = -1e9
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -883,14 +889,19 @@ class Screen:
         over FADE_S, in RISE_STEPS steps, instead of the flat board's crossfade."""
         v = self.view(self.snap.u.grid.shape)
         playing = self.rewind or self.replay or self.future
-        if playing:  # a new board every frame: no rising
+        if playing:  # a new board every frame: plain, no rising, as often as there's time for
+            if getattr(self, "cur3d_key", None) is None and getattr(self, "cur3d", None) is not None \
+                    and now - self._play_at < self._play_cost / PLAY_SHARE:
+                return self.cur3d  # still drawing the last one's share: show it a frame longer
             r = playing.u
             ghost = playing.ghost_mask() if hasattr(playing, "ghost_mask") else None
             self._grid_shown = r.grid.copy()
-            self.cur3d = self._timed(lambda: v.render(
-                r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None), playing.trail.layer(r.grid), ghost,
-                font=font, glow=False, ss=1 if self.simpler else None))  # (no glow: a new board every frame)
-            self.cur3d_key = None
+            t0 = time.perf_counter()
+            self.cur3d = v.render(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None),
+                                  playing.trail.layer(r.grid), ghost, font=font, glow=False, ss=1)
+            cost = time.perf_counter() - t0
+            self._play_cost = cost if self._play_cost == 0 else 0.7 * self._play_cost + 0.3 * cost
+            self._play_at, self.cur3d_key = now, None
             return self.cur3d
         u = self.snap.u
         lit, ghost, ghost_a, frac, k = self._live(now)

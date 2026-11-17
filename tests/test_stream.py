@@ -725,18 +725,38 @@ def test_3d_is_the_default_and_flat_still_draws(state_dir, monkeypatch):
     assert not screen.look3d and screen.compose(LAUNCH + 3700).size == (stream.SW, stream.SH)
 
 
-def test_a_slow_3d_board_draws_simpler_then_flat(state_dir, monkeypatch):
+def test_a_slow_3d_live_board_draws_simpler_then_flat(state_dir, monkeypatch):
     monkeypatch.setattr(stream, "LOOK", "3d")
     monkeypatch.setattr(stream, "LOOK_BUDGET_S", 0.0)  # every board too slow
-    now = LAUNCH + 3600 + 10  # a rewind: a new board every frame
-    screen = stream.Screen(stream.load(state_dir, now=now))
-    screen.tick(now, state_dir)
+    screen = stream.Screen(stream.load(state_dir, now=LAUNCH + 3700))
     seen = []
-    for k in range(3 * stream.LOOK_SAMPLES + 2):
-        assert screen.compose(now + k * 0.1).size == (stream.SW, stream.SH)
+    for k in range(3 * stream.LOOK_SAMPLES):
+        screen._timed(lambda: None)
         seen.append(screen.simpler)
     assert seen[stream.LOOK_SAMPLES - 1] == 1 and seen[2 * stream.LOOK_SAMPLES - 1] == 2
     assert screen.simpler == 3 and not screen.look3d  # flat, and it goes on drawing
+    assert screen.compose(LAUNCH + 3700).size == (stream.SW, stream.SH)
+
+
+def test_a_slow_machine_plays_the_past_in_3d_with_fewer_boards(state_dir, monkeypatch):
+    import board3d
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    now = LAUNCH + 3600 + 10  # a rewind: a new board every frame
+    screen = stream.Screen(stream.load(state_dir, now=now))
+    screen.tick(now, state_dir)
+    drawn, real, clock = [], board3d.View.render, [0.0]
+
+    def slow(self, *a, **k):  # each board takes 0.12 s (on the clock the screen times it by)
+        drawn.append(k)
+        clock[0] += 0.12
+        return real(self, *a, **k)
+    monkeypatch.setattr(board3d.View, "render", slow)
+    monkeypatch.setattr(stream.time, "perf_counter", lambda: clock[0])
+    for k in range(0, 11):
+        assert screen.compose(now + k * 0.1).size == (stream.SW, stream.SH)
+    assert 4 <= len(drawn) <= 6  # a board every other frame: 0.12 s of every 0.2 (PLAY_SHARE), and it keeps moving
+    assert screen.look3d and screen.simpler == 0  # still 3D
+    assert all(k.get("glow") is False and k.get("ss") == 1 for k in drawn)  # drawn plain
 
 
 def test_in_3d_new_cells_rise_and_dying_ones_sink():
