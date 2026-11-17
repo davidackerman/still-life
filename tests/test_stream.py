@@ -676,3 +676,82 @@ def test_the_tall_frame_shows_the_board_the_moves_and_each_banner(state_dir):
 def render_move(e):
     import render
     return render.move_label(e)
+
+
+# ---- the 3D look (STREAM_LOOK=3d, board3d.py)
+
+def test_the_3d_board_fits_its_area_with_up_still_up():
+    import board3d
+    v = board3d.View((72, 128))
+    x0, y0, x1, y1 = v.area
+    (fl, fr, nr, nl) = v.edge  # far left, far right, near right, near left
+    for x, y in v.edge:
+        assert x0 + board3d.PAD - 1 <= x <= x1 - board3d.PAD + 1 and y0 + board3d.PAD - 1 <= y <= y1 - board3d.PAD + 1
+    assert fl[1] < nl[1] and fr[1] < nr[1]  # row 0 is at the top, as on the flat board
+    assert fl[0] < fr[0] and nl[0] < nr[0]  # column 0 on the left
+    assert fr[0] - fl[0] < nr[0] - nl[0]  # tipped away: the far edge is the shorter
+    assert v.cx < stream.COL_X - 20 and v.bottom < stream.BOARD_Y + stream.BOARD_H + 25  # clear of the column and the text
+
+
+def test_in_3d_a_moves_label_and_ripple_land_on_its_cells(state_dir, monkeypatch):
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    screen = stream.Screen(snap)
+    assert screen.look3d
+    v = screen.view(snap.u.grid.shape)
+    cells = [(30, 20), (31, 20), (32, 20)]
+    cx, cy = screen._centre(cells, snap.u.grid.shape)
+    a, b = v.at([(31, 20), (32, 21)])  # the middle cell's far-left and near-right corners
+    assert a[0] < cx < b[0] and a[1] < cy < b[1]
+    wrapped = [(127, 5), (0, 5), (1, 5)]  # across the torus edge: the centre is cell 0, not the board's middle
+    cx, _ = screen._centre(wrapped, snap.u.grid.shape)
+    assert abs(cx - v.at([(0.5, 5.5)])[0, 0]) < 1
+    # the frame: full size, with the latest moves' labels and ripples, live and while a rewind plays
+    newer = stream.load(state_dir, after_seq=0, now=LAUNCH + 3700)
+    screen.swap(newer, LAUNCH + 3700)
+    assert screen.compose(LAUNCH + 3701).size == (stream.SW, stream.SH)
+    now = LAUNCH + 3600 + 10
+    screen = stream.Screen(stream.load(state_dir, now=now))
+    screen.tick(now, state_dir)
+    assert screen.rewind is not None and screen.compose(now).size == (stream.SW, stream.SH)
+
+
+def test_3d_is_the_default_and_flat_still_draws(state_dir, monkeypatch):
+    monkeypatch.delenv("STREAM_LOOK", raising=False)
+    import importlib
+    assert importlib.reload(stream).LOOK == "3d"
+    monkeypatch.setattr(stream, "LOOK", "flat")
+    screen = stream.Screen(stream.load(state_dir, now=LAUNCH + 3700))
+    assert not screen.look3d and screen.compose(LAUNCH + 3700).size == (stream.SW, stream.SH)
+
+
+def test_a_slow_3d_board_draws_simpler_then_flat(state_dir, monkeypatch):
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    monkeypatch.setattr(stream, "LOOK_BUDGET_S", 0.0)  # every board too slow
+    now = LAUNCH + 3600 + 10  # a rewind: a new board every frame
+    screen = stream.Screen(stream.load(state_dir, now=now))
+    screen.tick(now, state_dir)
+    seen = []
+    for k in range(3 * stream.LOOK_SAMPLES + 2):
+        assert screen.compose(now + k * 0.1).size == (stream.SW, stream.SH)
+        seen.append(screen.simpler)
+    assert seen[stream.LOOK_SAMPLES - 1] == 1 and seen[2 * stream.LOOK_SAMPLES - 1] == 2
+    assert screen.simpler == 3 and not screen.look3d  # flat, and it goes on drawing
+
+
+def test_in_3d_new_cells_rise_and_dying_ones_sink():
+    import board3d
+    import stream as st
+    from universe import ALIVE
+    v = board3d.View((72, 128))
+    grid = np.zeros((72, 128), np.uint8)
+    grid[30:32, 60:62] = 1  # a block, standing
+    born = grid.copy()
+    born[40, 40] = 1
+    full = v.render(born, ALIVE, font=st.font, glow=False)
+    assert np.array_equal(v.render(born, ALIVE, before=grid, rise=1.0, font=st.font, glow=False), full)
+    half = v.render(born, ALIVE, before=grid, rise=0.5, font=st.font, glow=False)
+    none = v.render(grid, ALIVE, font=st.font, glow=False)
+    assert not np.array_equal(half, full) and not np.array_equal(half, none)  # on its way up
+    sinking = v.render(grid, ALIVE, before=born, rise=0.5, font=st.font, glow=False)
+    assert np.array_equal(sinking, half)  # dying sinks the way being born rises

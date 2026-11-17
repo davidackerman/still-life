@@ -58,6 +58,12 @@ RECENT_H, RECENT_SHARE = 6, 0.45
 # if the machine falls behind (YouTube's guidance is 30).
 IN_FPS, OUT_FPS = 10, int(os.environ.get("STREAM_FPS", "30"))
 PRESET = os.environ.get("X264_PRESET", "veryfast")  # the preset barely matters for this picture
+LOOK = os.environ.get("STREAM_LOOK", "3d").strip().lower()  # "3d": the board as lit blocks on a tipped floor (board3d.py); "flat"
+RISE_STEPS = 6  # in 3D, a new generation's cells rise (and dying ones sink) in this many steps over FADE_S
+# In 3D the screen times its own drawing: when the board takes longer than this (the
+# median of the last LOOK_SAMPLES), it draws simpler from then on: without the smoothing,
+# then without the glow, then flat. A frame is 1/IN_FPS = 0.1 s, all of it included.
+LOOK_BUDGET_S, LOOK_SAMPLES = 0.06, 10
 PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it pulls only then)
 STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
@@ -86,7 +92,7 @@ DEMO_BOX, DEMO_CELL, DEMO_RATE = 9, 5, 4  # the legend's little films: 9 x 9 cel
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"
 CODE = ("stream.py", "stream_audio.py", "short.py", "render.py", "universe.py", "life.py", "explainer.py", "engine.py",
-        "commands.py", "admission.py", "store.py")  # a change to these restarts the stream
+        "commands.py", "admission.py", "store.py", "board3d.py")  # a change to these restarts the stream
 
 
 def log(msg: str) -> None:
@@ -446,15 +452,20 @@ def board_rgb(grid: np.ndarray, phase: str, lit: np.ndarray | None, paint: np.nd
     return img
 
 
-def centre_px(cells, shape) -> tuple[float, float]:
-    """Screen centre of a pattern's cells, taking the torus wrap into account."""
+def centre_cells(cells, shape) -> tuple[float, float]:
+    """A pattern's centre on the board, in cells (a cell's centre is +0.5), taking the torus wrap into account."""
     h, w = shape
-    cell, left, top = geometry(shape)
     x0, y0 = cells[0]
     xs = [x0 + (x - x0 + w // 2) % w - w // 2 for x, _ in cells]
     ys = [y0 + (y - y0 + h // 2) % h - h // 2 for _, y in cells]
-    cx, cy = (sum(xs) / len(xs)) % w, (sum(ys) / len(ys)) % h
-    return left + (cx + 0.5) * cell, top + (cy + 0.5) * cell
+    return (sum(xs) / len(xs)) % w + 0.5, (sum(ys) / len(ys)) % h + 0.5
+
+
+def centre_px(cells, shape) -> tuple[float, float]:
+    """Screen centre of a pattern's cells on the flat board, taking the torus wrap into account."""
+    cell, left, top = geometry(shape)
+    cx, cy = centre_cells(cells, shape)
+    return left + cx * cell, top + cy * cell
 
 
 def free_row(y0: float, x0: float, x1: float, placed: list[tuple], lo: float, hi: float, step: int = 34) -> float:
@@ -700,6 +711,13 @@ class Screen:
         self.futured_at: float | None = None  # the slot of the last look at the future
         self._chrome = None  # (key, the frame without the board), see compose
         self._demos: list[tuple] = []  # (x, y, film) of the legend's little films, placed by _legend
+        self.look3d = LOOK == "3d"  # the board (and the legend's films) in blocks: board3d.py
+        self.demo_cell = DEMO_CELL + 1 if self.look3d else DEMO_CELL
+        self._view = None  # board3d.View, for the board's shape
+        self._grid_shown = None  # in 3D: the last board drawn, and the one it changed from (cells rise from it)
+        self._grid_before = None
+        self.simpler = 0  # 3D drawn simpler because it was slow: 1 no smoothing, 2 no glow either (3: flat)
+        self._costs: list[float] = []
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -802,6 +820,7 @@ class Screen:
     def _changed(self, now: float) -> None:
         self.prev = self.cur
         self.changed_at = now
+        self._grid_before = self._grid_shown
 
     def animating(self, now: float) -> bool:
         return (self.rewind is not None or self.replay is not None or self.future is not None
@@ -823,6 +842,20 @@ class Screen:
                                                playing.trail.layer(r.grid), ghost), None
             return self.cur
         u = self.snap.u
+        lit, ghost, ghost_a, frac, k = self._live(now)
+        if k != self.cur_key or self.cur is None:
+            tails = self.snap.trail.layer(u.grid, frac) if self.snap.trail is not None else None
+            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint, tails, ghost, ghost_a), k
+        a = (now - self.changed_at) / FADE_S
+        if self.prev is not None and self.prev.shape == self.cur.shape and 0 <= a < 1:
+            return (self.prev * (1 - a) + self.cur * a).astype(np.uint8)
+        self.prev = None
+        return self.cur
+
+    def _live(self, now: float):
+        """The live board's layers: (lit cells, an eraser's ghost, its strength, how far the
+        newest tails have faded on, a key that changes whenever any of it does)."""
+        u = self.snap.u
         self.tags = [t for t in self.tags if now - t.t0 < max(TAG_S, GLOW_S)]
         glowing = [c for t in self.tags if now - t.t0 < GLOW_S and not t.erase for c in t.cells]
         erasers = [t for t in self.tags if now - t.t0 < GLOW_S and t.erase]
@@ -836,15 +869,77 @@ class Screen:
         # the newest tails fade on through the generation, in TRAIL_STEPS steps
         since = (now - self.snap.launch) / self.snap.gen_seconds - u.generation
         frac = min(TRAIL_STEPS - 1, max(0, int(since * TRAIL_STEPS))) / TRAIL_STEPS
-        k = (id(self.snap), u.generation, u.phase, len(glowing), frac, len(erasers), ghost_a)
-        if k != self.cur_key or self.cur is None:
-            tails = self.snap.trail.layer(u.grid, frac) if self.snap.trail is not None else None
-            self.cur, self.cur_key = board_rgb(u.grid, u.phase, lit, self.snap.paint, tails, ghost, ghost_a), k
+        return lit, ghost, ghost_a, frac, (id(self.snap), u.generation, u.phase, len(glowing), frac, len(erasers), ghost_a)
+
+    def view(self, shape):
+        if self._view is None or self._view.shape != tuple(shape):
+            import board3d
+            self._view = board3d.View(tuple(shape))
+        return self._view
+
+    def board3d(self, now: float) -> np.ndarray:
+        """The board in blocks (board3d.View's area). A change of board (a generation, a
+        move landing, the end of a rewind) raises the new cells and sinks the dying ones
+        over FADE_S, in RISE_STEPS steps, instead of the flat board's crossfade."""
+        v = self.view(self.snap.u.grid.shape)
+        playing = self.rewind or self.replay or self.future
+        if playing:  # a new board every frame: no rising
+            r = playing.u
+            ghost = playing.ghost_mask() if hasattr(playing, "ghost_mask") else None
+            self._grid_shown = r.grid.copy()
+            self.cur3d = self._timed(lambda: v.render(
+                r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None), playing.trail.layer(r.grid), ghost,
+                font=font, glow=False, ss=1 if self.simpler else None))  # (no glow: a new board every frame)
+            self.cur3d_key = None
+            return self.cur3d
+        u = self.snap.u
+        lit, ghost, ghost_a, frac, k = self._live(now)
         a = (now - self.changed_at) / FADE_S
-        if self.prev is not None and self.prev.shape == self.cur.shape and 0 <= a < 1:
-            return (self.prev * (1 - a) + self.cur * a).astype(np.uint8)
-        self.prev = None
-        return self.cur
+        before = self._grid_before
+        rising = before is not None and before.shape == u.grid.shape and 0 <= a < 1 and not np.array_equal(before, u.grid)
+        rise = min(RISE_STEPS, int(a * RISE_STEPS) + 1) / RISE_STEPS if rising else 1.0
+        k = (k, rise)
+        if k != getattr(self, "cur3d_key", None):
+            tails = self.snap.trail.layer(u.grid, frac) if self.snap.trail is not None else None
+            self.cur3d = self._timed(lambda: v.render(
+                u.grid, u.phase, lit, self.snap.paint, tails, ghost, ghost_a, before=before if rising else None,
+                rise=rise, font=font, glow=self.simpler < 2, ss=1 if self.simpler else None))
+            self.cur3d_key = k
+        if not rising:
+            self._grid_shown = u.grid.copy()
+        return self.cur3d
+
+    def _timed(self, draw):
+        """draw(), timed: past LOOK_BUDGET_S (the median of LOOK_SAMPLES), draw simpler from now on."""
+        t0 = time.perf_counter()
+        out = draw()
+        self._costs.append(time.perf_counter() - t0)
+        if len(self._costs) >= LOOK_SAMPLES:
+            cost = sorted(self._costs)[len(self._costs) // 2]
+            self._costs = []
+            if cost > LOOK_BUDGET_S:
+                self.simpler += 1
+                log(f"3D board took {cost * 1000:.0f} ms: drawing it "
+                    + ("without smoothing", "without glow", "flat")[min(self.simpler, 3) - 1])
+                if self.simpler >= 3:  # flat again, frame and numbers and all
+                    self.look3d, self._chrome, self.prev = False, None, None
+        return out
+
+    def _box(self, shape) -> tuple[float, float, float]:
+        """The board's centre x, top and bottom on the frame (the 3D board's far and near edges)."""
+        if self.look3d:
+            v = self.view(shape)
+            return v.cx, v.top, v.bottom
+        cell, left, top = geometry(shape)
+        return left + shape[1] * cell / 2, top, top + shape[0] * cell
+
+    def _centre(self, cells, shape, z: float = 0.0) -> tuple[float, float]:
+        """Where a move's cells are on the frame (in 3D, `z` cells up off the floor)."""
+        if self.look3d:
+            bx, by = centre_cells(cells, shape)
+            p = self.view(shape).at([(bx, by, z)])[0]
+            return float(p[0]), float(p[1])
+        return centre_px(cells, shape)
 
     def compose(self, now: float) -> Image.Image:
         u = self.snap.u
@@ -861,26 +956,36 @@ class Screen:
             im = Image.fromarray(img)
             d = ImageDraw.Draw(im, "RGBA")
             alarm = u.phase in (FLATLINING, CONTESTED)  # the edge says it's in trouble, whatever the paint
-            d.rectangle((left - 3 if alarm else left - 1, top - 3 if alarm else top - 1,
-                         left + shape[1] * cell + (2 if alarm else 0), top + shape[0] * cell + (2 if alarm else 0)),
-                        outline=PHASE_COLOR[u.phase] if alarm else (42, 46, 58), width=3 if alarm else 1)
-            self._axes(d, shape)
+            if not self.look3d:  # (in 3D the floor has its edge and numbers; the alarm goes over it, below)
+                d.rectangle((left - 3 if alarm else left - 1, top - 3 if alarm else top - 1,
+                             left + shape[1] * cell + (2 if alarm else 0), top + shape[0] * cell + (2 if alarm else 0)),
+                            outline=PHASE_COLOR[u.phase] if alarm else (42, 46, 58), width=3 if alarm else 1)
+                self._axes(d, shape)
             self._column(d, now)
             self._bottom(d)
             if not playing:  # while the past plays, the graph follows it every frame
                 self._graph(d)
             self._chrome = (k, np.asarray(im))
         img = self._chrome[1].copy()
-        b = self.board(now)
-        img[top:top + b.shape[0], left:left + b.shape[1]] = b
+        if self.look3d:
+            v = self.view(shape)
+            b = self.board3d(now)
+            ax, ay = v.area[:2]
+            img[ay:ay + b.shape[0], ax:ax + b.shape[1]] = b
+        else:
+            b = self.board(now)
+            img[top:top + b.shape[0], left:left + b.shape[1]] = b
         im = Image.fromarray(img)
         d = ImageDraw.Draw(im, "RGBA")
+        if self.look3d and u.phase in (FLATLINING, CONTESTED):  # the edge says it's in trouble
+            v = self.view(shape)
+            d.line(v.edge + v.edge[:1], fill=PHASE_COLOR[u.phase], width=3, joint="curve")
         self._films(d, now)
         if playing:
             self._graph(d)
         # the banner goes last, over the move labels (which also steer clear of it)
         if self.rewind:
-            self._moves(d, now, shape, self.rewind.tags, REWIND_TAG_S, avoid=self._banner_rows(shape, top + 18))
+            self._moves(d, now, shape, self.rewind.tags, REWIND_TAG_S, avoid=self._banner_rows(shape, self._box(shape)[1] + 18))
             self._rewind_banner(d, now, shape)
         elif self.replay:
             y0 = self._replay_y0(shape)
@@ -894,9 +999,9 @@ class Screen:
 
     def _replay_y0(self, shape) -> int:
         """The replay banner's top: at the top of the board, or the bottom if a move landed up there."""
-        cell, left, top = geometry(shape)
-        high = any(centre_px(e["cells"], shape)[1] < top + 150 for v in self.replay.new.values() for e in v)
-        return top + shape[0] * cell - 114 if high else top + 18
+        _, top, bottom = self._box(shape)
+        high = any(self._centre(e["cells"], shape)[1] < top + 150 for v in self.replay.new.values() for e in v)
+        return bottom - 114 if high else top + 18
 
     def _replay_banner(self, d, now: float, shape, y0: int) -> None:
         """'REPLAY · 3 new moves', and when, and how long until it's live again."""
@@ -910,8 +1015,7 @@ class Screen:
     def _rewind_banner(self, d, now: float, shape) -> None:
         """What the board is showing: the past, when, and how long until it's live again."""
         r, snap = self.rewind, self.snap
-        cell, left, top = geometry(shape)
-        cx = left + shape[1] * cell / 2
+        _, top, _ = self._box(shape)
         when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%a %b %d, %I:%M %p")
         line1 = "REWIND · the story so far"
         if r.news_shown and now - r.news_shown[1] < REWIND_NEWS_S:  # it just passed something new
@@ -922,7 +1026,7 @@ class Screen:
     def _future_banner(self, d, now: float, shape) -> None:
         """What the future shows: when it gets there, the loop, the day it dies."""
         f = self.future
-        top = geometry(shape)[2]
+        top = self._box(shape)[1]
         at = lambda g: render._at(f.launch, g, f.G, "%a %I:%M %p").replace(" 0", " ")  # noqa: E731
         live = f"live again in {max(0, int(f.start + FUTURE_S - now))} s"
         part = f.part(now)
@@ -943,8 +1047,7 @@ class Screen:
         self._banner(d, shape, top + 18, line1, line2, (now - f.start) / FUTURE_S)
 
     def _banner(self, d, shape, y0: int, line1: str, line2: str, frac: float) -> None:
-        cell, left, top = geometry(shape)
-        cx = left + shape[1] * cell / 2
+        cx = self._box(shape)[0]
         f1, f2 = font("bold", 30), font("regular", 22)
         w = int(max(d.textlength(line1, font=f1), d.textlength(line2, font=f2))) + 48
         x0, y0 = int(cx - w / 2), int(y0)  # whole pixels: older Pillow rejects some fractional rounded boxes
@@ -967,11 +1070,9 @@ class Screen:
             d.text((left - 8, top + (y + 0.5) * cell), str(y), font=f, fill=MUTED, anchor="rm")
         d.text((left + w * cell, top - 8), "x →" if DEJAVU else "x", font=f, fill=MUTED, anchor="rs")
 
-    @staticmethod
-    def _banner_rows(shape, y0: int) -> list[tuple]:
+    def _banner_rows(self, shape, y0: int) -> list[tuple]:
         """The banner's box as label rows, so labels steer clear of it (see free_row)."""
-        cell, left, _ = geometry(shape)
-        cx = left + shape[1] * cell / 2
+        cx = self._box(shape)[0]
         return [(cx - 330, cx + 330, y0 + k * 30) for k in range(4)]
 
     def _moves(self, d, now: float, shape, tags: list | None = None, life: float = TAG_S,
@@ -979,22 +1080,40 @@ class Screen:
         """New moves: a ripple from where they landed, then a label for `life` seconds."""
         placed: list[tuple] = list(avoid or [])
         cell, left, top = geometry(shape)
-        bottom = top + shape[0] * cell
+        lo_x, hi_x = left, left + shape[1] * cell
+        if self.look3d:  # the labels keep inside the 3D board's area; the ripples spread on its floor
+            import board3d
+            v = self.view(shape)
+            _, top, bottom = self._box(shape)
+            lo_x, hi_x = v.area[0] + 8, v.area[2] - 8
+            ring = np.linspace(0, 2 * math.pi, 49)
+        else:
+            bottom = top + shape[0] * cell
         fade = min(5.0, life / 3)
         for t in self.tags if tags is None else tags:
             age = now - t.t0
             if age >= life:
                 continue
-            cx, cy = centre_px(t.cells, shape)
+            if self.look3d:
+                bx, by = centre_cells(t.cells, shape)
+                cx, cy = self._centre(t.cells, shape, board3d.HEIGHT)
+            else:
+                cx, cy = centre_px(t.cells, shape)
             for k in range(3):
                 p = (age - k * 0.4) / (RIPPLE_S - 0.8)
                 if 0 < p < 1:
                     r = 8 + p * 130
-                    d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=(255, 255, 255, int(230 * (1 - p))), width=3)
+                    ink = (255, 255, 255, int(230 * (1 - p)))
+                    if self.look3d:  # a ring on the floor, as wide (in cells) as the flat board's
+                        rc = r / cell
+                        pts = v.at(np.stack([bx + rc * np.cos(ring), by + rc * np.sin(ring)], 1))
+                        d.line([tuple(q) for q in pts], fill=ink, width=3, joint="curve")
+                    else:
+                        d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=ink, width=3)
             f = font("bold", 19)
             label = tidy(t.text)
             tw = d.textlength(label, font=f)
-            x0 = min(max(cx - tw / 2 - 9, left + 4), left + shape[1] * cell - tw - 22)
+            x0 = min(max(cx - tw / 2 - 9, lo_x + 4), hi_x - tw - 22)
             y0 = cy - 46 if cy - 46 > top + 4 else cy + 18
             y0 = free_row(y0, x0, x0 + tw + 18, placed, top + 4, bottom - 30)
             placed.append((x0, x0 + tw + 18, y0))
@@ -1101,7 +1220,7 @@ class Screen:
 
     def _legend(self, d, x, y, width) -> None:
         """What each move does: a little film of it (see _films) beside what to type."""
-        iw = DEMO_BOX * DEMO_CELL
+        iw = DEMO_BOX * self.demo_cell
         for size in (22, 21, 19, 17, 15):  # the largest that fits
             fb, fr = font("bold", size), font("regular", size)
             total = sum(iw + 9 + d.textlength(name + " ", font=fb) + d.textlength(args, font=fr) + 30
@@ -1149,10 +1268,26 @@ class Screen:
         """The legend's films, a frame each 1/DEMO_RATE s: so something always moves."""
         k = int(now * DEMO_RATE)
         color = PHASE_COLOR[ALIVE]
+        c = self.demo_cell
+        if self.look3d:  # little blocks: a lit top standing up off a darker front and side
+            base = np.array(color, float)
+            top_c = tuple(int(min(255, v * 1.06 + 10)) for v in base)
+            front_c, side_c = tuple(int(v * 0.6) for v in base), tuple(int(v * 0.45) for v in base)
+            lift, w = max(2, round(c * 0.4)), c - 2
+            for x, top, film in self._demos:
+                on = film[k % len(film)]
+                for cy, cx in sorted(map(tuple, np.argwhere(on))):  # far rows first: nearer blocks cover them
+                    px, py = x + cx * c, top + cy * c + lift
+                    d.rectangle((px, py - lift + w, px + w, py + w), fill=front_c)
+                    if not (cx + 1 < on.shape[1] and on[cy, cx + 1]):
+                        d.polygon([(px + w, py - lift), (px + w + 1, py - lift + 1), (px + w + 1, py + w),
+                                   (px + w, py + w)], fill=side_c)
+                    d.rectangle((px, py - lift, px + w, py - lift + w), fill=top_c)
+            return
         for x, top, film in self._demos:
             for cy, cx in np.argwhere(film[k % len(film)]):
-                px, py = x + cx * DEMO_CELL, top + cy * DEMO_CELL
-                d.rectangle((px, py, px + DEMO_CELL - 2, py + DEMO_CELL - 2), fill=color)
+                px, py = x + cx * c, top + cy * c
+                d.rectangle((px, py, px + c - 2, py + c - 2), fill=color)
 
     def _graph(self, d) -> None:
         """Time left, from launch to now: falling steadily, jumping at each move
