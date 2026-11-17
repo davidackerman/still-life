@@ -1,6 +1,7 @@
 """stream.py: loads the committed state, keeps time like the tick, draws, and
 never lets the stream key into its messages."""
 import datetime as dt
+import os
 import shutil
 
 import numpy as np
@@ -775,3 +776,62 @@ def test_in_3d_new_cells_rise_and_dying_ones_sink():
     assert not np.array_equal(half, full) and not np.array_equal(half, none)  # on its way up
     sinking = v.render(grid, ALIVE, before=born, rise=0.5, font=st.font, glow=False)
     assert np.array_equal(sinking, half)  # dying sinks the way being born rises
+
+
+def test_a_rewind_drawn_ahead_plays_from_its_frames(state_dir, tmp_path, monkeypatch):
+    import board3d
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    monkeypatch.setattr(stream, "CACHE", str(tmp_path / "cache"))
+    monkeypatch.setattr(stream, "REWIND_S", 1.0)  # ten frames
+    slot = LAUNCH + 3600.0
+    out = stream.prebuild_rewind(_repo_of(state_dir, tmp_path), slot)
+    assert sorted(n for n in os.listdir(out) if n.endswith(".png")) == sorted(f"{k}.png" for k in range(10))
+    assert os.path.exists(os.path.join(out, "done"))
+    screen = stream.Screen(stream.load(state_dir, now=slot))
+    screen.tick(slot, state_dir)
+    assert screen.rewind is not None
+    drawn, real = [], board3d.View.render
+    monkeypatch.setattr(board3d.View, "render", lambda self, *a, **k: drawn.append(1) or real(self, *a, **k))
+    gens = []
+    for k in range(10):
+        screen.tick(slot + k * 0.1, state_dir)
+        gens.append(screen.rewind.u.generation)
+        assert screen.compose(slot + k * 0.1).size == (stream.SW, stream.SH)
+    assert gens[-1] > gens[0] and drawn == []  # it played on, every board from the frames drawn ahead
+    # a move logged since: from its generation on, the boards are drawn as they play
+    screen = stream.Screen(stream.load(state_dir, now=slot))
+    screen.tick(slot, state_dir)
+    late = screen.rewind.end // 2
+    screen.rewind.h.batches[late] = []
+    for k in range(10):
+        screen.tick(slot + k * 0.1, state_dir)
+        screen.compose(slot + k * 0.1)
+    assert 0 < len(drawn) < 10  # the early half from the frames, the late half drawn live
+
+
+def _repo_of(state_dir, tmp_path):
+    """prebuild_rewind takes the repo; the fixture's state is its own folder: a repo around a link to it."""
+    repo = tmp_path / "repo"
+    repo.mkdir(exist_ok=True)
+    if not (repo / "state").exists():
+        (repo / "state").symlink_to(state_dir)
+    return str(repo)
+
+
+def test_the_prebuilder_starts_once_per_rewind_and_clears_old_ones(tmp_path, monkeypatch):
+    monkeypatch.setattr(stream, "CACHE", str(tmp_path))
+    started = []
+
+    class Proc:
+        def poll(self):
+            return 0
+    monkeypatch.setattr(stream.subprocess, "Popen", lambda cmd, **k: started.append(cmd) or Proc())
+    (tmp_path / "rewind-100").mkdir()
+    p = stream.Prebuilder("/repo")
+    slot = 10 * stream.REWIND_EVERY_S
+    p.poll(slot - stream.PREBUILD_LEAD_S - 5)
+    assert started == []  # too early
+    p.poll(slot - stream.PREBUILD_LEAD_S + 5)
+    p.poll(slot - stream.PREBUILD_LEAD_S + 6)
+    assert len(started) == 1 and started[0][-1] == str(int(slot)) and "--prebuild-rewind" in started[0]
+    assert not (tmp_path / "rewind-100").exists()  # an old one, gone

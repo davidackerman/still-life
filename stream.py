@@ -28,6 +28,7 @@ import math
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -68,6 +69,10 @@ RISE_STEPS = 6  # in 3D, a new generation's cells rise (and dying ones sink) in 
 # without the stream falling behind: the frames between show the last one (PLAY_SHARE).
 LOOK_BUDGET_S, LOOK_SAMPLES = 0.25, 10
 PLAY_SHARE = 0.6  # at most this share of the time goes to drawing the playing board
+# A rewind is known ahead (the log up to its slot), so a niced process draws its boards in
+# full (smoothing, glow) from PREBUILD_LEAD_S before it, into CACHE; the rewind plays them.
+PREBUILD_LEAD_S = 12 * 60
+CACHE = os.environ.get("STREAM_CACHE") or os.path.join(os.path.expanduser("~"), ".cache", "still-life-stream")
 PULL_S = 15  # how often to ask GitHub for a new commit (one small ls-remote; it pulls only then)
 STALL_S = 15  # no frame for this long (a bug, or ffmpeg stuck): exit, and the service restarts it
 REWIND_EVERY_S, REWIND_S = 30 * 60, 60.0  # at :00 and :30, a minute of the story so far
@@ -698,6 +703,78 @@ class Replay:
         return mask_of(self.ghost, self.u.grid.shape)
 
 
+def rewind_dir(slot: float) -> str:
+    return os.path.join(CACHE, f"rewind-{int(slot)}")
+
+
+def prebuild_rewind(repo: str, slot: float) -> str:
+    """Draw the rewind that starts at `slot` ahead of time: each frame's board as it will
+    play at IN_FPS, in full (smoothing and glow), into rewind_dir(slot) as k.png. meta.json
+    comes first ({end, gens: each frame's generation, moves: the generations with moves},
+    so the frames can be used as they appear) and "done" last. Frames already there from
+    the same log are kept (a restart picks up where it was)."""
+    import board3d
+    state_dir = os.path.join(repo, "state")
+    snap = load(state_dir, now=slot)
+    r = Rewind(state_dir, slot, snap.u.generation)
+    n = int(REWIND_S * IN_FPS)
+    times = [slot + k / IN_FPS for k in range(n)]
+    gens = [int(round(r.end * min(1.0, (t - slot) / REWIND_S))) for t in times]  # as Rewind.advance steps
+    meta = {"end": r.end, "gens": gens, "moves": sorted(int(g) for g in r.h.batches)}
+    out = rewind_dir(slot)
+    os.makedirs(out, exist_ok=True)
+    try:
+        with open(os.path.join(out, "meta.json"), encoding="utf-8") as fh:
+            keep = json.load(fh) == meta
+    except (OSError, ValueError):
+        keep = False
+    if not keep:
+        for name in os.listdir(out):
+            os.remove(os.path.join(out, name))
+        with open(os.path.join(out, "meta.json.tmp"), "w", encoding="utf-8") as fh:
+            json.dump(meta, fh)
+        os.replace(os.path.join(out, "meta.json.tmp"), os.path.join(out, "meta.json"))
+    v = board3d.View(r.u.grid.shape)
+    for k, t in enumerate(times):
+        r.advance(t)
+        path = os.path.join(out, f"{k}.png")
+        if keep and os.path.exists(path):
+            continue
+        img = v.render(r.u.grid, r.u.phase, r.lit_mask(), getattr(r.u, "paint", None), r.trail.layer(r.u.grid),
+                       font=font)
+        Image.fromarray(img).save(path + ".tmp", format="PNG", compress_level=1)
+        os.replace(path + ".tmp", path)
+    open(os.path.join(out, "done"), "w").close()
+    return out
+
+
+class Prebuilder:
+    """Starts prebuild_rewind for the next rewind, PREBUILD_LEAD_S ahead, as a niced
+    process (one at a time); clears out the old ones."""
+
+    def __init__(self, repo: str):
+        self.repo, self.proc, self.slot = repo, None, None
+
+    def poll(self, now: float) -> None:
+        nxt = (now // REWIND_EVERY_S + 1) * REWIND_EVERY_S
+        if nxt - now > PREBUILD_LEAD_S or nxt == self.slot or (self.proc and self.proc.poll() is None):
+            return
+        self.slot = nxt
+        try:
+            if os.path.isdir(CACHE):
+                for name in os.listdir(CACHE):  # rewinds that have played
+                    if name.startswith("rewind-") and name[7:].isdigit() and int(name[7:]) < now - REWIND_S:
+                        shutil.rmtree(os.path.join(CACHE, name), ignore_errors=True)
+            if os.path.exists(os.path.join(rewind_dir(nxt), "done")):
+                return
+            cmd = [sys.executable, os.path.join(self.repo, "stream.py"), "--repo", self.repo,
+                   "--prebuild-rewind", str(int(nxt))]
+            self.proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, preexec_fn=lambda: os.nice(19))
+            log(f"drawing the {time.strftime('%H:%M', time.localtime(nxt))} rewind ahead")
+        except Exception as e:  # noqa: BLE001 - it plays without, drawn as it goes
+            log(f"prebuild failed to start: {e!r}")
+
+
 class Screen:
     def __init__(self, snap: Snapshot):
         self.snap = snap
@@ -724,6 +801,8 @@ class Screen:
         self._costs: list[float] = []
         self._play_cost = 0.0  # what a playing board took to draw (smoothed), and when the last one was drawn
         self._play_at = -1e9
+        self._pre = None  # the prebuilt rewind being played: (dir, meta, first new move's gen, checked at)
+        self._pre_frame = (None, None)  # (path, board) last shown from it
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -889,6 +968,12 @@ class Screen:
         over FADE_S, in RISE_STEPS steps, instead of the flat board's crossfade."""
         v = self.view(self.snap.u.grid.shape)
         playing = self.rewind or self.replay or self.future
+        if playing and self.rewind is not None:
+            pre = self._prebuilt(self.rewind)
+            if pre is not None and pre.shape[:2] == (v.size[1], v.size[0]):
+                self._grid_shown = self.rewind.u.grid.copy()
+                self.cur3d, self.cur3d_key = pre, None
+                return pre
         if playing:  # a new board every frame: plain, no rising, as often as there's time for
             if getattr(self, "cur3d_key", None) is None and getattr(self, "cur3d", None) is not None \
                     and now - self._play_at < self._play_cost / PLAY_SHARE:
@@ -919,6 +1004,36 @@ class Screen:
         if not rising:
             self._grid_shown = u.grid.copy()
         return self.cur3d
+
+    def _prebuilt(self, r) -> np.ndarray | None:
+        """This rewind's board drawn ahead (prebuild_rewind), or None: not there (yet), or
+        drawn before a move that has landed since (from that move's generation on)."""
+        import bisect
+        d, wall = rewind_dir(r.start), time.monotonic()
+        if self._pre is None or self._pre[0] != d or (self._pre[1] is None and wall - self._pre[3] > 1.0):
+            try:
+                with open(os.path.join(d, "meta.json"), encoding="utf-8") as fh:
+                    meta = json.load(fh)
+                new = set(r.h.batches) - set(meta["moves"])
+                self._pre = (d, meta, min(new) if new else float("inf"), wall)
+            except (OSError, ValueError, KeyError):
+                self._pre = (d, None, 0, wall)
+        _, meta, first_new, _ = self._pre
+        if meta is None or abs(meta["end"] - r.end) > 2:
+            return None
+        k = bisect.bisect_right(meta["gens"], r.u.generation) - 1
+        if k < 0 or meta["gens"][k] >= first_new:
+            return None
+        path = os.path.join(d, f"{k}.png")
+        if self._pre_frame[0] == path:
+            return self._pre_frame[1]
+        try:
+            with Image.open(path) as im:
+                board = np.asarray(im.convert("RGB"))
+        except OSError:
+            return None
+        self._pre_frame = (path, board)
+        return board
 
     def _timed(self, draw):
         """draw(), timed: past LOOK_BUDGET_S (the median of LOOK_SAMPLES), draw simpler from now on."""
@@ -1500,6 +1615,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
         audio = os.fdopen(audio_w, "wb", buffering=0)
     puller = Puller(repo, state_dir, snap.seq, pull, code)
     puller.start()
+    prebuilder = Prebuilder(repo) if rewinds and screen.look3d and not tall else None
     proc = subprocess.Popen(ffmpeg_cmd(out, bitrate_k, audio_r, size), stdin=subprocess.PIPE, stderr=subprocess.PIPE,
                             pass_fds=(audio_r,) if sound else ())
     if audio_r is not None:
@@ -1548,6 +1664,8 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
                 screen.swap(new, now, state_dir if rewinds else None)
             rewinding = screen.rewind is not None
             screen.tick(now, state_dir if rewinds else None)
+            if prebuilder is not None and screen.look3d:
+                prebuilder.poll(now)
             if rewinding and screen.rewind is None:
                 log(f"rewind done; the frames ran at most {max(0.0, behind):.2f} s behind")
                 behind = 0.0
@@ -1598,7 +1716,14 @@ def main(argv=None) -> int:
     ap.add_argument("--bitrate", type=int, default=5500, help="video kbit/s (YouTube's 1080p minimum is 5000)")
     ap.add_argument("--no-sound", action="store_true", help="a silent track (also: STREAM_SOUND=off)")
     ap.add_argument("--tall", action="store_true", help="the vertical version (vertical.py), with the vertical key")
+    ap.add_argument("--prebuild-rewind", type=float, metavar="SLOT", help="draw the rewind at SLOT ahead (3D) and stop")
     args = ap.parse_args(argv)
+
+    if args.prebuild_rewind is not None:
+        t0 = time.time()
+        out = prebuild_rewind(args.repo, args.prebuild_rewind)
+        log(f"rewind drawn ahead into {out} in {time.time() - t0:.0f} s")
+        return 0
 
     if args.preview:
         now = time.time()
