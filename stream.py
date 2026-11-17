@@ -720,7 +720,8 @@ def prebuild_rewind(repo: str, slot: float) -> str:
     n = int(REWIND_S * IN_FPS)
     times = [slot + k / IN_FPS for k in range(n)]
     gens = [int(round(r.end * min(1.0, (t - slot) / REWIND_S))) for t in times]  # as Rewind.advance steps
-    meta = {"end": r.end, "gens": gens, "moves": sorted(int(g) for g in r.h.batches)}
+    look = [board3d.TILT, board3d.HEIGHT, board3d.MARGIN, board3d.GLOW, board3d.GLOW_BLUR, board3d.SS]  # a new look: drawn again
+    meta = {"end": r.end, "gens": gens, "moves": sorted(int(g) for g in r.h.batches), "look": look}
     out = rewind_dir(slot)
     os.makedirs(out, exist_ok=True)
     try:
