@@ -89,7 +89,8 @@ DEFAULT_KINDS = {12: "stranger", 20: "countdown"}
 # Which kind of Short posts on a New York date: a kind (the first slot's) or {slot: kind};
 # every other slot, its DEFAULT_KINDS kind.
 PLAN = {"2026-11-14": "flight",  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
-        "2026-11-15": {20: "rewind"}}  # Sun Nov 15 (Day 8), 8 PM: the week backward (short.build_rewind)
+        "2026-11-15": {20: "rewind"},  # Sun Nov 15 (Day 8), 8 PM: the week backward (short.build_rewind)
+        "2026-11-17": {12: "made"}}  # Tue Nov 17 (Day 10), noon: "1,000 comments built this" (short.build_made)
 
 
 def kind(now: float) -> str:
@@ -111,6 +112,7 @@ INTROS = {"stranger": "every comment on this Short adds cells to a live Game of 
           "countdown": "if nobody comments, it gets stuck in a loop, and 24 hours later it dies. Every comment "
                        "adds cells and can change that.",
           "flight": "this Short follows it across the universe until it hits something.",
+          "made": "it started as 7 cells, and every comment since has added more.",
           "rewind": "this Short rewinds the whole week to the 7-cell acorn it began as, then shows the "
                     "universe it would have been with no comments at all."}
 
@@ -145,7 +147,7 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
     when = f"Day {day}, evening" if evening else f"Day {day}"
     title = f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, {when} #GameOfLife"
-    if headline and kind in ("stranger", "countdown"):  # for strangers: what happened, not the channel's day count
+    if headline and kind in ("stranger", "countdown", "made"):  # for strangers: what happened, not the channel's day count
         title = f"{headline} #GameOfLife"
     return {"title": title,
             "description": desc,
@@ -183,6 +185,8 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     elif what == "stranger":  # the period's biggest real save or kill; none moved it much: the recap
         move = short.opening_move(short.History(store.dir), since)
         headline = short.stranger_title(move, world.gen_seconds) if move else None
+    elif what == "made":  # "1,000 comments built this simulation": always true (the count is rounded down)
+        headline = short.made_title(short.History(store.dir))
     elif what == "countdown":  # how long it has; no loop in sight: the recap (no urgency to claim)
         hook = short.countdown(short.History(store.dir))
         headline = hook[1] if hook else None

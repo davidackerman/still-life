@@ -273,3 +273,97 @@ def test_the_countdown_says_how_long_it_has_rounded_down_and_nothing_without_a_l
     broke = NS(phase="CONTESTED", generation=1000, flatline_gens=720, deadline_gen=1000 + 20)
     assert short.countdown(h, broke)[1] == "This universe could die in 40 minutes"
     assert short.time_left(90) == "1 minute"
+
+
+def test_the_made_short_counts_comments_rewinds_to_the_seed_and_loops(state_dir, monkeypatch):
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    h = short.History(state_dir)
+    n = short.made_count(h)
+    assert n == sum(len(b) for b in h.batches.values()) > 0
+    frames = short.build_made(state_dir, since_gen=0)
+    said = [t[0] for t in frames[0].texts]  # the thumbnail: the count, never more than landed
+    assert said[-3:] == [short.comments_made(n), "comments built", "this simulation."] and frames[0].band == (0, short.PH)
+    seed = next(i for i, f in enumerate(frames) if any("It started as" in t[0] for t in f.texts))
+    hook = frames[:seed]  # the count, playing; then rewinding, the days going by
+    assert any("this simulation." in [t[0] for t in f.texts] for f in hook[:5])
+    assert any(any(t[0].startswith("Day ") for t in f.texts) for f in hook)
+    top = max(range(len(hook)), key=lambda i: hook[i].gen)
+    assert hook[top].gen == h.now_gen and hook[-1].gen == 0  # playing up to now, then rewound to its seed
+    assert hook[short.MADE_STEP].gen == hook[0].gen + 1 and top >= short.MADE_PLAY_S * short.FPS - short.MADE_STEP
+    assert all(a.gen <= b.gen for a, b in zip(hook[:top], hook[1:top + 1]))
+    assert all(a.gen >= b.gen for a, b in zip(hook[top:], hook[top + 1:]))
+    assert any(f.gen == 0 and any("It started as" in t[0] for t in f.texts) for f in frames)
+    assert any(f.cue and f.cue[0] == "inject" for f in frames)  # a real comment lands
+    end = [f for f in frames if any(t[0] == "It's still alive." for t in f.texts)]
+    assert end and end[-1] is frames[-1] and frames[-1].gen == frames[0].gen - 1  # it loops: the board just before
+    assert frames[-1].focus == frames[0].focus and frames[-1].zoom == frames[0].zoom
+    assert 15 * short.FPS < len(frames) < 34 * short.FPS
+    for f in (frames[0], frames[len(frames) // 2], frames[-1]):
+        assert len(short.compose(f)) == short.PW * short.PH * 3
+
+
+def test_comments_made_rounds_down():
+    assert [short.comments_made(n) for n in (7, 99, 120, 949, 973, 1000, 1037, 1250, 2310)] == \
+        ["7", "99", "100", "900", "Almost 1,000", "1,000", "1,000", "1,200", "2,300"]
+
+
+def test_the_3d_look_draws_the_same_frames_and_cells_rise_over_a_generation(state_dir, monkeypatch):
+    import numpy as np
+    import look3d
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    flat = short.build_made(state_dir, since_gen=0, look="flat")
+    deep = short.build_made(state_dir, since_gen=0, look="3d")
+    assert [f.gen for f in flat] == [f.gen for f in deep]  # only the drawing changes
+    assert all(f.look3d for f in deep) and not any(getattr(f, "look3d", False) for f in flat)
+    for f in (deep[0], deep[len(deep) // 2], deep[-1]):
+        assert len(short.compose(f)) == short.PW * short.PH * 3
+    # a new board rises over its frames (at most RISE_FRAMES), from the board before it
+    run = [f for f in deep if any(t[0] == "It's still alive." for t in f.texts)]
+    changed = next(i for i in range(1, len(run)) if not np.array_equal(run[i].grid, run[i - 1].grid))
+    assert (run[changed].before == run[changed - 1].grid).all() and run[changed].rise < 1
+    assert run[changed + look3d.RISE_FRAMES - 1].rise == 1.0 and run[changed + look3d.RISE_FRAMES - 2].rise < 1
+
+
+def test_the_3d_camera_keeps_up_on_screen_up_on_the_board():
+    import look3d
+    f = type("F", (), {})()
+    f.zoom, f.focus = short.MADE_FULL, (64 * short.CELL, 36 * short.CELL)
+    cam = look3d.Camera(f)
+    (top, bottom, left, right), _ = cam.project([(64, 30, 0), (64, 42, 0), (58, 36, 0), (70, 36, 0)])
+    assert top[1] < bottom[1] and left[0] < right[0]  # not mirrored: "ne" still flies up and right
+
+
+def test_the_looped_soundtrack_has_no_seam():
+    import numpy as np
+    import explainer as ex
+    rng = np.random.default_rng(1)
+    u = type("U", (), {})()
+    frames = []
+    grid = (rng.random((20, 30)) < 0.3).astype(np.uint8)
+    for i in range(90):
+        f = ex.Frame.__new__(ex.Frame)
+        f.grid, f.phase, f.grey, f.cue = grid.copy(), "ALIVE", 0.0, ("inject", 3) if i == 80 else None
+        frames.append(f)
+        if i % 3 == 0:
+            grid = np.roll(grid, 1, axis=1)
+    audio = short.looped_soundtrack(frames)
+    assert audio.shape == (2, len(frames) * (ex.SR // short.FPS))
+    seam = np.abs(audio[:, 0] - audio[:, -1]).max()  # the jump from its last sample to its first
+    steps = np.abs(np.diff(audio, axis=1)).max()  # the biggest jump anywhere inside it
+    assert seam <= steps
+    assert np.abs(audio[:, :int(0.2 * ex.SR)]).max() > 0  # the chime at the end still rings at the start
+
+
+def test_the_rewind_leaves_and_arrives_at_the_plays_pace():
+    back = short.rewind_curve(6500, 210, 3.0)
+    assert back[0] == 0 and abs(back[-1] - 6500) < 1e-6
+    assert all(b >= a for a, b in zip(back, back[1:]))
+    assert back[short.FPS] < 15 and 6500 - back[-1 - short.FPS] < 15  # its first and last second: slow
+    assert back[105] > 3000  # the middle: a blur
+    assert short.rewind_curve(0, 10, 3.0) == [0.0] * 10
+
+
+def test_soft_min_is_a_rounded_corner():
+    assert short._soft_min(1, 10) == 1 and short._soft_min(20, 10) == 10
+    xs = [short._soft_min(x / 10, 10) for x in range(0, 200)]
+    assert all(b >= a for a, b in zip(xs, xs[1:])) and max(xs) == 10

@@ -349,6 +349,9 @@ def arrow_down(x: int, y: int, alpha: float):
 
 
 def compose(f) -> bytes:
+    if getattr(f, "look3d", False):  # the same frame, drawn as blocks (look3d.py)
+        import look3d
+        return look3d.compose(f)
     band_y, band_h = getattr(f, "band", (BAND_Y, BAND_H))
     x0, y0, w, h = view(f)
     resample = Image.NEAREST if f.zoom * BAND_W / BW >= 1 else Image.LANCZOS
@@ -462,16 +465,18 @@ def days(gens: int, gen_seconds: int) -> int:
 
 
 # ---------------------------------------------------------------- the story
-def add_trails(frames: list, primer=()) -> None:
+def add_trails(frames: list, primer=(), continuous: bool = False) -> None:
     """Give each frame its tails (life.Trail, as on the stream). A step is a frame
     whose board changed, so a hold keeps its tails, and a cut (back in time, or a
     jump far ahead) starts them afresh. `primer` is (grid, paint, generation) for the real generations
     just before the first frame, so even the first frame (the thumbnail) shows
-    where things are moving."""
+    where things are moving. `continuous`: the frames are one shot whatever their
+    generations (a rewind), so the tails follow what's on screen, like motion blur."""
     trail, prev, t, gen0 = None, None, 0, None
     for grid, paint, gen, f in [*((g, p, n, None) for g, p, n in primer),
                                 *((f.grid, getattr(f, "paint", None), f.gen, f) for f in frames)]:
-        if trail is None or grid.shape != trail.last.shape or (gen0 is not None and not 0 <= gen - gen0 <= 30):
+        cut = gen0 is not None and not 0 <= gen - gen0 <= 30 and not (continuous and f is not None)
+        if trail is None or grid.shape != trail.last.shape or cut:
             trail, prev = life.Trail(grid.shape), None
         gen0 = gen
         if prev is not None and not np.array_equal(grid, prev):
@@ -1661,8 +1666,292 @@ def build_rewind(state_dir: str) -> list:
 REWIND_TITLE = "It started as 7 cells"
 
 
+# ---------------------------------------------------------------- "1,000 comments built this"
+# A Short about the one thing a stranger can't tell from a picture of the board: that
+# people made it. About 20 s, every beat on a full screen of board, the cells big:
+#   1. "1,000 comments built this simulation." over the universe playing up to now (the
+#      thumbnail first), then rewinding: the whole universe folds back into its seed
+#   2. the seed, close up: "It started as 7 cells."
+#   3. "Every comment adds more.": one real comment landing (a glider, flying), its words in a pill
+#   4. "It's still alive. Comment to keep it going." over the board just before the hook's: a seamless loop
+# Every count in it is the real one, rounded down (comments_made).
+MADE_FULL = PH / BH * BW / BAND_W  # the board's whole height fills the screen: cells ~27 px
+MADE_ACORN = 3.5  # times MADE_FULL, on the seed
+MADE_ACORN_3D = 1.7  # and this much closer again in 3D
+MADE_PUSH = 1.6  # times MADE_FULL, on the comment
+MADE_STEP = 10  # frames per generation on the live board (3 a second): slow enough to watch blocks rise and sink
+MADE_COMMENT_STEP = 3  # and as the comment lands: its glider flies
+MADE_CRASH_S = 1.5  # a glider's beat runs on this long after it hits something
+MADE_PLAY_S = 4.0  # the hook's board playing, before it rewinds
+MADE_RW_S = 7.0  # the rewind: at the play's pace at both ends, a blur between (rewind_curve)
+MADE_END_MORE_S = 2.5  # the ending held this much longer than its words need, to watch it
+MADE_SEED_MORE_S = 1.5  # the seed held longer too, growing
+MADE_COMMENT_S = 4.5  # the comment's beat, at least
+MADE_LAND_S = 0.5  # the comment lands this far into its beat
+MADE_HOOK_Y = 380  # the count's centre: clear of the Shorts player's top bar
+
+
+def comments_made(n: int) -> str:
+    """'1,000', '1,200', 'Almost 1,000', '800': the comments that landed, never more than really did."""
+    if 950 <= n < 1000:
+        return "Almost 1,000"
+    return f"{n // 100 * 100:,}" if n >= 100 else f"{n}"
+
+
+def made_count(h: History) -> int:
+    """Every move that landed on the board: one comment or live-chat message each."""
+    return sum(len(b) for b in h.batches.values())
+
+
+MADE_FLIGHT_GENS = 12  # a glider for the comment beat flies at least this far in the clear
+
+
+def made_move(h: History, since_gen: int):
+    """The made Short's comment, as (gen, move, effect): one that's good to watch. A glider
+    that lands in the clear and flies MADE_FLIGHT_GENS (a colored one first, then the
+    longest flight), else the period's biggest save or kill (opening_move). None if neither."""
+    trips = [t for t in flights(h, since_gen) if t[0] >= MADE_FLIGHT_GENS]
+    clear = _lands_clear(h, [(g, e) for _, g, e, _ in trips], since_gen) if trips else {}
+    trips = [t for t in trips if clear.get((t[1], t[2]["command"]))]
+    if trips:
+        _, g, e, f = max(trips, key=lambda t: (bool(t[2].get("color")), t[0]))
+        return g, e, f
+    return opening_move(h, since_gen)
+
+
+def made_title(h: History) -> str:
+    return f"{comments_made(made_count(h))} comments built this simulation"
+
+
+def _full(u, texts=(), zoom=MADE_FULL, focus=(BW / 2, BH / 2), scrim_amount=1.0, **kw):
+    """One frame on a full screen of board (a window anywhere on the torus)."""
+    f = ex.Frame(u, texts=texts, hud=False, zoom=zoom, dim=0.0, **kw)
+    f.focus, f.free, f.scrim, f.band = focus, True, scrim_amount, (0, PH)
+    paint = getattr(u, "paint", None)
+    f.paint = paint.copy() if paint is not None and paint.any() else None
+    return f
+
+
+def _busiest_columns(grids, cols: int) -> float:
+    """The x centre (board px) of the `cols`-wide window, wrapping, with the most life in `grids`."""
+    w = sum(g.astype(np.int64) for g in grids).sum(axis=0)
+    run = np.convolve(np.concatenate([w, w[:cols - 1]]), np.ones(cols, np.int64), "valid")[:len(w)]
+    return (int(np.argmax(run)) + cols / 2) * CELL
+
+
+MADE_LOOK = "3d"  # "flat", or "3d": the same frames drawn as lit blocks on a tilted floor (look3d.py)
+
+
+def _soft_min(x: float, cap: float, w: float = 3.0) -> float:
+    """min(x, cap) with the corner rounded over +-w: a camera that eases to a stop."""
+    if x <= cap - w:
+        return x
+    if x >= cap + w:
+        return cap
+    return cap - (cap + w - x) ** 2 / (4 * w)
+
+
+def rewind_curve(total: int, n: int, v0: float) -> list[float]:
+    """How far back (generations) each of n frames of a rewind is: it leaves at v0
+    generations a second and arrives at that pace too, accelerating exponentially to
+    half way and slowing the same way after, so every order of magnitude gets its share."""
+    if total <= 0:
+        return [0.0] * n
+    half, k0 = (n - 1) / FPS / 2, v0
+
+    def reach(k):  # generations covered by the first half at rate k
+        return v0 / k * np.expm1(k * half)
+    lo, hi = 1e-6, 60.0
+    for _ in range(80):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if reach(mid) < total / 2 else (lo, mid)
+    k0 = (lo + hi) / 2
+    out = []
+    for i in range(n):
+        t = i / FPS
+        r = v0 / k0 * np.expm1(k0 * t) if t <= half else total - v0 / k0 * np.expm1(k0 * (2 * half - t))
+        out.append(float(min(total, max(0.0, r))))
+    return out
+
+
+MADE_FOLLOW = True  # in the comment's beat the camera follows its glider
+
+
+def build_made(state_dir: str, since_gen: int | None = None, look: str | None = None,
+               follow: bool | None = None) -> list:
+    h = History(state_dir)
+    G, launch = h.gen_seconds, h.genesis["launch_time"]
+    now_gen = h.now_gen
+    style = look or MADE_LOOK
+    num = comments_made(made_count(h))
+    hook = ([("Almost", "bold", 100)] if num.startswith("Almost") else []) + \
+        [(num.removeprefix("Almost "), "bold", 230), ("comments built", "bold", 88), ("this simulation.", "bold", 88)]
+
+    def hook_texts(a):  # placed by hand: rows this different in size don't stack evenly
+        y = MADE_HOOK_Y
+        out = block([hook[-3]], y, a) + block([hook[-2]], y + 165, a) + block([hook[-1]], y + 275, a)
+        return (block([hook[0]], y - 165, a) if len(hook) == 4 else []) + out
+    # 1. the hook over the universe playing up to now, slowly enough to watch it live;
+    # then the whole of it rewinding: slow, fast, slow again as it folds back into the seed
+    n_play = int(MADE_PLAY_S * FPS)
+    n_rw = int(MADE_RW_S * FPS)
+    n_hook = n_play + n_rw
+    h0 = max(0, now_gen - (n_play - 1) // MADE_STEP)
+    back = rewind_curve(now_gen, n_rw, FPS / MADE_STEP)
+
+    def rewound(k: int) -> float:  # 0..1 of the way back, k frames into the rewind
+        return back[k] / max(1, now_gen)
+    hook_gens = [min(now_gen, h0 + k // MADE_STEP) for k in range(n_play)] + \
+        [now_gen - round(back[k]) for k in range(n_rw)]
+    n_words = max(n_play, rf(*[t for t, _, _ in hook]))  # the hook's words, then the days going by
+    day_of = lambda g: g * G // 86400 + 1
+    end = [("It's still alive.", "bold", 112), ("Comment to keep it going.", "bold", 70), WATCH_LIVE]
+    n_end = rf(*[t for t, _, _ in end]) + int(MADE_END_MORE_S * FPS)
+    e0 = max(0, h0 - (n_end + MADE_STEP - 1) // MADE_STEP)  # the board just before the hook's: it loops
+    end_gens = [min(h0 - 1, e0 + i // MADE_STEP) if h0 > 0 else 0 for i in range(n_end)]
+
+    # 1 and 4 are the real history: one pass forward, collected by generation
+    snaps, u = {}, h.fresh()
+    for g in sorted(set(hook_gens) | set(end_gens)):
+        h.goto(u, g)
+        snaps[g] = copy.deepcopy(u)
+    fx = _busiest_columns([snaps[g].grid for g in {*hook_gens[:n_play], *end_gens}], round(PW / (PH / BH) / CELL))
+    home = (fx, BH / 2)
+    acorn = centre(life.centered(h.genesis["seed"]))
+
+    hook_frames = []
+    for k, g in enumerate(hook_gens):
+        if k < n_words:
+            texts = hook_texts(1.0 if k < n_words - FADE else fade(k, n_words))  # the first frame is the thumbnail
+        else:  # the days ticking back to the first
+            a = min(1.0, (k - n_words + 1) / FADE, (n_hook - k) / FADE)
+            texts = block([("rewinding", "demi", 64)], MADE_HOOK_Y - 120, a) + \
+                block([(f"Day {day_of(g)}", "bold", 170)], MADE_HOOK_Y + 20, a)
+        p = ease(rewound(k - n_play)) if k >= n_play else 0.0
+        focus = (home[0] + (acorn[0] - home[0]) * p, home[1] + (acorn[1] - home[1]) * p)
+        hook_frames.append(_full(snaps[g], texts, focus=focus))
+    end_frames = []
+    for k, g in enumerate(end_gens):
+        a = min(1.0, (k + 1) / FADE, (n_end - k) / (FADE * 0.75))  # out just before the loop's seam
+        end_frames.append(_full(snaps[g], block(end, TOP_Y, a), focus=home,
+                                cue=("saved",) if k == FADE else None))
+
+    # 2b. the seed, close up, starting to grow
+    n_seed = len(life.centered(h.genesis["seed"]))
+    start = [(f"It started as {n_seed} cells.", "bold", 92)]
+    n_acorn = rf(start[0][0]) + int(MADE_SEED_MORE_S * FPS)
+    su, seed_frames = h.fresh(), []
+    for i in range(n_acorn):
+        if i > n_acorn // 3 and i % MADE_COMMENT_STEP == 0:  # still at first, then growing
+            History.advance(su, su.generation + 1)
+        close = MADE_ACORN * (MADE_ACORN_3D if style == "3d" else 1)  # a tilted floor shrinks it: closer
+        zoom = MADE_FULL * (1 + (close - 1) * ease(i / 18))
+        seed_frames.append(_full(su, block(start, TOP_Y, fade(i, n_acorn)), zoom=zoom, focus=acorn))
+
+    # 3. one real comment landing (made_move): "Every comment adds more."
+    since = since_gen if since_gen is not None else max(0, now_gen - 86400 // G)
+    move = made_move(h, since)
+    comment_frames, primer3 = [], []
+    if move is not None:
+        import render as rd
+        g, e, f = move
+        cells = [tuple(c) for c in e["cells"]]
+        piece = main_piece(cells)
+        said = ["Every comment adds more."]
+        top = [(s, "bold", 88) for s in said]
+        if e["command"].startswith("random"):
+            caption = "someone's message\nbecame a random 5×5 patch" + (f", {e['color']}" if e.get("color") else "")
+        else:
+            caption = "“" + rd.move_text(e) + "”"
+        n = max(int(MADE_COMMENT_S * FPS), rf(*said))
+        land = int(MADE_LAND_S * FPS)
+        first = max(0, g - 1 - land // MADE_COMMENT_STEP)
+        if e["command"].startswith("glider"):  # on until it has hit something, and a beat more
+            cu = h.fresh()  # (before the board below: fresh() restarts what goto has applied)
+            h.goto(cu, g)
+            n = max(n, land + _flew(h, cu, e) * MADE_COMMENT_STEP + int(MADE_CRASH_S * FPS))
+        cu = h.fresh()
+        h.goto(cu, max(0, first - life.TRAIL_GENS))
+        while cu.generation < first:
+            primer3.append((cu.grid.copy(), None if cu.paint is None else cu.paint.copy(), cu.generation))
+            h.goto(cu, cu.generation + 1)
+        heading = (np.array(GLIDER_DIRS.get(e["command"].split()[-1], (1, 1)))
+                   if e["command"].startswith("glider") else None)
+        px, py = centre(piece)
+        lift = (PH / 2 - 980) / (MADE_FULL * MADE_PUSH * BAND_W / BW)  # the comment in the clear middle
+        chase = (follow if follow is not None else MADE_FOLLOW) and heading is not None
+        cam = np.array([px, py + lift])
+        lit, far = None, 0
+        for i in range(n):
+            cue = None
+            if i == land:
+                h.goto(cu, g)
+                lit = life.mask(cells, cu.grid.shape)
+                cue = ("inject", float(np.mean([c[0] for c in cells])))
+                if heading is not None:
+                    far = _flew(h, cu, e)
+            elif i and i % MADE_COMMENT_STEP == 0 and (i > land or cu.generation < g - 1):
+                h.goto(cu, cu.generation + 1)
+                if heading is not None and cu.generation == g + far:  # it hits
+                    cue = ("inject", float((piece[0][0] + heading[0] * far / 4) % life.W))
+            # where the glider is along its straight line: steady, easing to a stop where it hits
+            flown = _soft_min(max(0.0, (i - land) / MADE_COMMENT_STEP), far) if i >= land else 0.0
+            at = piece if heading is None else [(x + heading[0] * flown / 4, y + heading[1] * flown / 4)
+                                                for x, y in piece]
+            gone = 0.0  # a glider's ring stops where it hits, and stays: that's what it did
+            a = fade(i, n)
+            b = a * ease((i - land) / 6)  # the ring and the words come with it
+            if chase:  # the camera rides the same straight line
+                cam = np.array([px + heading[0] * flown / 4 * CELL, py + heading[1] * flown / 4 * CELL + lift])
+            focus = (float(cam[0]), float(cam[1]))
+            comment_frames.append(_full(cu, block(top, TOP_Y, b), zoom=MADE_FULL * MADE_PUSH, focus=focus,
+                                        highlight=lit if i >= land else None, cue=cue,
+                                        extras=[ring(at, b * (1 - gone), caption)] if i >= land else []))
+
+    # trails: from the real generations before each run of frames (none on the rewind)
+    pu, primer = h.fresh(), []
+    h.goto(pu, max(0, e0 - life.TRAIL_GENS))
+    while pu.generation < e0:
+        primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
+        h.goto(pu, pu.generation + 1)
+    add_trails(end_frames, primer)
+    add_trails(hook_frames, [(f.grid, f.paint, f.gen) for f in end_frames], continuous=True)
+    add_trails(seed_frames)
+    if comment_frames:
+        add_trails(comment_frames, primer3)
+    shots = [end_frames, hook_frames, seed_frames, comment_frames]  # the end first: it plays into the hook
+    if style == "3d":
+        import look3d
+        look3d.add_rise(end_frames + hook_frames)  # one shot across the loop
+        look3d.add_rise(seed_frames)
+        look3d.add_rise(comment_frames)
+        for shot in shots:
+            for f in shot:
+                f.look3d = True
+    return hook_frames + seed_frames + comment_frames + end_frames
+
+
+LOOP_XFADE_S = 0.12
+
+
+def looped_soundtrack(frames: list):
+    """The soundtrack of a Short that loops, seamless when it plays again: made for
+    two plays in a row and cut to the second, so its start already has what was still
+    ringing at the end; its last LOOP_XFADE_S cross into the first play's end, which
+    the second play's start continues sample for sample."""
+    import numpy as np
+    n = len(frames) * (ex.SR // FPS)
+    both = ex.soundtrack(frames + frames)
+    first, second = both[:, :n], both[:, n:2 * n].copy()
+    k = int(LOOP_XFADE_S * ex.SR)
+    ramp = np.linspace(0.0, 1.0, k, dtype=np.float32)
+    second[:, -k:] = second[:, -k:] * (1 - ramp) + first[:, -k:] * ramp
+    return second
+
+
 def render_video(state_dir: str, out: str, since_gen: int | None = None, preview: str | None = None,
-                 kind: str = "recap", pick: str | None = None) -> str:
+                 kind: str = "recap", pick: str | None = None, look: str | None = None,
+                 follow: bool | None = None) -> str:
     """Render the Short (or, with `since_gen`, the recap since then; with kind="flight",
     the glider Short) to an MP4."""
     ex.SCALE = 1  # explainer's text helpers draw in pixels here
@@ -1675,13 +1964,15 @@ def render_video(state_dir: str, out: str, since_gen: int | None = None, preview
         frames = build_stranger(state_dir, since_gen)
     elif kind == "countdown":
         frames = build_countdown(state_dir)
+    elif kind == "made":
+        frames = build_made(state_dir, since_gen, look, follow)
     if frames is None:
         frames = build(state_dir, since_gen)
     os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     if preview:
         os.makedirs(preview, exist_ok=True)
     wav = os.path.splitext(out)[0] + ".wav"
-    ex.write_wav(wav, ex.soundtrack(frames))
+    ex.write_wav(wav, looped_soundtrack(frames) if kind == "made" else ex.soundtrack(frames))
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{PW}x{PH}",
          "-r", str(FPS), "-i", "-", "-i", wav, "-shortest",
@@ -1710,14 +2001,17 @@ def main() -> None:
     ap.add_argument("--rewind", action="store_true", help="the rewind Short: the week backward to the acorn")
     ap.add_argument("--stranger", action="store_true", help="with --since-hours: the noon Short (one comment's save or kill)")
     ap.add_argument("--countdown", action="store_true", help="the 8 PM Short: how long it has left")
+    ap.add_argument("--look", choices=("flat", "3d"), help=f"with --made: how it's drawn (default {MADE_LOOK})")
+    ap.add_argument("--fixed", action="store_true", help="with --made: the camera stays put as the comment lands")
+    ap.add_argument("--made", action="store_true", help='"1,000 comments built this": the rewind to the seed, one comment')
     args = ap.parse_args()
     since = None
     if args.since_hours:
         h = History(args.state_dir)
         since = max(0, h.now_gen - int(args.since_hours * 3600 // h.gen_seconds))
     kind = ("flight" if args.flight else "rewind" if args.rewind else "stranger" if args.stranger
-            else "countdown" if args.countdown else "recap")
-    render_video(args.state_dir, args.out, since, args.preview, kind, args.pick)
+            else "countdown" if args.countdown else "made" if args.made else "recap")
+    render_video(args.state_dir, args.out, since, args.preview, kind, args.pick, args.look, False if args.fixed else None)
     print(f"wrote {args.out} ({os.path.getsize(args.out) / 1e6:.1f} MB)")
 
 

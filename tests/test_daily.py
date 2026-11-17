@@ -284,3 +284,17 @@ def test_the_stranger_title_says_what_one_comment_did():
         "One comment gave this universe 9 more days to live"
     assert short.stranger_title((1, {}, {"before": 100 + 30 * 30, "after": 100}), G) == \
         "One comment took 1 day off this universe's life"
+
+
+def test_a_planned_slot_posts_the_made_short(d, monkeypatch):
+    import daily
+    import short
+    yt, calls = DailyYT(), []
+    noon = LAUNCH + 5.2 * 3600
+    monkeypatch.setattr(daily, "PLAN", {daily.today(noon): {12: "made"}})
+    monkeypatch.setattr(short, "made_count", lambda h: 1037)
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, noon, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    assert calls == [{"kind": "made"}]
+    assert yt.uploads[0]["title"] == "1,000 comments built this simulation #GameOfLife"
+    assert yt.uploads[0]["description"].startswith("1,000 comments built this simulation: it started as 7 cells, and every comment since has added more.")
