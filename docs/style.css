@@ -123,15 +123,23 @@ main.wide { max-width: 68rem; }
 html.fs-on, html.fs-on body { overflow: hidden; }
 .live.fs { position: fixed; inset: 0; z-index: 1000; margin: 0; background: #16191f; color: #e8e9ec;
            --ALIVE: #78e6a0; --FLATLINING: #f05a5a; --CONTESTED: #fac850; --DIED: #9a9aa7; --muted: #b4b9c2; }
-.live.fs > :not(.statusbar):not(.boardwrap) { display: none; }
+.live.fs > :not(.statusbar):not(.boardwrap):not(.scrub) { display: none; }
 .live.fs .boardwrap { position: absolute; inset: 0; }
 .live.fs #board { visibility: hidden; position: absolute; width: 1px; }  /* still drawn: the view copies it */
 .live.fs canvas.fsview { display: block; width: 100%; height: 100%; border-radius: 0; touch-action: none; cursor: grab; }
 .live.fs canvas.fsview:active { cursor: grabbing; }
+.live.fs.b3 canvas.fsview, .live.fs.b3 canvas.fsview:active { cursor: default; }  /* 3D: shown whole, nothing to turn */
 .live.fs .tags { border-radius: 0; }
 .live.fs .statusbar { position: absolute; top: 0; left: 0; right: 0; z-index: 3; margin: 0; padding: 1rem 1.2rem 3rem;
                       pointer-events: none; background: linear-gradient(rgba(10,12,16,.92), rgba(10,12,16,0)); }
-.live.fs .boardbtns { top: auto; bottom: 1rem; right: 1rem; }
+.live.fs .boardbtns { top: 3.2rem; right: 1.2rem; }
+/* the player's controls stay, along the bottom, as a video player's (a little shorter) */
+.live.fs { --fg: #e8e9ec; --rule: rgba(255,255,255,.28); --accent: #78e6a0; --bg: #0d0f13; }
+.live.fs .scrub { position: absolute; left: 0; right: 0; bottom: 0; z-index: 3; margin: 0; padding: 2.2rem 1.2rem .9rem;
+                  background: linear-gradient(rgba(10,12,16,0), rgba(10,12,16,.92) 45%); }
+.live.fs .track { height: 6rem; }
+.live.fs canvas.lifeline { height: 2.4rem; }
+.live.fs .marks { top: 3.6rem; }
 .checked { color: var(--muted); font-size: .95rem; margin: .5rem 0 0; }
 
 /* sections below the board: a rule and room between them, so they read apart */

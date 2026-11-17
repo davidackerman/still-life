@@ -23,6 +23,7 @@
     <canvas id="fsview" class="fsview" aria-hidden="true"></canvas>
     <div id="tags" class="tags" aria-live="polite"></div>
     <div class="boardbtns">
+      <button id="look" class="boardbtn"></button>
       <button id="full" class="boardbtn" aria-pressed="false" aria-label="Full screen"></button>
       <button id="sound" class="boardbtn" aria-pressed="false">🔇 Turn on sound</button>
     </div>
@@ -95,6 +96,7 @@
 <script src="stats.js"></script>
 <script src="life.js"></script>
 <script src="history.js"></script>
+<script src="board3d.js"></script>
 <script src="sound.js"></script>
 <script>
 "use strict";
@@ -105,6 +107,8 @@ const BASE = new URLSearchParams(location.search).get("base")
 const COLOR = { ALIVE: "#78e6a0", FLATLINING: "#f05a5a", CONTESTED: "#fac850", DIED: "#7a7a87" };
 // The colors a move can paint its cells, by paint index (History.COLORS order), as render.PAINT.
 const PAINT = [null, "#f24848", "#ff9632", "#fae13c", "#468cff", "#aa69ff", "#ff6ec8", "#3cdceb"];
+let LOOK3D = true;  // the board as lit blocks on a tipped floor, as on the stream (board3d.js); the button turns it flat
+try { LOOK3D = localStorage.getItem("still-life-look") !== "flat"; } catch (e) { /* 3D, then */ }
 let CELL = 10;  // px per cell; smaller on bigger boards (set from the state's shape)
 const POLL_MS = 60000, FORECAST_GENS = 30000;
 
@@ -134,7 +138,7 @@ async function load() {
     if (!rs.ok) throw new Error(rs.status);
     const d = await rs.json(), u = d.universe, [h, w] = u.shape;
     CELL = Math.max(4, Math.min(10, Math.floor(1280 / w)));
-    if (canvas.width !== w * CELL || canvas.height !== h * CELL) { canvas.width = w * CELL; canvas.height = h * CELL; }
+    if (!LOOK3D && (canvas.width !== w * CELL || canvas.height !== h * CELL)) { canvas.width = w * CELL; canvas.height = h * CELL; }
     $("size").textContent = `${w}×${h}`;
     const fresh = !S || S.hash !== u.hash;
     S = {
@@ -364,19 +368,23 @@ function drawRipples(rips) {
       ax = bx + bw / 2; ay = below ? by + bh : by;
     }
     ctx.restore();
-    // the label, kept clear of the others
-    const { what, eff, status } = rippleLabel(r);
-    const tag = document.createElement("span");
-    tag.className = "tag" + (below ? " below" : " above");
-    tag.style.opacity = Math.max(0.35, r.fade).toFixed(2);
-    tag.textContent = what;
-    if (eff) { const e = document.createElement("span"); e.className = `eff ${eff.cls}`; e.textContent = ` · ${eff.text}`; tag.appendChild(e); }
-    if (status) { const e = document.createElement("span"); e.className = "eff gone"; e.textContent = status; tag.appendChild(e); }
-    tag.title = `landed at gen ${r.grp.gen.toLocaleString()}`;
-    tag.dataset.ax = ax; tag.dataset.ay = ay;
-    box.appendChild(tag);
+    rippleTag(r, ax, ay, below);
   }
   placeTags();
+}
+
+// A ripple's label at (ax, ay) on the board's canvas: below that point or above it.
+function rippleTag(r, ax, ay, below) {
+  const { what, eff, status } = rippleLabel(r);
+  const tag = document.createElement("span");
+  tag.className = "tag" + (below ? " below" : " above");
+  tag.style.opacity = Math.max(0.35, r.fade).toFixed(2);
+  tag.textContent = what;
+  if (eff) { const e = document.createElement("span"); e.className = `eff ${eff.cls}`; e.textContent = ` · ${eff.text}`; tag.appendChild(e); }
+  if (status) { const e = document.createElement("span"); e.className = "eff gone"; e.textContent = status; tag.appendChild(e); }
+  tag.title = `landed at gen ${r.grp.gen.toLocaleString()}`;
+  tag.dataset.ax = ax; tag.dataset.ay = ay;
+  $("tags").appendChild(tag);
 }
 
 // The labels, at their points on the board (on the page or full screen), kept clear of each other.
@@ -410,6 +418,7 @@ const FS_ON = '<span aria-hidden="true">✕</span><span class="lbl">Exit full sc
 
 function fsLayout() {
   const vw = fsview.clientWidth || 1, vh = fsview.clientHeight || 1;
+  if (LOOK3D) return { vw, vh, s: vw / canvas.width, Ws: vw, Hs: vh, wrapX: false, ox: 0, oy: 0, whole: true };
   const s = Math.max(vh / canvas.height, vw / canvas.width);  // screen px per canvas px
   const Ws = canvas.width * s, Hs = canvas.height * s, wrapX = Ws > vw + 0.5;
   const p = mod(FS.pan, 1);
@@ -424,7 +433,8 @@ function toView(ax, ay) {
   }
   const L = fsLayout();
   let x = L.ox + ax * L.s, y = L.oy + ay * L.s;
-  if (L.wrapX) x = mod(x, L.Ws); else y = mod(y, L.Hs);  // the copy of the point that's on screen, if any
+  if (L.whole) { /* the whole board on screen, once */ }
+  else if (L.wrapX) x = mod(x, L.Ws); else y = mod(y, L.Hs);  // the copy of the point that's on screen, if any
   if (x >= 0 && x <= L.vw) x = Math.min(Math.max(x, L.vw * 0.14), L.vw * 0.86);
   return [x, y];
 }
@@ -434,6 +444,7 @@ function blitFs() {
   const L = fsLayout(), dpr = window.devicePixelRatio || 1;
   const pw = Math.round(L.vw * dpr), phh = Math.round(L.vh * dpr);
   if (fsview.width !== pw || fsview.height !== phh) { fsview.width = pw; fsview.height = phh; }
+  if (L.whole) { fctx.imageSmoothingEnabled = true; fctx.drawImage(canvas, 0, 0, pw, phh); return; }
   fctx.imageSmoothingEnabled = false;
   fctx.fillStyle = "#16191f";
   fctx.fillRect(0, 0, pw, phh);
@@ -470,14 +481,14 @@ $("full").addEventListener("click", () => {
 for (const [ev, el] of [["fullscreenchange", "fullscreenElement"], ["webkitfullscreenchange", "webkitFullscreenElement"]])
   document.addEventListener(ev, () => { if (!document[el]) setFull(false); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && FS.on) setFull(false); });
-window.addEventListener("resize", () => { blitFs(); placeTags(); });
+window.addEventListener("resize", () => { if (LOOK3D && S) render(); else { blitFs(); placeTags(); } });
 let drag = null;  // drag the board to turn it (it wraps)
 fsview.addEventListener("pointerdown", (e) => {
   drag = { x: e.clientX, y: e.clientY, pan: FS.pan };
   try { fsview.setPointerCapture(e.pointerId); } catch (err) { /* keeps working without capture */ }
 });
 fsview.addEventListener("pointermove", (e) => {
-  if (!drag) return;
+  if (!drag || LOOK3D) return;
   const L = fsLayout();
   FS.pan = mod(drag.pan + (L.wrapX ? (e.clientX - drag.x) / L.Ws : (e.clientY - drag.y) / L.Hs), 1);
   blitFs();
@@ -485,14 +496,102 @@ fsview.addEventListener("pointermove", (e) => {
 });
 for (const ev of ["pointerup", "pointercancel"]) fsview.addEventListener(ev, () => { drag = null; });
 
-function draw(gen) {
-  const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
-  const paint = st.phase === "DIED" ? null : paintAt(gen);  // a dead universe is grey, paint and all
-  const T = st.phase === "DIED" ? null : tailsAt(gen);
-  const frac = mode === "live" ? Math.min(0.999, Math.max(0, (Date.now() / 1000 - genTime(gen)) / S.genSec)) : 0;
-  Sound.frame(gen, g, w, h, st.phase);
-  const rips = ripplesAt(gen, g), lit = new Set();
-  for (const r of rips) for (const i of r.born) lit.add(i);
+// ---------------------------------------------------------------- 3D (board3d.js: as the stream)
+const PAINT_RGB = PAINT.map((p) => p && rgbOf(p)), WHITE = [255, 255, 255], RISE_MS = 600;
+let V3 = null, prev3 = null, rise3 = null;  // the view; the last board drawn {gen, grid}; a rise playing {from, gen, t0}
+
+function view3d() {  // the canvas at the size it's shown (full screen: the screen's), in device px
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = (FS.on ? fsview.clientWidth : canvas.parentElement.clientWidth) || 960;
+  const cssH = FS.on ? (fsview.clientHeight || 540) : cssW * 9 / 16;
+  const k = Math.min(dpr, 2560 / cssW);  // device px per CSS px (capped on huge screens)
+  const cw = Math.max(320, Math.round(cssW * k)), ch = Math.max(180, Math.round(cssH * k));
+  if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+  let top = 0, bottom = 0;  // full screen: clear of the status and buttons on top, and of the controls below
+  if (FS.on) {
+    const box = fsview.getBoundingClientRect();
+    top = Math.max(0, $("look").getBoundingClientRect().bottom - box.top + 4) * k;
+    bottom = Math.max(0, box.bottom - document.querySelector(".scrub").getBoundingClientRect().top - 12) * k;
+  }
+  if (!V3 || V3.cw !== cw || V3.ch !== ch || V3.h !== S.h || V3.w !== S.w || V3.inTop !== top || V3.inBottom !== bottom)
+    V3 = new Board3D.View(S.h, S.w, cw, ch, Math.max(cw / 1454, 0.8 * k), top, bottom);
+  return V3;
+}
+
+function draw3d(gen, g, st, paint, T, frac, rips, lit) {
+  const v = view3d(), base = rgbOf(COLOR[st.phase]), tails = [];
+  if (T) for (let i = 0; i < g.length; i++) {  // the tails, as the flat board's
+    if (g[i]) continue;
+    const d = gen - T.last[i] + frac;
+    if (d < 1 || d > TRAIL_GENS + 1) continue;
+    const a = TRAIL_MAX * Math.pow(Math.max(0, 1 - (d - 1) / TRAIL_GENS), 1.6);
+    if (a >= 0.004) tails.push([i, T.col[i] ? PAINT_RGB[T.col[i]] : base, a]);
+  }
+  // live, a new generation: its cells rise out of the floor and the dying sink, over RISE_MS
+  const now = performance.now();
+  if (mode === "live" && prev3 && gen === prev3.gen + 1 && prev3.grid.length === g.length) {
+    rise3 = { from: prev3.grid, gen, t0: now };
+    requestAnimationFrame(riseFrame);
+  }
+  if (rise3 && (rise3.gen !== gen || mode !== "live")) rise3 = null;
+  prev3 = { gen, grid: g };
+  const rise = rise3 ? Math.min(1, (now - rise3.t0) / RISE_MS) : 1;
+  v.draw(ctx, { grid: g, before: rise < 1 ? rise3.from : null, rise, tails,
+                color: (i) => paint && paint[i] ? PAINT_RGB[paint[i]] : lit.has(i) ? WHITE : base });
+  drawRipples3d(rips, v);
+}
+function riseFrame() {
+  if (!rise3 || !S || mode !== "live") return;
+  draw(rise3.gen);
+  if (rise3 && performance.now() - rise3.t0 < RISE_MS) requestAnimationFrame(riseFrame);
+}
+
+// The ripples on the 3D board: killed cells outlined on the floor, the box drawn on the floor around the
+// difference, the label at the box's near (or far) edge, or above the cells.
+function drawRipples3d(rips, v) {
+  $("tags").textContent = "";
+  for (const r of rips) {
+    ctx.save();
+    ctx.globalAlpha = r.fade;
+    ctx.strokeStyle = "rgba(240, 90, 90, 0.9)"; ctx.lineWidth = Math.max(1, 1.5 * v.unit);
+    for (const i of r.killed) { v.square(ctx, i % S.w, Math.floor(i / S.w), 0.12); ctx.stroke(); }
+    let [ax, ay] = v.at(r.cx + 0.5, r.cy + 0.5, Board3D.HEIGHT), below = true;
+    if (r.box && !r.spread) {
+      const p = 1.2, x0 = r.box.x0 - p, x1 = r.box.x1 + 1 + p, y0 = r.box.y0 - p, y1 = r.box.y1 + 1 + p;
+      const q = [v.at(x0, y0), v.at(x1, y0), v.at(x1, y1), v.at(x0, y1)];
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.85)"; ctx.lineWidth = Math.max(1.5, 2.2 * v.unit);
+      ctx.setLineDash([8 * v.unit, 5 * v.unit]);
+      ctx.beginPath(); ctx.moveTo(...q[0]); for (const c of q.slice(1)) ctx.lineTo(...c); ctx.closePath(); ctx.stroke();
+      const near = Math.max(q[2][1], q[3][1]), far = Math.min(q[0][1], q[1][1]);
+      below = near < canvas.height * 0.75;
+      ax = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4; ay = below ? near : far;
+    }
+    ctx.restore();
+    rippleTag(r, ax, ay, below);
+  }
+  placeTags();
+}
+
+function showLook() {
+  const b = $("look");
+  b.textContent = LOOK3D ? "▦ Flat" : "◆ 3D";
+  b.setAttribute("aria-label", LOOK3D ? "Show the board flat" : "Show the board in 3D");
+  liveEl.classList.toggle("b3", LOOK3D);
+}
+$("look").addEventListener("click", () => {
+  LOOK3D = !LOOK3D;
+  try { localStorage.setItem("still-life-look", LOOK3D ? "3d" : "flat"); } catch (e) { /* this visit only */ }
+  Stats.track(LOOK3D ? "look3d" : "lookflat");
+  if (!LOOK3D && S) { canvas.width = S.w * CELL; canvas.height = S.h * CELL; }
+  V3 = prev3 = rise3 = null;
+  showLook();
+  if (S) render();
+});
+showLook();
+
+// The flat board: a square per cell, as before the 3D look.
+function drawFlat(gen, g, st, paint, T, frac, rips, lit) {
+  const { h, w } = S;
   ctx.fillStyle = "#16191f"; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#0a0c10";
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
@@ -516,6 +615,18 @@ function draw(gen) {
     ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
   }
   drawRipples(rips);
+}
+
+function draw(gen) {
+  const { h, w } = S, g = gridAt(gen), st = statusAt(gen);
+  const paint = st.phase === "DIED" ? null : paintAt(gen);  // a dead universe is grey, paint and all
+  const T = st.phase === "DIED" ? null : tailsAt(gen);
+  const frac = mode === "live" ? Math.min(0.999, Math.max(0, (Date.now() / 1000 - genTime(gen)) / S.genSec)) : 0;
+  Sound.frame(gen, g, w, h, st.phase);
+  const rips = ripplesAt(gen, g), lit = new Set();
+  for (const r of rips) for (const i of r.born) lit.add(i);
+  if (LOOK3D) draw3d(gen, g, st, paint, T, frac, rips, lit);
+  else drawFlat(gen, g, st, paint, T, frac, rips, lit);
   blitFs();
   const ph = $("phase");
   ph.textContent = st.phase; ph.style.color = `var(--${st.phase})`;
@@ -566,13 +677,13 @@ function lifeAt(gen) {
   return Math.max(0, s.stuck + S.flatGens - gen) * S.genSec;
 }
 
-const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const cssVar = (name) => getComputedStyle(lifeCanvas).getPropertyValue(name).trim();  // (full screen has its own)
 
 function lifeImage(end) {
   const dpr = window.devicePixelRatio || 1;
   const W = Math.max(1, Math.round(lifeCanvas.clientWidth * dpr)), H = Math.max(1, Math.round(lifeCanvas.clientHeight * dpr));
   const dark = window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches;
-  const key = `${logSize}|${end}|${W}|${H}|${S.hash}|${dark}`;
+  const key = `${logSize}|${end}|${W}|${H}|${S.hash}|${dark}|${FS.on}`;
   if (lifeBase && lifeBase.key === key) return lifeBase;
   const img = document.createElement("canvas");
   img.width = W; img.height = H;
@@ -856,6 +967,7 @@ function filmChip(kind) {
 function drawFilm(c, k) {
   const frames = History.film(c.dataset.film, 9), f = frames[k % frames.length], px = +c.dataset.px, x = c.getContext("2d");
   x.fillStyle = "#0a0c10"; x.fillRect(0, 0, c.width, c.height);
+  if (LOOK3D) { Board3D.film(x, f, 9, px, rgbOf(COLOR.ALIVE)); return; }  // little blocks, as on the stream
   x.fillStyle = COLOR.ALIVE;
   for (let i = 0; i < f.length; i++) if (f[i]) x.fillRect((i % 9) * px, Math.floor(i / 9) * px, px - 1, px - 1);
 }
