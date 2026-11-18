@@ -58,6 +58,7 @@
 <section class="part">
   <h2>The comments so far</h2>
   <div id="tally" class="tally"></div>
+  <div id="growth" class="growth"></div>
   <details class="history" open>
     <summary>Every move and event, newest first</summary>
     <ol id="events" class="events"></ol>
@@ -149,6 +150,8 @@ async function load() {
       highlight: new Set((d.display.highlight || []).map(([x, y]) => y * w + x)),
       videoNames: d.video_names || {},  // where a move came from: "the Day 5 Short"
       seen: (d.comments_seen || {}).total || 0,  // every comment the bot has read, skipped ones too
+      people: Object.keys(d.scores || {}).length,  // everyone who has made a move (a count: the ids are hashed)
+      peopleDays: d.people_days || {},  // that count at the end of each game day: {"3": 111, ...}
     };
     if (fresh) { ahead = { gen: S.gen, grid: S.grid }; forecastFor = null; }
     if (rl.ok) {
@@ -950,6 +953,95 @@ function renderTally() {
             line("tally-effect", better, ", ", worse));                        // and what they did
 }
 
+// Moves per day (video comments and the live chat, stacked) and how many people have played in all, by
+// day: two small charts, one scale each. Hover a bar or a point for its numbers; the table below has them all.
+function renderGrowth() {
+  const el = $("growth");
+  if (!S || !TL) return;
+  const day = (g) => Math.floor(g * S.genSec / 86400) + 1, today = day(S.gen);
+  const byDay = new Map();
+  for (const e of TL.events) {
+    if (e.kind !== "comment") continue;
+    const d = byDay.get(day(e.gen)) || { video: 0, chat: 0 };
+    d[e.via === "chat" ? "chat" : "video"]++;
+    byDay.set(day(e.gen), d);
+  }
+  const days = Array.from({ length: today }, (_, i) => i + 1);
+  const moves = TL.events.filter((e) => e.kind === "comment").length;
+  const people = days.map((d) => (d === today ? S.people : S.peopleDays[String(d)] ?? null));
+  const NS = "http://www.w3.org/2000/svg", W = 600, H = 150, L = 34, R = 34, T = 10, B = 22;
+  const svgEl = (tag, attrs, parent) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (parent) parent.appendChild(n);
+    return n;
+  };
+  const tip = (node, text) => { svgEl("title", {}, node).textContent = text; };
+  const nice = (m) => { const p = 10 ** Math.floor(Math.log10(Math.max(1, m))); return Math.ceil(m / p) * p; };
+  const frame = (title, top, caption) => {
+    const box = document.createElement("figure");
+    box.className = "growth-chart";
+    const h = document.createElement("figcaption");
+    h.innerHTML = title;
+    box.appendChild(h);
+    const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": caption });
+    box.appendChild(svg);
+    const x = (d) => L + (d - 0.5) / days.length * (W - L - R), y = (v) => T + (1 - v / top) * (H - T - B);
+    for (const v of [0, top / 2, top]) {  // a recessive grid: zero, half, top
+      svgEl("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v ? "grid" : "axis" }, svg);
+      svgEl("text", { x: L - 6, y: y(v) + 4, class: "tick", "text-anchor": "end" }, svg).textContent = v.toLocaleString();
+    }
+    for (const d of days) if (d === 1 || d === today || d % 2 === 1)
+      svgEl("text", { x: x(d), y: H - 6, class: "tick", "text-anchor": "middle" }, svg).textContent = `Day ${d}`.replace("Day ", d === 1 ? "Day " : "");
+    return { box, svg, x, y, step: (W - L - R) / days.length };
+  };
+  // 1. moves per day
+  const most = Math.max(1, ...days.map((d) => { const v = byDay.get(d) || {}; return (v.video || 0) + (v.chat || 0); }));
+  const a = frame('Moves per day: <span class="key key-video"></span>comments <span class="key key-chat"></span>live chat',
+                  nice(most), "Moves per day, from video comments and from the live chat");
+  const bw = Math.min(26, a.step * 0.62);
+  for (const d of days) {
+    const v = byDay.get(d) || { video: 0, chat: 0 }, x0 = a.x(d) - bw / 2;
+    const g = svgEl("g", { class: "hit" }, a.svg);
+    tip(g, `Day ${d}${d === today ? " (today, so far)" : ""}: ${(v.video + v.chat).toLocaleString()} moves, ` +
+           `${v.video.toLocaleString()} from comments, ${v.chat.toLocaleString()} from the live chat`);
+    svgEl("rect", { x: a.x(d) - a.step / 2, y: T, width: a.step, height: H - T - B, class: "hitbox" }, g);
+    const yv = a.y(v.video), yc = a.y(v.video + v.chat);
+    if (v.video) svgEl("rect", { x: x0, y: yv, width: bw, height: Math.max(0, a.y(0) - yv), rx: 2, class: "bar-video" }, g);
+    if (v.chat) svgEl("rect", { x: x0, y: yc, width: bw, height: Math.max(0, yv - yc - (v.video ? 2 : 0)), rx: 2, class: "bar-chat" }, g);
+  }
+  // 2. people who have played, in all
+  const known = days.map((d, i) => [d, people[i]]).filter(([, n]) => n !== null);
+  const b = frame("People who have played, in all", nice(Math.max(1, ...known.map(([, n]) => n))),
+                  "How many people have made a move, in all, by the end of each day");
+  if (known.length) {
+    svgEl("polyline", { points: known.map(([d, n]) => `${b.x(d)},${b.y(n)}`).join(" "), class: "line-people" }, b.svg);
+    for (const [d, n] of known) {
+      const g = svgEl("g", { class: "hit" }, b.svg);
+      tip(g, `Day ${d}${d === today ? " (now)" : ""}: ${n.toLocaleString()} people in all`);
+      svgEl("rect", { x: b.x(d) - b.step / 2, y: T, width: b.step, height: H - T - B, class: "hitbox" }, g);
+      svgEl("circle", { cx: b.x(d), cy: b.y(n), r: 4, class: "dot-people" }, g);
+    }
+    const [ld, ln] = known[known.length - 1];
+    svgEl("text", { x: b.x(ld) + 8, y: b.y(ln) + 4, class: "label" }, b.svg).textContent = ln.toLocaleString();
+  }
+  // the numbers, as a table
+  const rows = days.map((d, i) => { const v = byDay.get(d) || { video: 0, chat: 0 };
+    return `<tr><td>Day ${d}</td><td>${v.video.toLocaleString()}</td><td>${v.chat.toLocaleString()}</td>` +
+           `<td>${people[i] === null ? "–" : people[i].toLocaleString()}</td></tr>`; }).join("");
+  const table = document.createElement("details");
+  table.className = "growth-table";
+  table.innerHTML = `<summary>The numbers</summary><table><thead><tr><th>Day</th><th>Comments</th><th>Live chat</th>` +
+                    `<th>People in all</th></tr></thead><tbody>${rows}</tbody></table>` +
+                    `<p class="muted">People are counted by a hashed id, never a name. Days 1 and 2 weren't counted.</p>`;
+  const head = document.createElement("p");
+  head.className = "growth-head";
+  head.innerHTML = `<b>${S.people.toLocaleString()} people</b> have made <b>${moves.toLocaleString()} moves</b>.`;
+  const open = el.querySelector("details.growth-table")?.open;
+  el.replaceChildren(head, a.box, b.box, table);
+  if (open) table.open = true;
+}
+
 // The little films of what each kind of move does (History.film: the stream's
 // legend films), looping together at 4 generations a second.
 const FILM_OF = { random: "random", glider: "glider_se", acorn: "acorn", rpent: "rpent", block: "block", blinker: "blinker",
@@ -977,6 +1069,7 @@ if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
 
 function renderEvents() {
   renderTally();
+  renderGrowth();
   const ol = $("events");
   ol.textContent = "";
   const items = [{ gen: 0, text: "born: an acorn, seven living cells" }];

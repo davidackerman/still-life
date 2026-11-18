@@ -151,3 +151,30 @@ html.fs-on, html.fs-on body { overflow: hidden; }
   image-rendering: pixelated; }
 .events { position: relative; }
 .events li.here { background: var(--code); border-radius: 4px; box-shadow: inset 3px 0 0 var(--accent); }
+
+/* the comments-and-people charts (renderGrowth): two small charts, one scale each */
+:root { --series-1: #2a78d6; --series-2: #eb6834; }
+@media (prefers-color-scheme: dark) { :root { --series-1: #3987e5; --series-2: #d95926; } }
+.growth { margin: 1.2rem 0 0; }
+.growth-head { margin: 0 0 .6rem; }
+.growth-chart { margin: 0 0 1rem; }
+.growth-chart figcaption { font-size: .9rem; color: var(--muted); margin: 0 0 .2rem; }
+.growth-chart svg { width: 100%; max-width: 640px; height: auto; display: block; overflow: visible; }
+.growth-chart .grid { stroke: var(--rule); stroke-width: 1; }
+.growth-chart .axis { stroke: var(--muted); stroke-width: 1; opacity: .6; }
+.growth-chart .tick { fill: var(--muted); font-size: 11px; }
+.growth-chart .label { fill: var(--fg); font-size: 12px; font-weight: 600; }
+.growth-chart .bar-video { fill: var(--series-1); }
+.growth-chart .bar-chat { fill: var(--series-2); }
+.growth-chart .line-people { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
+.growth-chart .dot-people { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.growth-chart .hitbox { fill: transparent; }
+.growth-chart .hit:hover .hitbox { fill: var(--rule); opacity: .5; }
+.growth-chart .key { display: inline-block; width: .7em; height: .7em; border-radius: 2px; margin: 0 .25em 0 .6em; vertical-align: -.05em; }
+.growth-chart .key-video { background: var(--series-1); }
+.growth-chart .key-chat { background: var(--series-2); }
+.growth-table { font-size: .9rem; margin: 0 0 1rem; }
+.growth-table table { border-collapse: collapse; margin: .4rem 0; }
+.growth-table th, .growth-table td { padding: .15rem .8rem .15rem 0; text-align: right; }
+.growth-table th:first-child, .growth-table td:first-child { text-align: left; }
+.growth-table .muted { color: var(--muted); }

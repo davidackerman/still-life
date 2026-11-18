@@ -97,6 +97,17 @@ def test_title_at_most_every_hour_while_alive_and_only_when_changed():
     assert len(yt.titles) >= 10  # the quarter-hour clock changes at nearly every allowed slot
 
 
+def test_the_count_of_people_is_kept_by_day_without_ids():
+    w, yt = world(), FakeYT([comment("a", "u1", "glider 10,20"), comment("b", "u2", "block 5,5")])
+    engine.tick(w, LAUNCH + 600, yt)
+    today = str(engine.game_day(w.universe.generation, w.gen_seconds))
+    assert w.people_days[today] == len(w.scores) == 2
+    assert w.people_days["3"] == engine.PEOPLE_BEFORE[3]  # the days before it was kept
+    back = engine.World.from_state(*w.to_state(), w.key)
+    assert back.people_days == w.people_days
+    assert all(isinstance(n, int) for n in w.people_days.values())  # counts only
+
+
 def test_thumbnail_every_8_hours_and_on_phase_change():
     w, yt = world(), FakeYT()
     for t in range(0, 4 * 86400, 300):

@@ -93,6 +93,9 @@ class World:
     # The same for one game day (Day N, as the daily Shorts count them), and the
     # day before as "prev": {"day", "whole" (counted from the day's start), "scores"}.
     day_scores: dict = field(default_factory=dict)
+    # How many people have played in all (len(scores)) by the end of each game day: {"3": 111, ...}.
+    # A count only: no ids. Days 1-2 aren't known (scores were first kept on day 3).
+    people_days: dict = field(default_factory=dict)
     # Every comment and chat message read, counted or skipped (over the per-person
     # limit, or after death): {"total": n, "day": game day of the latest, "today": n}
     comments_seen: dict = field(default_factory=dict)
@@ -138,6 +141,7 @@ class World:
             "chat": self.chat,
             "scores": dict(sorted(self.scores.items())),
             "day_scores": self.day_scores,
+            "people_days": dict(sorted(self.people_days.items(), key=lambda kv: int(kv[0]))),
             "comments_seen": self.comments_seen,
             "death": self.death,
             "retire_pending": self.retire_pending,
@@ -169,6 +173,7 @@ class World:
             reply_counts=dict(d.get("reply_counts", {})), chat=dict(d.get("chat") or {}),
             scores={a: list(s) for a, s in (d.get("scores") or {}).items()},
             day_scores=dict(d.get("day_scores") or {}),
+            people_days=dict(d.get("people_days") or {}),
             comments_seen=dict(d.get("comments_seen") or {}),
             universe_no=d["config"].get("universe", 1), video_id=d["config"].get("video_id"),
             retired=list(d["config"].get("retired", [])), death=d.get("death"),
@@ -248,6 +253,8 @@ def effects_from_log(entries: list[dict]) -> list[dict]:
 
 READMIT = "readmit-dropped-2026-11-09"
 SCORES = "scores-backfilled-2026-11-10"
+# people_days before it was kept, read off the repo's history of state.json (len(scores) at each day's end)
+PEOPLE_BEFORE = {3: 111, 4: 141, 5: 170, 6: 198, 7: 209, 8: 248, 9: 273, 10: 309}
 SCORE_MATCH_GENS = 60  # backfill: a move lands at most this long after its comment was posted (2 h)
 
 
@@ -674,6 +681,10 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
             if v in views:  # the views it had when written: the next rewrite waits for more
                 slot["views"] = views[v]
             events.append({"type": "display", "what": "pinned_comment", "video": int(v)})
+
+    for d, n in PEOPLE_BEFORE.items():  # (a count of people by day, for the live page's chart)
+        world.people_days.setdefault(str(d), n)
+    world.people_days[str(game_day(u.generation, world.gen_seconds))] = len(world.scores)
 
     if events or u.generation != gen_start or counts["new"]:
         events.append({"type": "tick", "now": run_at, "gen_start": gen_start, "gen_end": u.generation,

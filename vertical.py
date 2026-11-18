@@ -116,7 +116,8 @@ def _latest(d, snap, now: float, y: int) -> None:
     d.text((M, y), "Latest moves", font=f("bold", 28), fill=st.WHITE, anchor="lt")
     m = snap.comments_seen
     if m.get("total"):
-        d.text((TW - M, y + 6), f"{m['total']:,} so far", font=f("regular", 22), fill=st.MUTED, anchor="rt")
+        who = f" comments from {snap.people:,} people" if snap.people else " so far"
+        d.text((TW - M, y + 6), f"{m['total']:,}{who}", font=f("regular", 22), fill=st.MUTED, anchor="rt")
     y += 44
     for r in snap.recent[:3]:
         if y + 56 > HOW_Y - 34:  # room for both its lines above the rule

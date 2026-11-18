@@ -182,6 +182,7 @@ class Snapshot:
     paint: np.ndarray | None = None  # the cells' colors (life.paint_step); None while no move has asked for one
     trail: "life.Trail | None" = None  # where cells were lately, for the tails (display only)
     comments_seen: dict = field(default_factory=dict)  # the bot's count: {"total", "day", "today"} (engine.count_comments)
+    people: int = 0  # how many people have made a move, in all (len(state.json "scores"): a count, ids hashed)
     scheduled: list = field(default_factory=list)  # [(generation, command)]: moves scheduled for later, soonest first
 
 
@@ -197,6 +198,7 @@ def load(state_dir: str, after_seq: int | None = None, now: float | None = None)
                     recent=list(disp.get("recent") or []), universe_no=cfg.get("universe", 1),
                     video=cfg.get("video_id") or MAIN_VIDEO, seq=s["log"]["seq"],
                     comments_seen=dict(s.get("comments_seen") or {}),
+                    people=len(s.get("scores") or {}),
                     scheduled=sorted((q["land_gen"], render.move_text(q)) for q in (s.get("admission") or {}).get("queue", [])
                                      if q.get("scheduled") and "land_gen" in q))
     if after_seq is not None and snap.seq > after_seq:
@@ -1300,7 +1302,10 @@ class Screen:
         m = snap.comments_seen
         if m.get("total"):  # every comment read so far (skipped ones too), and today (Day N, as the Shorts count)
             today = m.get("today", 0) if m.get("day") == int(u.generation * snap.gen_seconds // 86400) + 1 else 0
-            tally = f"{m['total']:,} comments so far · {today:,} today"
+            who = f" · {snap.people:,} people" if snap.people else ""
+            tally = f"{m['total']:,} comments{who} · {today:,} today"
+            if d.textlength(tally, font=font("regular", 19)) > COL_W:  # (the server's font runs wider)
+                tally = f"{m['total']:,} comments{who}"
             d.text((x, y + 32), tally, font=font("regular", 19), fill=MUTED, anchor="lt")
             y += 26
         soon = [(g, c) for g, c in snap.scheduled if g > u.generation]
