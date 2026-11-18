@@ -46,7 +46,7 @@ ALERTS_PATH = os.path.join("out", "alerts.json")  # posted as GitHub issues by t
 SLOW_EXTRA_S = 30 * 60  # Shorts older than the newest three: comments read every 30 minutes
 # What the live page calls each hand-uploaded video (EXTRA_VIDEO_IDS) a move came from
 HAND_UPLOADS = {"m-JcepjW41U": "the teaser Short", "iCukC64w-wQ": "the week-one video"}
-COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come every 1-5 for the chat: deploy/kick.py)
+COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come every 1-3 for the chat: deploy/kick.py)
 
 
 def choose_extras(world, env_extras: list[str], now: float, mark: bool = True) -> tuple[list[str], set[str]]:

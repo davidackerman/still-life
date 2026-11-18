@@ -49,15 +49,15 @@ def starts(tmp_path, last_run, used=0, **ago):
     return calls[-1] == ("POST", "dispatches", {"ref": "main"})
 
 
-def test_runs_come_every_minute_while_the_chat_talks_and_every_five_when_quiet(monkeypatch, tmp_path):
+def test_runs_come_every_minute_while_the_chat_talks_and_every_three_when_quiet(monkeypatch, tmp_path):
     monkeypatch.setenv("GITHUB_TOKEN", "t")
     assert starts(tmp_path, 1.2, chat_ago=4) and not starts(tmp_path, 0.5, chat_ago=4)  # chatting: every minute
-    assert not starts(tmp_path, 2, comment_ago=4) and starts(tmp_path, 3.2, comment_ago=4)  # video comments: every 3
-    assert not starts(tmp_path, 2, chat_ago=30) and starts(tmp_path, 3.2, chat_ago=30)  # this hour: every 3
-    assert not starts(tmp_path, 4, comment_ago=120) and starts(tmp_path, 5.2, comment_ago=120)  # quiet: every 5
-    http, calls = fake([run(5.2)])
+    assert not starts(tmp_path, 1.5, comment_ago=4) and starts(tmp_path, 2.2, comment_ago=4)  # video comments: every 2
+    assert not starts(tmp_path, 1.5, chat_ago=30) and starts(tmp_path, 2.2, chat_ago=30)  # this hour: every 2
+    assert not starts(tmp_path, 2.5, comment_ago=120) and starts(tmp_path, 3.2, comment_ago=120)  # quiet: every 3
+    http, calls = fake([run(3.2)])
     kick.main(NOW, http, log=str(tmp_path / "missing.jsonl"), state=str(tmp_path / "missing.json"))
-    assert calls[-1][0] == "POST"  # no log to read: every 5
+    assert calls[-1][0] == "POST"  # no log to read: every 3
 
 
 def test_it_backs_off_as_the_days_quota_fills(monkeypatch, tmp_path):

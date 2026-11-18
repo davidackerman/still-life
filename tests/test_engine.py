@@ -97,14 +97,14 @@ def test_title_at_most_every_hour_while_alive_and_only_when_changed():
     assert len(yt.titles) >= 10  # the quarter-hour clock changes at nearly every allowed slot
 
 
-def test_thumbnail_every_4_hours_and_on_phase_change():
+def test_thumbnail_every_8_hours_and_on_phase_change():
     w, yt = world(), FakeYT()
     for t in range(0, 4 * 86400, 300):
         engine.tick(w, LAUNCH + t, yt)
     # acorn: FLATLINING at gen 1855 (61.83 h), DIED at gen 2575 (85.83 h).
-    # Every 3 h, on each phase change, and (at most hourly) when the countdown
+    # Every 8 h, on each phase change, and (at most hourly) when the countdown
     # headline changes: days until the last day, then hours. Nothing after death.
-    assert 20 <= yt.thumbs <= 26  # ~every 4 h + phase changes: the 429 limit is tight
+    assert 10 <= yt.thumbs <= 15  # ~every 8 h + headlines + phase changes (20-26 every 4 h, until 2026-11-18)
     assert w.last_thumb_headline == "DIED"
 
 
@@ -354,6 +354,28 @@ def test_each_video_keeps_its_own_status_comment():
     assert yt.updates[2:] == []
     engine.tick(w, LAUNCH + 600 + 3600, yt)
     assert [cid for cid, _ in yt.updates[2:]] == ["Ugpin", "Ugshort"]
+
+
+def test_a_shorts_status_comment_waits_for_more_new_views_than_the_main_videos():
+    class ViewsYT(PinYT):
+        views = {"0": 100, "1": 500}
+
+        def view_counts(self):
+            return dict(self.views)
+    w, yt = world(), ViewsYT([owner_status()])
+    w.pinned["1"] = {"id": "short-status"}
+    engine.tick(w, LAUNCH, yt)
+    assert sorted(u[0] for u in yt.updates) == ["Ugpin", "short-status"]  # the first ones are always written
+    n, later = len(yt.updates), LAUNCH
+    for more, written in ((1, {"Ugpin"}), (engine.PINNED_SHORT_NEW_VIEWS - 1, set()),
+                          (engine.PINNED_SHORT_NEW_VIEWS, {"short-status"})):
+        yt.comments.append(comment(f"m{more}", "u2", f"rpent {more},20"))  # something new to say each time
+        yt.views = {"0": w.pinned["0"]["views"] + 1, "1": 500 + more}
+        later += engine.PINNED_OLD_EXTRA_MIN_INTERVAL_S + engine.VIEWS_EVERY_S  # due everywhere, counts read anew
+        engine.tick(w, later, yt)
+        assert {u[0] for u in yt.updates[n:]} >= written and ("short-status" in {u[0] for u in yt.updates[n:]}) == (
+            "short-status" in written), more
+        n = len(yt.updates)
 
 
 def test_status_comments_are_watched_so_old_threads_still_count():

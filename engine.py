@@ -38,6 +38,10 @@ PINNED_MIN_INTERVAL_S = 60 * 60  # the main video's status comment, and the newe
 PINNED_EXTRA_MIN_INTERVAL_S = 3 * 3600  # the second-newest Short's
 PINNED_OLD_EXTRA_MIN_INTERVAL_S = 12 * 3600  # ... and on older ones
 VIEWS_EVERY_S = 15 * 60  # the videos' view counts are read at most this often (1 unit), while a rewrite is due
+# a Short's status comment waits for this many new views since it was last written (the main video's: any). A Short
+# gets nearly all its views in its first ~5 hours: after that its comment is rarely read, and each rewrite is 50 units
+# (2026-11-18: 38 of the day's 41 rewrites, 1,900 units, were on Shorts; spent on reading the chat more often instead)
+PINNED_SHORT_NEW_VIEWS = 25
 PINNED_RESTAMP_S = 0  # off since 2026-11-12 (was 3 h, 8 x 50 units/day: now spent reading the chat more often)
 # A changed countdown headline refreshes the thumbnail, but YouTube rate-limits
 # thumbnail uploads (HTTP 429 uploadRateLimitExceeded after a handful in a day),
@@ -46,7 +50,7 @@ THUMB_HEADLINE_MIN_S = 4 * 3600
 RECENT_MAX = 8
 BURST_LINES = 3  # more comments than this in one run share a single "Latest moves" line
 FORECAST_GENS = 30000  # how far ahead the title's "if nobody comments" forecast looks (~42 days)
-THUMB_INTERVAL_S = 4 * 3600  # YouTube 429s after ~9 thumbnail uploads/day per channel
+THUMB_INTERVAL_S = 8 * 3600  # (and on each new headline) YouTube 429s after ~9/day per channel; 4 h until 2026-11-18
 BACKOFF_BASE_S = 15 * 60
 BACKOFF_MAX_S = 24 * 3600
 
@@ -635,7 +639,8 @@ def tick(world: World, now: float, yt, thumb_path: str | None = None, force_thum
 
     def watched(v, slot):
         n = views.get(v)
-        return n is None or slot.get("at") is None or force_pinned or n > slot.get("views", -1)
+        more = 1 if v == "0" else PINNED_SHORT_NEW_VIEWS
+        return n is None or slot.get("at") is None or force_pinned or n >= slot.get("views", -1) + more
 
     def wanted_now(v, slot):
         return due(v, slot) and changed(v, slot) and watched(v, slot)
