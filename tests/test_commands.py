@@ -112,6 +112,28 @@ def test_random_patch_fits_in_5x5_window():
             assert (x - x0) % 128 < 5 and (y - y0) % 72 < 5
 
 
+def test_random_with_a_spot_puts_the_comments_patch_there():
+    text = "purple random 46 56"
+    c = commands.parse("c7", text)
+    d = hashlib.blake2b(("c7" + text).encode("utf-8"), digest_size=32).digest()
+    bits = int.from_bytes(d[4:8], "big")  # the same bits as its patch anywhere else: only the spot is chosen
+    assert c.kind == "random" and c.desc == "random 5x5 at 46,56" and c.color == "purple"
+    assert set(c.cells) == {(46 + i % 5, 56 + i // 5) for i in range(25) if bits >> i & 1}
+    for said in ("random 46,56", "Random (46, 56)", "random at 46,56", "random 46x56", "random 5x5 at 46,56",
+                 "random 5x5 46 56", "hi! random 46 56 please"):
+        assert commands.parse("c7", said).desc == "random 5x5 at 46,56", said
+    assert commands.parse("c7", "random 5 5").desc == "random 5x5 at 5,5"
+    for said in ("random", "random 5x5", "random 5x5 please", "randomly 46 56", "random 128,0", "random -1,5"):
+        c = commands.parse("c7", said)
+        assert c.kind == "random" and c == commands.random_patch("c7", said), said  # no spot: the comment's own
+    assert commands.parse("c7", "random 3,4 then glider 5,5").kind == "random"  # the earliest command wins
+    assert commands.parse("c7", "glider 5,5 then random 3,4").kind == "glider"
+    assert commands.parse("c7", "random 3,4 in 1h").delay_s == 3600
+    assert not commands.parse("c7", "random 3,4 black").erase  # adds, as any random patch
+    wrapped = commands.parse("c7", "random 126,70")  # runs past the corner: wraps, as the patterns do
+    assert all(0 <= x < 128 and 0 <= y < 72 for x, y in wrapped.cells)
+
+
 def test_a_color_word_anywhere_paints_the_move_and_changes_nothing_else():
     plain, blue = commands.parse("c1", "glider 10,20 ne"), commands.parse("c1", "glider 10,20 ne BLUE please")
     assert plain.color is None and blue.color == "blue"

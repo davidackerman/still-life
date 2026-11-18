@@ -96,7 +96,8 @@ MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
 ERASE_INK = (0, 0, 0)  # "black" in the legend: a black chip (CHIP_EDGE around it) with white letters
 CHIP_EDGE = (96, 102, 118)
 LEGEND = [("glider_se", "glider", "x,y ne|nw|se|sw"), ("block", "block", "x,y"), ("blinker", "blinker", "x,y"),
-          ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), (None, "cells", "x,y x,y …")]  # (pattern, what to type)
+          ("rpent", "rpent", "x,y"), ("acorn", "acorn", "x,y"), ("random", "random", "x,y"),
+          (None, "cells", "x,y x,y …")]  # (pattern, what to type)
 DEMO_BOX, DEMO_CELL, DEMO_RATE = 9, 5, 4  # the legend's little films: 9 x 9 cells of 5 px, 4 generations a second
 MAIN_VIDEO = "oFWeLMe4bhI"  # universe #1; later universes keep their video in state.json
 INGEST = "rtmps://a.rtmps.youtube.com/live2/"

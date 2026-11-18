@@ -5,9 +5,12 @@ Grammar (case-insensitive; the earliest valid command anywhere in the text wins)
     glider x,y [ne|nw|se|sw]     default direction se
     block x,y | blinker x,y | rpent x,y | acorn x,y
     cells x,y x,y ...            1 to 25 cells
+    random x,y                   a 5x5 random patch (below), its top-left at x,y
 
 A pattern's x,y may also be written "x y", "x x y" or "(x, y)" ("acorn 15x15",
 "glider 10 20 ne"), since people write them that way; `cells` needs commas.
+`random` also takes "random at x,y" and the move list's own "random 5x5 at x,y";
+"random 5x5" alone is the size, not a spot.
 
 (x, y) is the top-left of the pattern's bounding box; x in 0..W-1, y in 0..H-1
 (0..127 and 0..71 on the first universe's 128x72 board), origin top-left. Patterns that run past an edge wrap. A command with any
@@ -17,7 +20,7 @@ ignored.
 A comment with no valid command but a pattern's name on its own, with no
 number after it ("block", "glider ne", "acorn red"), places that pattern (the
 first such name) at the spot (x, y) below; a glider heads se unless a direction
-follows its name. A comment with neither injects a 5x5 random patch:
+follows its name. A comment with neither injects a 5x5 random patch, at (x, y):
 
     d = BLAKE2b-256((comment_id + text).encode("utf-8"))
     x = int.from_bytes(d[0:2], "big") % W     (W x H: the board size, 128 x 72 at first)
@@ -26,6 +29,7 @@ follows its name. A comment with neither injects a 5x5 random patch:
     cell (i % 5, i // 5) of the patch is alive iff bit i of `bits` is 1, i = 0..24
 
 `text` is the comment text exactly as the API returned it (textFormat=plainText).
+"random x,y" makes the same patch from the same bits, at the x,y it names.
 
 A time anywhere in the text ("in 1h", "1 hr", "in 30 min", "90 minutes"; the
 first one wins, at most MAX_DELAY_S) schedules the move to land that long after
@@ -60,6 +64,9 @@ _PATTERN_RE = re.compile(
     rf"\b(glider|block|blinker|rpent|acorn)\s+{_PATTERN_COORD}(?:\s+(ne|nw|se|sw)\b)?",
     re.IGNORECASE | re.ASCII,
 )
+# "random 46 56", "random at 46,56", "random 5x5 at 46,56" (the move list's words); "random 5x5" alone is no spot
+_RANDOM_RE = re.compile(rf"\brandom\s+(?:5\s*[x×]\s*5\s+(?:at\s+)?|at\s+)?(?!5\s*[x×]\s*5\b){_PATTERN_COORD}",
+                        re.IGNORECASE | re.ASCII)
 _CELLS_RE = re.compile(rf"\bcells((?:\s+{_COORD})+)", re.IGNORECASE | re.ASCII)
 # a pattern's name with no number after it (any digits, so "block ١,٢" is not one, nor "acorn -1,5")
 _BARE_RE = re.compile(r"\b(glider|block|blinker|rpent|acorn)\b(?!\s*[-+]?\s*\d)(?:\s+(ne|nw|se|sw)\b)?", re.IGNORECASE)
@@ -92,8 +99,9 @@ def _norm(cells) -> tuple[tuple[int, int], ...]:
     return tuple(sorted(set(cells)))
 
 
-def _candidates(text: str, shape):
-    """Yield (start_offset, Command | None) for every command-shaped match."""
+def _candidates(text: str, shape, comment_id: str = "", whole: str = ""):
+    """Yield (start_offset, Command | None) for every command-shaped match.
+    `whole`: the comment's full text, which a random patch's bits come from."""
     for m in _PATTERN_RE.finditer(text):
         kind, x, y = m.group(1).lower(), int(m.group(2)), int(m.group(3))
         if not _in_range(x, y, shape):
@@ -113,6 +121,9 @@ def _candidates(text: str, shape):
             continue
         desc = "cells " + " ".join(f"{x},{y}" for x, y in pairs)
         yield m.start(), Command("cells", _norm(pairs), desc)
+    for m in _RANDOM_RE.finditer(text):
+        x, y = int(m.group(1)), int(m.group(2))
+        yield m.start(), (random_patch(comment_id, whole or text, shape, at=(x, y)) if _in_range(x, y, shape) else None)
 
 
 def _spot(comment_id: str, text: str, shape) -> tuple[int, int, bytes]:
@@ -136,8 +147,11 @@ def bare_pattern(comment_id: str, text: str, shape=(life.H, life.W)) -> Command 
     return Command(kind, _norm(life.place(life.PATTERNS[kind], x, y, shape)), f"{kind} {x},{y}")
 
 
-def random_patch(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
+def random_patch(comment_id: str, text: str, shape=(life.H, life.W), at: tuple[int, int] | None = None) -> Command:
+    """The comment's 5x5 random patch, at its spot or at `at` ("random x,y")."""
     x, y, d = _spot(comment_id, text, shape)
+    if at is not None:
+        x, y = at
     bits = int.from_bytes(d[4:8], "big")
     offsets = [(i % 5, i // 5) for i in range(25) if (bits >> i) & 1]
     return Command("random", _norm(life.place(offsets, x, y, shape)), f"random 5x5 at {x},{y}")
@@ -151,7 +165,7 @@ def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
         n, unit = int(m.group(1)), m.group(2).lower()
         delay = min(MAX_DELAY_S, n * (3600 if unit.startswith("h") else 60))
         words = text[:m.start()] + " " + text[m.end():]
-    valid = [(pos, cmd) for pos, cmd in _candidates(words, shape) if cmd is not None]
+    valid = [(pos, cmd) for pos, cmd in _candidates(words, shape, comment_id, text) if cmd is not None]
     cmd = (min(valid, key=lambda pc: pc[0])[1] if valid
            else bare_pattern(comment_id, words, shape) or random_patch(comment_id, text, shape))
     if cmd.kind in ERASERS and _ERASE_RE.search(words):  # only a named pattern erases: never by accident

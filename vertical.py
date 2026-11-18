@@ -145,7 +145,7 @@ def _how(d, u, y: int) -> None:
     d.text((M, y + 84), "Say anything: cells land on the board.", font=f("regular", 26), fill=st.LIGHT, anchor="ls")
     aim = f"Or aim: {render.suggestion(u)}" if u.phase != DIED else "Or aim: glider 64,36 ne"
     d.text((M, y + 120), aim, font=f("regular", 26), fill=st.LIGHT, anchor="ls")
-    d.text((M, y + 154), "glider · block · blinker · rpent · acorn  x,y", font=f("regular", 22), fill=st.MUTED, anchor="ls")
+    d.text((M, y + 154), "glider · block · blinker · rpent · acorn · random  x,y", font=f("regular", 22), fill=st.MUTED, anchor="ls")
     # the paints, each in its own color, then black: the eraser
     x, base, f22 = M, y + 194, f("regular", 22)
     d.text((x, base), "add a color: ", font=f22, fill=st.MUTED, anchor="ls")

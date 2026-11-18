@@ -30,6 +30,7 @@ Comment on [the video](https://www.youtube.com/watch?v=oFWeLMe4bhI) or any of it
 | `cells x,y x,y …` | up to 25 single cells |
 | a pattern's name on its own: `block`, `glider ne`, `acorn` | that pattern, at a spot picked from your comment |
 | anything else | a 5×5 random patch made from your comment |
+| `random x,y` | that same random patch, its top-left corner at (x, y) |
 | add `red`, `orange`, `yellow`, `blue`, `purple`, `pink` or `cyan` | your cells in that color, on the live stream and in the Shorts |
 | add `black` to a pattern: `glider 40,20 black`, `block black` | erases instead: the living cells under that shape die (only dead, so life can grow back into them). Only the five patterns erase, one per person every 2 minutes (more wait their turn); a comment that names no pattern never erases |
 | add a time: `rpent 40,30 in 1h`, `hi in 30 min` | the move lands that much later (up to a day ahead, 10 scheduled per person); the stream shows what's coming up |
