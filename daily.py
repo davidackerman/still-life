@@ -117,6 +117,13 @@ INTROS = {"stranger": "every comment on this Short adds cells to a live Game of 
                     "universe it would have been with no comments at all."}
 
 
+def satisfying(kind: str) -> bool:
+    """A Short drawn in 3D (lit blocks rising and sinking): tagged #satisfying, for the much
+    bigger satisfying-simulation audience, not only people who know the Game of Life."""
+    import short
+    return {"countdown": short.COUNTDOWN_LOOK, "made": short.MADE_LOOK}.get(kind) == "3d"
+
+
 def snippet(world, day: int, count: int, mark: str, total: int | None = None, main: str | None = None,
             headline: str | None = None, kind: str = "flight", hours: int = RECAP_HOURS, evening: bool = False) -> dict:
     """The Short's title and description. The forecast in it is dated ("as of day 3"),
@@ -144,15 +151,15 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"instead: glider x,y black. If it gets stuck in a loop "
             f"and nobody saves it within 24 hours, this Short goes private for good.\n\n"
             f"Rewind every move: {LIVE}\nOpen source: github.com/davidackerman/still-life\n\n"
-            f"#ConwaysGameOfLife #GameOfLife\n\n({mark})")
+            f"{'#satisfying #simulation ' if satisfying(kind) else ''}#ConwaysGameOfLife #GameOfLife\n\n({mark})")
     when = f"Day {day}, evening" if evening else f"Day {day}"
     title = f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, {when} #GameOfLife"
     if headline and kind in ("stranger", "countdown", "made"):  # for strangers: what happened, not the channel's day count
-        title = f"{headline} #GameOfLife"
+        title = f"{headline} {'#satisfying ' if satisfying(kind) else ''}#GameOfLife"
     return {"title": title,
             "description": desc,
             "tags": ["game of life", "conway's game of life", "cellular automata", "glider", "simulation",
-                     "interactive", "live", "emergence"],
+                     "interactive", "live", "emergence"] + (["satisfying", "satisfying simulation", "3d"] if satisfying(kind) else []),
             "categoryId": "28", "defaultLanguage": "en"}
 
 

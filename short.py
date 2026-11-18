@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import copy
+import json
 import os
 import subprocess
 
@@ -1084,7 +1085,22 @@ def countdown(h: History, now: Universe | None = None, stuck_now=None) -> tuple[
     return None
 
 
-def build_countdown(state_dir: str) -> list | None:
+COUNTDOWN_LOOK = "3d"  # "flat", or "3d": drawn as lit blocks (look3d.py), as the made Short
+COUNTDOWN_3D_ZOOM = 1.5  # in 3D: most of the board, wrapping on beyond it to fill the screen
+COUNTDOWN_3D_STEP = 6  # in 3D, frames per generation while it plays (flat: 3): time for each block to rise and bounce
+COUNTDOWN_3D_DRIFT = 1.2  # in 3D, the camera drifts across the board this many cells a second
+
+
+def players(state_dir: str) -> int:
+    """How many different people have moved this universe (the bot's scores: one per person)."""
+    try:
+        with open(os.path.join(state_dir, "state.json")) as f:
+            return len(json.load(f).get("scores") or {})
+    except (OSError, ValueError):
+        return 0
+
+
+def build_countdown(state_dir: str, look: str | None = None) -> list | None:
     """The 8 PM Short, about 20 s: how long it has, over the whole board moving
     (its band, as the teaser that kept the most viewers); its real future, into the
     loop and grey; then "Your comment changes that", and the live chat."""
@@ -1101,18 +1117,23 @@ def build_countdown(state_dir: str) -> list | None:
     sub_line = [("if nobody comments", "demi", 80)] if now.phase == "ALIVE" else [("unless a comment saves it", "demi", 72)]
     n = max(int(2.7 * FPS), rf(*[t for t, _, _ in lines + sub_line]))
     u = copy.deepcopy(now)
+    step = COUNTDOWN_3D_STEP if (look or COUNTDOWN_LOOK) == "3d" else 3
     for i in range(n):
-        if i % 3 == 0 and i:  # moving from the first frame (the thumbnail), slowly enough to see
+        if i % step == 0 and i:  # moving from the first frame (the thumbnail), slowly enough to see
             History.advance(u, u.generation + 1)
         a = 1.0 if i < n - FADE else fade(i, n)
         add(u, block(lines, TOP_Y, a) + block(sub_line, BOTTOM_Y, a))
+    cut1 = len(frames)
     _stakes(h, now, stuck_now, copy.deepcopy(now), add)
+    cut2 = len(frames)
     top = [("Your comment", "bold", 104), ("changes that.", "bold", 104)]
-    bottom = [("Comment, or join the live chat.", "demi", 64), WATCH_LIVE]
+    people = players(state_dir)
+    bottom = [("Hundreds of people already have." if people >= 200 else "Comment, or join the live chat.", "demi", 64),
+              WATCH_LIVE]
     n = rf(*[t for t, _, _ in top + bottom])
     u = copy.deepcopy(now)
     for i in range(n):
-        if i and i % 3 == 0:
+        if i and i % step == 0:
             History.advance(u, u.generation + 1)
         a = min(1.0, (i + 1) / FADE)  # no fade out: it loops back to the hook's board
         add(u, block(top, TOP_Y, a) + block(bottom, BOTTOM_Y, a))
@@ -1122,6 +1143,13 @@ def build_countdown(state_dir: str) -> list | None:
         primer.append((pu.grid.copy(), None if pu.paint is None else pu.paint.copy(), pu.generation))
         h.goto(pu, pu.generation + 1)
     add_trails(frames, primer)
+    if (look or COUNTDOWN_LOOK) == "3d":
+        import look3d
+        for shot in (frames[:cut1], frames[cut1:cut2], frames[cut2:]):
+            look3d.add_rise(shot)
+        for i, f in enumerate(frames):
+            f.look3d, f.zoom = True, COUNTDOWN_3D_ZOOM
+            f.focus = (BW / 2 + i * COUNTDOWN_3D_DRIFT * CELL / FPS, BH / 2)
     return frames
 
 
@@ -1949,6 +1977,55 @@ def looped_soundtrack(frames: list):
     return second
 
 
+BLOCK_SOUNDS = False  # the 3D blocks' own bloops and pops (synthesized, they read as annoying: off until real samples)
+TICK_MIN_FRAMES = 3  # at most one bloop (and one pop) this often: a fast-forward changes the board every frame
+BLOOP_AMP, POP_AMP = 0.11, 0.05  # their loudest (for a lot of blocks at once)
+
+
+def block_ticks(frames: list) -> np.ndarray:
+    """The blocks' own sound in a 3D Short, soft and low: a "bloop" as new cells spring
+    up (its note from where they are: high far away, low near; louder for more of them)
+    and a quieter "pop" as dying ones burst. Panned to their side. Silence when nothing changes."""
+    spf = ex.SR // FPS
+    n = len(frames) * spf
+    out = np.zeros((2, n), np.float32)
+    notes = [v for v in ex.NOTES[0:7]]  # A3 up, pentatonic
+
+    def put(sig, at, pan):
+        if at >= n:
+            return
+        seg = sig[: n - at].astype(np.float32)
+        ang = (pan + 1) * np.pi / 4
+        out[0, at:at + len(seg)] += np.cos(ang) * seg
+        out[1, at:at + len(seg)] += np.sin(ang) * seg
+
+    def drop(f0, glide, decay, dur):  # a note that starts a little sharp and falls into place
+        t = np.arange(int(dur * ex.SR)) / ex.SR
+        f = f0 * (1 + glide * np.exp(-t / 0.025))
+        ph = 2 * np.pi * np.cumsum(f) / ex.SR
+        return (np.sin(ph) + 0.18 * np.sin(2 * ph)) * np.exp(-t / decay) * np.minimum(1.0, t / 0.003)
+
+    last_b = last_d = -TICK_MIN_FRAMES
+    for i in range(1, len(frames)):
+        a, b = frames[i - 1].grid, frames[i].grid
+        if a.shape != b.shape or frames[i].grey:
+            continue
+        gh, gw = b.shape
+        born = np.argwhere((b == 1) & (a == 0)) if i - last_b >= TICK_MIN_FRAMES else ()
+        if len(born):
+            last_b = i
+            loud = min(1.0, np.log2(len(born) + 1) / 7)
+            f0 = notes[min(len(notes) - 1, int((1 - born[:, 0].mean() / gh) * len(notes)))]
+            put(drop(f0, 0.5, 0.09, 0.3) * BLOOP_AMP * (0.4 + 0.6 * loud), i * spf, born[:, 1].mean() / (gw - 1) * 1.2 - 0.6)
+        died = np.argwhere((b == 0) & (a == 1)) if i - last_d >= TICK_MIN_FRAMES else ()
+        if len(died):
+            last_d = i
+            loud = min(1.0, np.log2(len(died) + 1) / 7)
+            put(drop(notes[-1] * 2, 0.8, 0.025, 0.12) * POP_AMP * (0.4 + 0.6 * loud), (i + 2) * spf,
+                died[:, 1].mean() / (gw - 1) * 1.2 - 0.6)
+    return out
+
+
 def render_video(state_dir: str, out: str, since_gen: int | None = None, preview: str | None = None,
                  kind: str = "recap", pick: str | None = None, look: str | None = None,
                  follow: bool | None = None) -> str:
@@ -1963,7 +2040,7 @@ def render_video(state_dir: str, out: str, since_gen: int | None = None, preview
     elif kind == "stranger" and since_gen is not None:
         frames = build_stranger(state_dir, since_gen)
     elif kind == "countdown":
-        frames = build_countdown(state_dir)
+        frames = build_countdown(state_dir, look)
     elif kind == "made":
         frames = build_made(state_dir, since_gen, look, follow)
     if frames is None:
@@ -1972,7 +2049,10 @@ def render_video(state_dir: str, out: str, since_gen: int | None = None, preview
     if preview:
         os.makedirs(preview, exist_ok=True)
     wav = os.path.splitext(out)[0] + ".wav"
-    ex.write_wav(wav, looped_soundtrack(frames) if kind == "made" else ex.soundtrack(frames))
+    audio = looped_soundtrack(frames) if kind == "made" else ex.soundtrack(frames)
+    if BLOCK_SOUNDS and kind == "countdown" and any(getattr(f, "look3d", False) for f in frames):
+        audio = audio + block_ticks(frames)  # the blocks' own sound, as they rise
+    ex.write_wav(wav, audio)
     ff = subprocess.Popen(
         ["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{PW}x{PH}",
          "-r", str(FPS), "-i", "-", "-i", wav, "-shortest",
@@ -2001,7 +2081,7 @@ def main() -> None:
     ap.add_argument("--rewind", action="store_true", help="the rewind Short: the week backward to the acorn")
     ap.add_argument("--stranger", action="store_true", help="with --since-hours: the noon Short (one comment's save or kill)")
     ap.add_argument("--countdown", action="store_true", help="the 8 PM Short: how long it has left")
-    ap.add_argument("--look", choices=("flat", "3d"), help=f"with --made: how it's drawn (default {MADE_LOOK})")
+    ap.add_argument("--look", choices=("flat", "3d"), help=f"with --made or --countdown: how it's drawn (defaults {MADE_LOOK}, {COUNTDOWN_LOOK})")
     ap.add_argument("--fixed", action="store_true", help="with --made: the camera stays put as the comment lands")
     ap.add_argument("--made", action="store_true", help='"1,000 comments built this": the rewind to the seed, one comment')
     args = ap.parse_args()

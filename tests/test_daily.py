@@ -267,7 +267,9 @@ def test_noon_is_the_stranger_and_8_pm_the_countdown_each_falling_back_to_the_re
     assert calls == [{"kind": "stranger"}, {"kind": "countdown"}]
     first, second = yt.uploads
     assert first["title"] == "One comment gave this universe 9 more days to live #GameOfLife"  # no day count
-    assert second["title"] == "This universe has 4 days left #GameOfLife"
+    assert second["title"] == "This universe has 4 days left #satisfying #GameOfLife"  # drawn in 3D
+    assert "#satisfying" in second["description"] and "satisfying" in second["tags"]
+    assert "#satisfying" not in first["title"] + first["description"]  # the stranger is flat
     assert first["description"].startswith("One comment gave this universe 9 more days to live: every comment")
     assert "live stream" in second["description"] and yt.notified == [True, True]
     monkeypatch.setattr(short, "opening_move", lambda h, since, lead=None: None)  # nothing moved it much
@@ -296,5 +298,5 @@ def test_a_planned_slot_posts_the_made_short(d, monkeypatch):
     tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
     tick.run(d, noon, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
     assert calls == [{"kind": "made"}]
-    assert yt.uploads[0]["title"] == "1,000 comments built this simulation #GameOfLife"
+    assert yt.uploads[0]["title"] == "1,000 comments built this simulation #satisfying #GameOfLife"
     assert yt.uploads[0]["description"].startswith("1,000 comments built this simulation: it started as 7 cells, and every comment since has added more.")

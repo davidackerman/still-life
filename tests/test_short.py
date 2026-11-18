@@ -4,6 +4,7 @@ import datetime as dt
 import pytest
 
 import explainer
+import numpy as np
 import short
 import tick
 from admission import Comment
@@ -322,6 +323,35 @@ def test_the_3d_look_draws_the_same_frames_and_cells_rise_over_a_generation(stat
     changed = next(i for i in range(1, len(run)) if not np.array_equal(run[i].grid, run[i - 1].grid))
     assert (run[changed].before == run[changed - 1].grid).all() and run[changed].rise < 1
     assert run[changed + look3d.RISE_FRAMES - 1].rise == 1.0 and run[changed + look3d.RISE_FRAMES - 2].rise < 1
+
+
+def test_the_countdown_draws_in_3d_the_same_frames(state_dir, monkeypatch):
+    monkeypatch.setattr(explainer, "SCALE", 1)
+    monkeypatch.setattr(short, "countdown", lambda h, now=None, stuck_now=None: (
+        [("This universe has", "bold", 96), ("3 days left.", "bold", 150)], "This universe has 3 days left"))
+    flat = short.build_countdown(state_dir, look="flat")
+    deep = short.build_countdown(state_dir, look="3d")
+    assert len(flat) == len(deep) and [f.texts for f in flat] == [f.texts for f in deep]  # the same words, as long
+    s = short.COUNTDOWN_3D_STEP  # 3D plays slower, so each block has time to rise and bounce
+    assert deep[s].gen == deep[0].gen + 1 and deep[s - 1].gen == deep[0].gen and flat[3].gen == flat[0].gen + 1
+    assert deep[-1].focus[0] > deep[0].focus[0] and deep[0].focus == flat[0].focus  # the camera drifts
+    assert all(f.look3d and f.zoom == short.COUNTDOWN_3D_ZOOM for f in deep)
+    assert not any(getattr(f, "look3d", False) for f in flat)
+    assert deep[0].rise == 1.0 and all(0 < f.rise <= 1 for f in deep)  # each shot starts standing, then rises
+    for f in (deep[0], deep[len(deep) // 2], deep[-1]):
+        assert len(short.compose(f)) == short.PW * short.PH * 3
+    ticks = short.block_ticks(deep)  # the blocks tick as they rise, and only then
+    assert ticks.shape == (2, len(deep) * (explainer.SR // short.FPS)) and np.abs(ticks).max() > 0.01
+    moved = [i for i in range(1, len(deep)) if (deep[i].grid != deep[i - 1].grid).any()]
+    spf = explainer.SR // short.FPS
+    assert np.abs(ticks[:, :moved[0] * spf]).max() == 0  # nothing born or dying yet: silence
+
+
+def test_a_new_block_springs_up_like_jelly_and_settles():
+    import look3d
+    vals = look3d.spring(np.arange(60))
+    assert abs(vals[0]) < 1e-9 and abs(vals[-1] - 1) < 0.01 and vals.max() > 1.1  # overshoots, then settles
+    assert ((np.diff(vals) > 0) != (np.diff(vals) > 0)[0]).any()  # and wobbles back down on the way
 
 
 def test_the_3d_camera_keeps_up_on_screen_up_on_the_board():
