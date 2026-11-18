@@ -129,7 +129,7 @@ def test_random_with_a_spot_puts_the_comments_patch_there():
     assert commands.parse("c7", "random 3,4 then glider 5,5").kind == "random"  # the earliest command wins
     assert commands.parse("c7", "glider 5,5 then random 3,4").kind == "glider"
     assert commands.parse("c7", "random 3,4 in 1h").delay_s == 3600
-    assert not commands.parse("c7", "random 3,4 black").erase  # adds, as any random patch
+    assert commands.parse("c7", "random 3,4 black").erase  # named in words: black erases it
     wrapped = commands.parse("c7", "random 126,70")  # runs past the corner: wraps, as the patterns do
     assert all(0 <= x < 128 and 0 <= y < 72 for x, y in wrapped.cells)
 
@@ -195,6 +195,23 @@ def test_black_with_a_named_pattern_erases_instead():
     later = commands.parse("c1", "rpent 10,10 black in 1h")
     assert later.erase and later.delay_s == 3600
     assert not commands.parse("c1", "glider 40,20 blue").erase
+
+
+def test_black_erases_a_random_patch_when_it_says_random():
+    here = commands.parse("c1", "random 113,8 black")
+    assert here.erase and here.desc == "random 5x5 at 113,8" and here.color is None
+    painted = commands.parse("c1", "random 113,8 black cyan")
+    assert painted.erase and painted.color is None  # erasing: no paint
+    spot = commands.parse("c1", "random black")  # no spot: the comment's own
+    assert spot.erase and spot.cells == commands.random_patch("c1", "random black").cells
+    for text in ("black cats are cool", "randomly black", "cells 3,4 black"):
+        assert not commands.parse("c1", text).erase, text  # "random" must be said, as a word of its own
+
+
+def test_a_period_between_the_numbers_works_too():
+    assert commands.parse("c1", "cyan glider 40.53").desc == "glider 40,53 se"
+    assert commands.parse("c1", "Pink Blinker 98.33").desc == "blinker 98,33"
+    assert commands.parse("c1", "random 46.56").desc == "random 5x5 at 46,56"
 
 
 def test_black_without_a_pattern_never_erases():

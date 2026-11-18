@@ -7,7 +7,7 @@ Grammar (case-insensitive; the earliest valid command anywhere in the text wins)
     cells x,y x,y ...            1 to 25 cells
     random x,y                   a 5x5 random patch (below), its top-left at x,y
 
-A pattern's x,y may also be written "x y", "x x y" or "(x, y)" ("acorn 15x15",
+A pattern's x,y may also be written "x y", "x x y", "x.y" or "(x, y)" ("acorn 15x15",
 "glider 10 20 ne"), since people write them that way; `cells` needs commas.
 `random` also takes "random at x,y" and the move list's own "random 5x5 at x,y";
 "random 5x5" alone is the size, not a spot.
@@ -43,9 +43,11 @@ green; dead ones are the dark background.
 
 "black" with a named pattern ("glider 40,20 black", "block black") erases
 instead: the living cells under the shape die (they are only dead: life can
-grow back into them). Only the five patterns erase, at most 7 cells a move:
-a comment that says black but names none (a random patch, or "cells") adds
-cells as usual, so nobody erases by accident or a 25-cell swath at once.
+grow back into them). The five patterns erase, and so does a random patch
+when the comment says "random" ("random 40,20 black", "random black": its
+live cells, about 12 of the 25). A comment that says black but names none
+(a plain message's patch, or "cells") adds cells as usual, so nobody erases by
+accident or a 25-cell swath of their choosing at once.
 (admission also lets each person land one eraser per generation.)
 """
 
@@ -59,7 +61,7 @@ import life
 
 MAX_CELLS = 25
 _COORD = r"([0-9]+)\s*,\s*([0-9]+)"
-_PATTERN_COORD = r"(?:\(\s*)?([0-9]+)\s*(?:,|x|×|\s)\s*([0-9]+)(?:\s*\))?"  # "15,15", "15x15", "15 15", "(15, 15)"
+_PATTERN_COORD = r"(?:\(\s*)?([0-9]+)\s*(?:,|\.|x|×|\s)\s*([0-9]+)(?:\s*\))?"  # "15,15", "15x15", "15 15", "15.15", "(15, 15)"
 _PATTERN_RE = re.compile(
     rf"\b(glider|block|blinker|rpent|acorn)\s+{_PATTERN_COORD}(?:\s+(ne|nw|se|sw)\b)?",
     re.IGNORECASE | re.ASCII,
@@ -74,7 +76,8 @@ _PAIR_RE = re.compile(_COORD, re.ASCII)
 COLORS = ("red", "orange", "yellow", "blue", "purple", "pink", "cyan")  # paint 1..7 (0: unpainted)
 _COLOR_RE = re.compile(rf"\b({'|'.join(COLORS)})\b", re.IGNORECASE | re.ASCII)
 ERASE = "black"  # with a named pattern: its cells die instead (Command.erase)
-ERASERS = ("glider", "block", "blinker", "rpent", "acorn")  # what "black" works with (not cells, not a random patch)
+ERASERS = ("glider", "block", "blinker", "rpent", "acorn")  # what "black" works with, and "random" said in words (not cells)
+_RANDOM_WORD_RE = re.compile(r"\brandom\b", re.IGNORECASE | re.ASCII)
 _ERASE_RE = re.compile(rf"\b{ERASE}\b", re.IGNORECASE | re.ASCII)
 MAX_DELAY_S = 24 * 3600  # a move can be scheduled up to a day ahead
 _DELAY_RE = re.compile(r"\b(?:in\s+)?([0-9]{1,4})\s*(hours?|hrs?|h|minutes?|mins?|m)\b", re.IGNORECASE | re.ASCII)
@@ -168,7 +171,8 @@ def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
     valid = [(pos, cmd) for pos, cmd in _candidates(words, shape, comment_id, text) if cmd is not None]
     cmd = (min(valid, key=lambda pc: pc[0])[1] if valid
            else bare_pattern(comment_id, words, shape) or random_patch(comment_id, text, shape))
-    if cmd.kind in ERASERS and _ERASE_RE.search(words):  # only a named pattern erases: never by accident
+    named = cmd.kind in ERASERS or (cmd.kind == "random" and _RANDOM_WORD_RE.search(words))
+    if named and _ERASE_RE.search(words):  # only a pattern named in words erases: never by accident
         return replace(cmd, erase=True, delay_s=delay)
     c = _COLOR_RE.search(text)
     return replace(cmd, color=c.group(1).lower() if c else None, delay_s=delay)
