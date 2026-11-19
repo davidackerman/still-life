@@ -1,8 +1,8 @@
-"""The daily Shorts: twice a day, a recap (or a planned kind of Short), posted as a Short
+"""The daily Short: once a day, a recap (or a planned kind of Short), posted as a Short
 whose comments feed the same universe.
 
-Runs inside the scheduled tick, on the first run after each of SLOTS_ET (noon
-and 8 PM in New York); a late run still posts that slot's Short, until the next
+Runs inside the scheduled tick, on the first run after each of SLOTS_ET (now
+only 8 PM in New York); a late run still posts that slot's Short, until the next
 slot or midnight, and a failed one waits for the next slot. DAILY_SHORT (a repository variable) decides what it does:
 
     off   nothing (default)
@@ -25,12 +25,13 @@ import render
 from universe import ALIVE, DIED
 
 ET = ZoneInfo("America/New_York")
-# Two Shorts a day, at noon and 8 PM in New York. Each Short is shown to about the
-# same number of people (unique reach 1,017-1,118 for the first six, whether 40% or
-# 97% of it was watched), its views all within ~5.5 hours, so a second Short is a
-# second audience; the slots are far enough apart that neither eats the other's
-# window. (One a day at 6 PM until 2026-11-12, then 2 PM until 2026-11-15.)
-SLOTS_ET = (12, 20)
+# One Short a day, at 8 PM in New York, from 2026-11-19. Each Short is shown to about the
+# same number of people (unique reach 1,017-1,118 for the first six, whether 40% or 97%
+# of it was watched), so a second a day was a second audience, but the Blender-made
+# Shorts (posted by hand into the slot, the best yet) take most of a day to make. With
+# more than one slot, the later ones are the evening Shorts. (One a day at 6 PM until
+# 2026-11-12, then 2 PM until 2026-11-15, then noon and 8 PM until 2026-11-18.)
+SLOTS_ET = (20,)
 # These slots' Shorts go out to subscribers (their subscriptions feed and a notification).
 # Noon was left out on 2026-11-16 and got 1 view in its first 36 minutes, none from the
 # Shorts feed (earlier Shorts: 9-88 in 30), so both do: the API's notifySubscribers=False

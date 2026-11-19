@@ -169,11 +169,13 @@ Upload it in YouTube Studio, set its **Related video** to the main video (the
 only clickable link a Short can have), and add its ID to `EXTRA_VIDEO_IDS` so
 its comments play. Give it its own status comment as in step 6.
 
-**Daily Shorts** (`daily.py`): two a day, on the first run after noon and after
-8 PM New York time (or any later run before the next slot or midnight). Each is
+**Daily Shorts** (`daily.py`): one a day, on the first run after 8 PM New York
+time (or any later run before midnight); `daily.SLOTS_ET` takes more slots (it
+was noon and 8 PM until 2026-11-18). A Short uploaded by hand with the slot's
+marker in its description is adopted instead. Each is
 a recap (`python short.py --since-hours 24` does the same locally): day N, the
-moves since the slot before (the noon one covers 24 hours, the 8 PM one the 8
-hours since noon), the biggest zoomed in, what each did to its lifespan, and how
+moves since the slot before (the first slot covers 24 hours, a later one the
+hours since the slot before), the biggest zoomed in, what each did to its lifespan, and how
 its expected death moved. `daily.PLAN` can name another kind for a date or a
 slot: `flight` (a glider's journey, `short.py --flight`) or `rewind` (the week
 backward to the acorn, then the universe with no comments, `short.py --rewind`).

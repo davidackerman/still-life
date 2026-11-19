@@ -61,7 +61,7 @@ jobs:
           dry = os.environ["DRY_RUN"].strip().lower() == "true"
           obituary = (s["universe"]["phase"] == "DIED" and stage not in ("halted", "processing", "launch")
                       and not (dry and stage == "dry_run_done"))
-          import time, daily as d  # the same rule as the tick: noon and 8 PM New York time (daily.SLOTS_ET)
+          import time, daily as d  # the same rule as the tick: 8 PM New York time (daily.SLOTS_ET)
           daily = os.environ["DAILY_SHORT"].strip().lower() in ("dry", "live") and d.due(s, time.time())
           print(f"render={'true' if obituary or daily else 'false'}")
           EOF

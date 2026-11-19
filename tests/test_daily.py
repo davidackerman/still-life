@@ -9,6 +9,7 @@ import engine
 import tick
 from admission import Comment
 from universe import Universe, flatline_gens
+import daily
 import life
 
 KEY = b"test-state-key-0123456789"
@@ -54,6 +55,15 @@ class DailyYT:
 def recap_by_default(monkeypatch):
     import daily
     monkeypatch.setattr(daily, "DEFAULT_KINDS", {})  # written for the recap; the newer kinds have their own tests
+
+
+ONE_A_DAY = daily.SLOTS_ET, daily.NOTIFY_SLOTS  # the real slots (now one, at 8 PM)
+
+
+@pytest.fixture(autouse=True)
+def two_slots(monkeypatch):  # written for noon and 8 PM: the slot machinery, which still takes any number
+    monkeypatch.setattr(daily, "SLOTS_ET", (12, 20))
+    monkeypatch.setattr(daily, "NOTIFY_SLOTS", (12, 20))
 
 
 @pytest.fixture
@@ -220,6 +230,27 @@ def test_two_shorts_a_day_noon_and_8_pm(d):
     tick.run(d, LAUNCH + 15 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
              render_short=fake_render(calls))  # 10 PM
     assert len(yt.uploads) == 2
+
+
+def test_one_short_a_day_at_8_pm(d, monkeypatch):
+    monkeypatch.setattr(daily, "SLOTS_ET", ONE_A_DAY[0])
+    monkeypatch.setattr(daily, "NOTIFY_SLOTS", ONE_A_DAY[1])
+    assert daily.SLOTS_ET == (20,)
+    yt, calls = DailyYT(), []
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, LAUNCH + 5.2 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
+             render_short=fake_render(calls))  # 12:12 PM: no Short at noon any more
+    assert yt.uploads == [] and not daily.due(state(d), LAUNCH + 5.2 * 3600)
+    tick.run(d, LAUNCH + 13.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
+             render_short=fake_render(calls))  # 8:06 PM
+    tick.run(d, LAUNCH + 15 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
+             render_short=fake_render(calls))  # 10 PM: once
+    (only,) = yt.uploads
+    assert only["title"].endswith("Universe 1, Day 1 #GameOfLife")  # the day's Short, not "evening"
+    assert "in the last 24 hours" in only["description"]
+    assert "still-life universe 1 day 1 slot 20" in only["description"]  # the marker a hand-made Short carries
+    assert yt.notified == [True] and state(d)["daily"]["slot"] == 20
+    assert yt.stream_titles == ["This stream dies if nobody chats · Game of Life, Universe 1, Day 1"]
 
 
 def test_a_record_from_before_the_slots_counts_as_the_first_slot():
