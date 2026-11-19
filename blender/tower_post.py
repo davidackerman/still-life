@@ -153,10 +153,14 @@ if voxels:
         f_frozen, f_inject = first(int(vz["frozen"])), first(int(vz["inject"]))
         G1 = tm.get("G1", G0)
         a0 = max(n_hook, G1)
-        beats = ([(G0, min(G0 + max(n_seven, int(2.4 * FPS)), G1), seven)] if WORDS == "tree" and G1 > G0 else []) + [(a0, f_frozen, fit([("If nobody comments,", "bold", 96), ("it withers", "bold", 96)] if WORDS == "tree" else
-                                    [("If nobody comments,", "bold", 96), ("it freezes", "bold", 96)])),
-                 (f_frozen, f_inject, fit([(f"and dies {day_name}." if day_name else "and dies.", "bold", 96)])),
-                 (f_inject, N - n_end, fit([("But one comment", "bold", 96), ("brings it back.", "bold", 96)]))]
+        dies = f"dies {day_name}." if day_name else "dies."
+        revive = (f_inject, N - n_end, fit([("But one comment", "bold", 96), ("brings it back.", "bold", 96)]))
+        if WORDS == "tree":  # the seed sprouting; then one line for the withering (its forecast can be short)
+            beats = ([(G0, min(G0 + max(n_seven, int(2.4 * FPS)), G1), seven)] if G1 > G0 else []) + [
+                (a0, f_inject, fit([("If nobody comments,", "bold", 96), (f"it withers and {dies}", "bold", 96)])), revive]
+        else:
+            beats = [(a0, f_frozen, fit([("If nobody comments,", "bold", 96), ("it freezes", "bold", 96)])),
+                     (f_frozen, f_inject, fit([(f"and {dies}", "bold", 96)])), revive]
         for a, b, lines in beats:
             need = short.rf(*[t for t, _, _ in lines])
             print(f"beat {a}-{b} ({b - a} frames, reading needs {need}):", " / ".join(t for t, _, _ in lines),
