@@ -781,7 +781,7 @@ elif FRAMES:  # the camera circles the tower's middle
         Zs = lambda k_: top * (0.48 + LIFT) * k_
         k_now = NOW_H / full
         if SPROUT:  # close on the seed in the grass, looking down at it; rising and pulling back as it grows
-            S0, S1 = (float(v) for v in os.environ.get("TOWER_SEED_S", "0.04,0.14").split(","))
+            S0, S1 = (float(v) for v in os.environ.get("TOWER_SEED_S", "0.03,0.16").split(","))
             SEED_Z = float(os.environ.get("TOWER_SEED_Z", "1.2"))
             cam_keys = [(1, k_now, Zs(k_now), Zs(k_now), 1.0), (HOLD0, k_now, Zs(k_now), Zs(k_now), 1.0),
                         (G0, S0, max(Zs(S0), CAM_MIN - S0 * OFFZ), SEED_Z, 0.0),
@@ -797,6 +797,16 @@ elif FRAMES:  # the camera circles the tower's middle
                 o.location = (mx * c_, my * c_, z)
                 o.keyframe_insert("location", frame=f)
             print(f"camera key {f}: scale {sc_:.3f}, camera at z {pz + sc_ * OFFZ:.1f}, looking at z {tz:.1f}", flush=True)
+        for o in (pivot, target):  # steady, keeping up with the growth (eased keys lag it and cut the top off)
+            for fc in o.animation_data.action.fcurves:
+                if fc.data_path in ("location", "scale"):
+                    for kp in fc.keyframe_points:
+                        kp.interpolation = "LINEAR"
+        if SPROUT:  # the seed shot: a shallow focus, the grass in front soft (the scene is in meters: a tiny f-number)
+            F_SEED = float(os.environ.get("TOWER_SEED_F", "0.4"))
+            for f, fs in ((1, 8.0), (HOLD0, 8.0), (G0, F_SEED), (G0 + SPROUT, 8.0)):
+                cam.dof.aperture_fstop = fs
+                cam.dof.keyframe_insert("aperture_fstop", frame=f)
 
         def f_at(layer_i):  # the frame the growth reaches this layer (in the future)
             return G1 + (layer_i * LAYER - NOW_H) / (full - NOW_H) * (GF - G1)
@@ -870,7 +880,7 @@ elif FRAMES:  # the camera circles the tower's middle
                 if fc.data_path.endswith("sun_rotation"):
                     for kp in fc.keyframe_points:
                         kp.interpolation = "LINEAR"
-    sc.frame_start, sc.frame_end = START_FRAME, FRAMES
+    sc.frame_start, sc.frame_end = START_FRAME, min(FRAMES, int(os.environ.get("TOWER_END", FRAMES)))
     sc.frame_step = int(os.environ.get("TOWER_STEP", "1"))
     if FUT_L:
         sc.render.use_persistent_data = True
