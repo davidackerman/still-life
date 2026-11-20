@@ -23,4 +23,12 @@ The whole Short, one Blender process per card:
 The log prints each frame's time (`Time: 00:17.40` is 17.4 s). On a MacBook Pro (M3 Max), two processes take
 about 17 s a frame each at full size.
 
-To post a Short in the bot's 8 PM slot, see "Daily Shorts" in SETUP.md.
+To post it in the bot's 8 PM slot (the bot then adopts it instead of posting its own), shortly before 8 PM ET:
+
+    git pull
+    python blender/tree_snippet.py /big/disk/tree/snippet.json /big/disk/tree/tree_future.npz
+    python blender/upload_short.py /big/disk/tree/tree.mp4 /big/disk/tree/snippet.json
+
+`tree_snippet.py` writes the title and description, ending in the slot marker. `upload_short.py` reads the channel
+login from `~/.config/still-life/youtube.env` (CLIENT_ID=, CLIENT_SECRET=, REFRESH_TOKEN= lines, chmod 600). It
+never prints the login, and it refuses to upload twice with the same marker. See also "Daily Shorts" in SETUP.md.
