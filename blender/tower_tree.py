@@ -623,7 +623,8 @@ prefs = bpy.context.preferences.addons["cycles"].preferences
 prefs.compute_device_type = os.environ.get("TOWER_DEVICE", "METAL" if sys.platform == "darwin" else "OPTIX")
 prefs.get_devices()
 want = [w for w in os.environ.get("TOWER_GPUS", "").split(",") if w]
-gpus = [dev for dev in prefs.devices if dev.type != "CPU"]
+# Blender lists each NVIDIA card once per backend (CUDA and OPTIX entries): count only the chosen backend's
+gpus = [dev for dev in prefs.devices if dev.type == prefs.compute_device_type]
 for dev in prefs.devices:
     dev.use = sys.platform == "darwin" and not want
 for i, dev in enumerate(gpus):
