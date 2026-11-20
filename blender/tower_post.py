@@ -155,9 +155,12 @@ if voxels:
         a0 = max(n_hook, G1)
         dies = f"dies {day_name}." if day_name else "dies."
         revive = (f_inject, N - n_end, fit([("But one comment", "bold", 96), ("brings it back.", "bold", 96)]))
-        if WORDS == "tree":  # the seed sprouting; then one line for the withering (its forecast can be short)
-            beats = ([(G0, min(G0 + max(n_seven, int(2.4 * FPS)), G1), seven)] if G1 > G0 else []) + [
-                (a0, f_inject, fit([("If nobody comments,", "bold", 96), (f"it withers and {dies}", "bold", 96)])), revive]
+        if WORDS == "tree":  # the seed sprouting (after the hook); then one line for the withering, started early
+            wither = fit([("If nobody comments,", "bold", 96), (f"it withers and {dies}", "bold", 96)])  # enough to read it
+            w_at = max(n_hook, min(G1, f_inject - short.rf(*[t for t, _, _ in wither])))
+            s0 = max(G0, n_hook)
+            beats = ([(s0, min(s0 + max(n_seven, int(2.4 * FPS)), w_at), seven)] if G1 > G0 else []) + [
+                (w_at, f_inject, wither), revive]
         else:
             beats = [(a0, f_frozen, fit([("If nobody comments,", "bold", 96), ("it freezes", "bold", 96)])),
                      (f_frozen, f_inject, fit([(f"and {dies}", "bold", 96)])), revive]

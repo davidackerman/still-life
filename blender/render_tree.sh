@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The tree-of-life Short: build its data from state/, render it in Blender, then add the words and sound (an MP4).
 #
-#   blender/render_tree.sh OUTDIR                        the whole Short (586 frames, 1080x1920)
+#   blender/render_tree.sh OUTDIR                        the whole Short (622 frames, 1080x1920)
 #   STEP=30 PERCENT=30 blender/render_tree.sh OUTDIR     a quick test: every 30th frame, small; no MP4
 #
 # Env: BLENDER  path to Blender 4.2 (default: blender)
@@ -16,15 +16,15 @@ PYTHON=${PYTHON:-python3}
 STEP=${STEP:-1}
 PERCENT=${PERCENT:-100}
 GPUS=${GPUS:-}
-FRAMES=586
+FRAMES=622
 mkdir -p "$OUT/frames"
 OUT=$(cd "$OUT" && pwd)
 
 "$PYTHON" blender/build_tree_future.py "$OUT/tree_future.npz"
 
-# the look and the camera (as rendered on Nov 19, 2026)
+# the look and the camera (as rendered on Nov 19, 2026, but a longer opening: the hook needs 126 frames to read)
 export TOWER_SPROUT=75 TOWER_REGROW=105 TOWER_ORBIT=120 TOWER_LAWN=5,12,90,0.2 TOWER_PULL=1.05 \
-  TOWER_HOLD0=90 TOWER_HOLD_END=75 TOWER_SUN_OFF=4 TOWER_GRASS_S=2.5 TOWER_OZONE=3 TOWER_LIFT=0.15 \
+  TOWER_HOLD0=126 TOWER_HOLD_END=75 TOWER_SUN_OFF=4 TOWER_GRASS_S=2.5 TOWER_OZONE=3 TOWER_LIFT=0.15 \
   TOWER_NOISE=0.03 TOWER_CROWN=1 TOWER_DIST=1.3 TOWER_DUST=0.6 TOWER_AIR=1.0 TOWER_SKY=0.07 \
   TOWER_SUN_EL=2.5 TOWER_GLOW=3 TOWER_EXPOSURE=0.55 TOWER_FORMAT=${FORMAT:-PNG}
 
