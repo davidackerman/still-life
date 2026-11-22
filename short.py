@@ -1561,10 +1561,13 @@ def build_flight(state_dir: str, pick: str | None = None) -> list | None:
 # 52.8% and 51.2% of viewers; Day 7's sparse, still opening kept 20.9%), then the week
 # backward to the 7-cell acorn, the universe it would have been with no comments, and
 # the real one again. About 20 s: the Shorts that held best were 20 s long.
-REWIND_S = 5.0  # the whole week, backward
+REWIND_S = 5.0  # the whole week (or weeks), backward
+NUMBERS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
 REWIND_STEP = 3  # the hook and the ending: a generation every 3 frames, as in the recap
 ACORN_ZOOM = 6.0
 LONE_PULL_S = 1.4  # pulling back from the acorn while the comment-free universe grows
+REWIND_LOOK = "3d"  # "flat", or "3d": lit blocks on a tilted floor (look3d.py), as the countdown (from Nov 22)
+REWIND_3D_ZOOM = COUNTDOWN_3D_ZOOM  # in 3D, every shot this much closer: most of the board, wrapping on to fill the screen
 
 
 def people(state_dir: str) -> int:
@@ -1587,7 +1590,7 @@ def lone_death(h: History) -> tuple[int, int] | None:
     return None if stuck is None else (stuck, stuck + h.genesis["flatline_gens"])
 
 
-def build_rewind(state_dir: str) -> list:
+def build_rewind(state_dir: str, look: str | None = None) -> list:
     h = History(state_dir)
     G, launch = h.gen_seconds, h.genesis["launch_time"]
     whole = (BW / 2, BH / 2)
@@ -1613,7 +1616,8 @@ def build_rewind(state_dir: str) -> list:
     # 2. the week backward: slow at first (you see it un-happen), fast, slow again into the acorn
     n_rw = int(REWIND_S * FPS)
     rw_gens = [round(now_gen * (1 - ease(i / (n_rw - 1)))) for i in range(n_rw)]
-    rw_top = [("Rewinding the week", "bold", 92)]
+    weeks = (now_gen * G // 86400 + 1) // 7  # day 8: the week; day 15: two weeks
+    rw_top = [("Rewinding the week" if weeks <= 1 else f"Rewinding {NUMBERS.get(weeks, weeks)} weeks", "bold", 92)]
 
     def day_label(g: int) -> list:
         return [(f"Day {g * G // 86400 + 1} · {render._at(launch, g, G, '%a %b %d').replace(' 0', ' ')}",
@@ -1653,7 +1657,7 @@ def build_rewind(state_dir: str) -> list:
         frames.append(frame(lu, block(start, TOP_Y, fade(i, n_acorn)), zoom=zoom, focus=acorn))
     if lone is not None:
         stuck, died = lone
-        when = render._at(launch, died, G, "%A")
+        when = render._at(launch, died, G, "%b %d").replace(" 0", " ")  # a date: "Wednesday" read as the coming one
         alone = [("Left alone, it would", "bold", 88), (f"have died {when}.", "bold", 88)]
         n_alone = rf(*[t for t, _, _ in alone]) + int(0.6 * FPS)  # and a beat on it, dead
         g0, pull = lu.generation, int(LONE_PULL_S * FPS)
@@ -1688,6 +1692,12 @@ def build_rewind(state_dir: str) -> list:
     add_trails(frames[:k_rw], primer)
     add_trails(frames[k_lone:k_end])
     add_trails(frames[k_end:], [(f.grid, f.paint, f.gen) for f in frames[:k_rw]])
+    if (look or REWIND_LOOK) == "3d":
+        import look3d
+        look3d.add_rise(frames[k_end:] + frames[:k_rw])  # one shot across the loop: the end plays into the hook
+        look3d.add_rise(frames[k_lone:k_end])  # (not the rewind: hundreds of generations a frame, its blocks just stand)
+        for f in frames:
+            f.look3d, f.zoom = True, f.zoom * REWIND_3D_ZOOM
     return frames
 
 
@@ -2036,7 +2046,7 @@ def render_video(state_dir: str, out: str, since_gen: int | None = None, preview
     if kind == "flight":
         frames = build_flight(state_dir, pick)
     elif kind == "rewind":
-        frames = build_rewind(state_dir)
+        frames = build_rewind(state_dir, look)
     elif kind == "stranger" and since_gen is not None:
         frames = build_stranger(state_dir, since_gen)
     elif kind == "countdown":
@@ -2081,7 +2091,7 @@ def main() -> None:
     ap.add_argument("--rewind", action="store_true", help="the rewind Short: the week backward to the acorn")
     ap.add_argument("--stranger", action="store_true", help="with --since-hours: the noon Short (one comment's save or kill)")
     ap.add_argument("--countdown", action="store_true", help="the 8 PM Short: how long it has left")
-    ap.add_argument("--look", choices=("flat", "3d"), help=f"with --made or --countdown: how it's drawn (defaults {MADE_LOOK}, {COUNTDOWN_LOOK})")
+    ap.add_argument("--look", choices=("flat", "3d"), help=f"with --made, --countdown or --rewind: how it's drawn (defaults {MADE_LOOK}, {COUNTDOWN_LOOK}, {REWIND_LOOK})")
     ap.add_argument("--fixed", action="store_true", help="with --made: the camera stays put as the comment lands")
     ap.add_argument("--made", action="store_true", help='"1,000 comments built this": the rewind to the seed, one comment')
     args = ap.parse_args()

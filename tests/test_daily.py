@@ -275,7 +275,7 @@ def test_a_planned_slot_posts_the_rewind_short(d, monkeypatch):
              render_short=fake_render(calls))
     assert calls == [{"kind": "rewind"}, {}]  # the plan's slot, then the recap
     assert yt.uploads[0]["title"] == "It started as 7 cells · Universe 1, Day 1 #GameOfLife"
-    assert yt.uploads[0]["description"].startswith("It started as 7 cells: this Short rewinds the whole week")
+    assert yt.uploads[0]["description"].startswith("It started as 7 cells: this Short rewinds all of it")
     assert yt.uploads[1]["title"].startswith("This Short dies if nobody comments")
 
 
@@ -331,3 +331,28 @@ def test_a_planned_slot_posts_the_made_short(d, monkeypatch):
     assert calls == [{"kind": "made"}]
     assert yt.uploads[0]["title"] == "1,000 comments built this simulation #satisfying #GameOfLife"
     assert yt.uploads[0]["description"].startswith("1,000 comments built this simulation: it started as 7 cells, and every comment since has added more.")
+
+
+def test_a_dates_extra_slot(d, monkeypatch):
+    """EXTRA_SLOTS adds a slot on one date only: noon that day, back to 8 PM alone the next."""
+    import short
+    noon, evening = LAUNCH + 5.2 * 3600, LAUNCH + 13.1 * 3600  # 12:12 PM and 8:06 PM New York
+    monkeypatch.setattr(daily, "SLOTS_ET", (20,))
+    monkeypatch.setattr(daily, "NOTIFY_SLOTS", (20,))
+    monkeypatch.setattr(daily, "EXTRA_SLOTS", {daily.today(noon): (12,)})
+    monkeypatch.setattr(daily, "PLAN", {daily.today(noon): {12: "countdown", 20: "rewind"}})
+    assert daily.slots(noon) == (12, 20) and daily.slots(noon + 86400) == (20,)
+    assert daily.slot(noon) == 12 and daily.slot(noon + 86400) is None
+    assert daily.kind(noon) == "countdown" and daily.kind(evening) == "rewind"
+    assert daily.recap_hours(20, evening) == 8 and daily.recap_hours(20, evening + 86400) == 24
+    monkeypatch.setattr(short, "countdown", lambda h, now=None, stuck_now=None: ([], "This universe has 4 days left"))
+    yt, calls = DailyYT(), []
+    tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
+    tick.run(d, noon, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    tick.run(d, evening, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    tick.run(d, noon + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    assert len(yt.uploads) == 2 and yt.notified == [True, True]  # the extra slot goes out to subscribers too
+    assert "slot 12" in yt.uploads[0]["description"] and "slot 20" in yt.uploads[1]["description"]
+    assert "evening" in yt.uploads[1]["title"]  # the 8 PM Short is the day's second
+    tick.run(d, evening + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
+    assert len(yt.uploads) == 3  # the next day: 8 PM only

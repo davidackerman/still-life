@@ -37,6 +37,10 @@ SLOTS_ET = (20,)
 # Shorts feed (earlier Shorts: 9-88 in 30), so both do: the API's notifySubscribers=False
 # seems to keep a Short out of the subscriptions feed too, the early viewers every Short had.
 NOTIFY_SLOTS = SLOTS_ET
+# A date's extra slots (New York), as well as SLOTS_ET; they notify subscribers too. Sun Nov 22
+# (Day 15): the countdown at noon, then the week's summary (the rewind) at 8 PM, as on Sun Nov 15
+# (the day's two Shorts: 23 and 22 comments; the 3D tree Shorts at 8 PM on Nov 20-21: 5 and 2).
+EXTRA_SLOTS = {"2026-11-22": (12,)}
 RECAP_HOURS = 24  # the first slot's recap; a later slot's covers the hours since the slot before it
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"
@@ -47,10 +51,15 @@ def today(now: float) -> str:
     return dt.datetime.fromtimestamp(now, ET).date().isoformat()
 
 
+def slots(now: float) -> tuple[int, ...]:
+    """The slots on `now`'s New York date: SLOTS_ET and that date's EXTRA_SLOTS."""
+    return tuple(sorted(set(SLOTS_ET) | set(EXTRA_SLOTS.get(today(now), ()))))
+
+
 def slot(now: float) -> int | None:
     """The slot (its New York hour) that `now` falls in: the latest one begun today."""
     hour = dt.datetime.fromtimestamp(now, ET).hour
-    begun = [s for s in SLOTS_ET if s <= hour]
+    begun = [s for s in slots(now) if s <= hour]
     return begun[-1] if begun else None
 
 
@@ -91,21 +100,23 @@ DEFAULT_KINDS = {12: "stranger", 20: "countdown"}
 # every other slot, its DEFAULT_KINDS kind.
 PLAN = {"2026-11-14": "flight",  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
         "2026-11-15": {20: "rewind"},  # Sun Nov 15 (Day 8), 8 PM: the week backward (short.build_rewind)
-        "2026-11-17": {12: "made"}}  # Tue Nov 17 (Day 10), noon: "1,000 comments built this" (short.build_made)
+        "2026-11-17": {12: "made"},  # Tue Nov 17 (Day 10), noon: "1,000 comments built this" (short.build_made)
+        "2026-11-22": {12: "countdown", 20: "rewind"}}  # Sun Nov 22 (Day 15): the countdown, then the two weeks backward
 
 
 def kind(now: float) -> str:
     plan, s = PLAN.get(today(now)), slot(now)
     if isinstance(plan, dict) and s in plan:
         return plan[s]
-    if isinstance(plan, str) and s == SLOTS_ET[0]:
+    if isinstance(plan, str) and s == slots(now)[0]:
         return plan
     return DEFAULT_KINDS.get(s, "recap")
 
 
-def recap_hours(at: int | None) -> int:
-    k = SLOTS_ET.index(at) if at in SLOTS_ET else 0
-    return RECAP_HOURS if k == 0 else SLOTS_ET[k] - SLOTS_ET[k - 1]
+def recap_hours(at: int | None, now: float | None = None) -> int:
+    ss = SLOTS_ET if now is None else slots(now)
+    k = ss.index(at) if at in ss else 0
+    return RECAP_HOURS if k == 0 else ss[k] - ss[k - 1]
 
 
 INTROS = {"stranger": "every comment on this Short adds cells to a live Game of Life universe, and some change "
@@ -114,7 +125,7 @@ INTROS = {"stranger": "every comment on this Short adds cells to a live Game of 
                        "adds cells and can change that.",
           "flight": "this Short follows it across the universe until it hits something.",
           "made": "it started as 7 cells, and every comment since has added more.",
-          "rewind": "this Short rewinds the whole week to the 7-cell acorn it began as, then shows the "
+          "rewind": "this Short rewinds all of it to the 7-cell acorn it began as, then shows the "
                     "universe it would have been with no comments at all."}
 
 
@@ -173,8 +184,8 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     render_short = render_short or short.render_video
     day = day_number(world)
     at = slot(now)
-    evening = at != SLOTS_ET[0]
-    hours = recap_hours(at)
+    evening = at != slots(now)[0]
+    hours = recap_hours(at, now)
     since = max(0, world.universe.generation - hours * 3600 // world.gen_seconds)
     from store import LOG, read_log
     # every comment read, counted or skipped: the same count as the status comments and the stream
@@ -216,7 +227,7 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
         return events
     vid = yt.find_upload(mark) or yt.upload_video(out, snippet(world, day, count, mark, total, getattr(yt, "video_id", None),
                                                                headline, what, hours, evening),
-                                                       notify=at in NOTIFY_SLOTS)
+                                                       notify=at in NOTIFY_SLOTS + EXTRA_SLOTS.get(today(now), ()))
     if vid not in world.extra_videos:
         world.extra_videos.append(vid)
     world.video_names[vid] = f"the {name} Short"  # where its comments' moves came from, on the live page

@@ -953,8 +953,9 @@ function renderTally() {
             line("tally-effect", better, ", ", worse));                        // and what they did
 }
 
-// Moves per day (video comments and the live chat, stacked) and how many people have played in all, by
-// day: two small charts, one scale each. Hover a bar or a point for its numbers; the table below has them all.
+// Moves per day (video comments and the live chat, stacked), the moves in all as they came in (the same two,
+// stacked), and how many people have played in all, by day: three small charts, one scale each. Hover a bar,
+// a day or a point for its numbers; the table below has them all.
 function renderGrowth() {
   const el = $("growth");
   if (!S || !TL) return;
@@ -1010,7 +1011,35 @@ function renderGrowth() {
     if (v.video) svgEl("rect", { x: x0, y: yv, width: bw, height: Math.max(0, a.y(0) - yv), rx: 2, class: "bar-video" }, g);
     if (v.chat) svgEl("rect", { x: x0, y: yc, width: bw, height: Math.max(0, yv - yc - (v.video ? 2 : 0)), rx: 2, class: "bar-chat" }, g);
   }
-  // 2. people who have played, in all
+  // 2. moves in all, as they came in: comments below, the live chat stacked on them, at each move's generation
+  const comments = TL.events.filter((e) => e.kind === "comment").sort((p, q) => p.gen - q.gen);
+  const sum = { video: 0, chat: 0 }, pts = [[0, 0, 0]], endOf = new Map();  // [fractional day, comments, chat]
+  for (const e of comments) {
+    sum[e.via === "chat" ? "chat" : "video"]++;
+    pts.push([e.gen * S.genSec / 86400, sum.video, sum.chat]);
+    endOf.set(day(e.gen), { video: sum.video, chat: sum.chat });
+  }
+  pts.push([S.gen * S.genSec / 86400, sum.video, sum.chat]);
+  const c = frame('Moves in all, as they came in: <span class="key key-video"></span>comments <span class="key key-chat"></span>live chat',
+                  nice(Math.max(1, sum.video + sum.chat)), "Moves in all over time, from video comments and from the live chat, stacked");
+  const cx = (f) => L + f / days.length * (W - L - R);
+  const line = (k) => pts.map((p) => `${cx(p[0]).toFixed(1)},${c.y(k(p)).toFixed(1)}`);
+  const base = `${cx(pts[pts.length - 1][0]).toFixed(1)},${c.y(0)} ${cx(0)},${c.y(0)}`;
+  const vidTop = line((p) => p[1]), allTop = line((p) => p[1] + p[2]);
+  svgEl("polygon", { points: `${vidTop.join(" ")} ${base}`, class: "area-video" }, c.svg);
+  svgEl("polygon", { points: `${allTop.join(" ")} ${vidTop.slice().reverse().join(" ")}`, class: "area-chat" }, c.svg);
+  svgEl("polyline", { points: vidTop.join(" "), class: "area-gap" }, c.svg);  // a hairline of background between the two
+  let run = { video: 0, chat: 0 };
+  for (const d of days) {
+    run = endOf.get(d) || run;
+    const g = svgEl("g", { class: "hit" }, c.svg);
+    tip(g, `${d === today ? `Day ${d} (now)` : `By the end of day ${d}`}: ${(run.video + run.chat).toLocaleString()} moves in all, ` +
+           `${run.video.toLocaleString()} from comments, ${run.chat.toLocaleString()} from the live chat`);
+    svgEl("rect", { x: c.x(d) - c.step / 2, y: T, width: c.step, height: H - T - B, class: "hitbox" }, g);
+  }
+  const xe = cx(pts[pts.length - 1][0]) + 8;
+  svgEl("text", { x: xe, y: c.y(sum.video + sum.chat) + 4, class: "label" }, c.svg).textContent = (sum.video + sum.chat).toLocaleString();
+  // 3. people who have played, in all
   const known = days.map((d, i) => [d, people[i]]).filter(([, n]) => n !== null);
   const b = frame("People who have played, in all", nice(Math.max(1, ...known.map(([, n]) => n))),
                   "How many people have made a move, in all, by the end of each day");
@@ -1026,19 +1055,21 @@ function renderGrowth() {
     svgEl("text", { x: b.x(ld) + 8, y: b.y(ln) + 4, class: "label" }, b.svg).textContent = ln.toLocaleString();
   }
   // the numbers, as a table
+  let upTo = 0;
   const rows = days.map((d, i) => { const v = byDay.get(d) || { video: 0, chat: 0 };
+    upTo += v.video + v.chat;
     return `<tr><td>Day ${d}</td><td>${v.video.toLocaleString()}</td><td>${v.chat.toLocaleString()}</td>` +
-           `<td>${people[i] === null ? "–" : people[i].toLocaleString()}</td></tr>`; }).join("");
+           `<td>${upTo.toLocaleString()}</td><td>${people[i] === null ? "–" : people[i].toLocaleString()}</td></tr>`; }).join("");
   const table = document.createElement("details");
   table.className = "growth-table";
   table.innerHTML = `<summary>The numbers</summary><table><thead><tr><th>Day</th><th>Comments</th><th>Live chat</th>` +
-                    `<th>People in all</th></tr></thead><tbody>${rows}</tbody></table>` +
+                    `<th>Moves in all</th><th>People in all</th></tr></thead><tbody>${rows}</tbody></table>` +
                     `<p class="muted">People are counted by a hashed id, never a name. Days 1 and 2 weren't counted.</p>`;
   const head = document.createElement("p");
   head.className = "growth-head";
   head.innerHTML = `<b>${S.people.toLocaleString()} people</b> have made <b>${moves.toLocaleString()} moves</b>.`;
   const open = el.querySelector("details.growth-table")?.open;
-  el.replaceChildren(head, a.box, b.box, table);
+  el.replaceChildren(head, a.box, c.box, b.box, table);
   if (open) table.open = true;
 }
 

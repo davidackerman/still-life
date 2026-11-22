@@ -168,6 +168,9 @@ html.fs-on, html.fs-on body { overflow: hidden; }
 .growth-chart .bar-chat { fill: var(--series-2); }
 .growth-chart .line-people { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; }
 .growth-chart .dot-people { fill: var(--accent); stroke: var(--bg); stroke-width: 2; }
+.growth-chart .area-video { fill: var(--series-1); }
+.growth-chart .area-chat { fill: var(--series-2); }
+.growth-chart .area-gap { fill: none; stroke: var(--bg); stroke-width: 2; stroke-linejoin: round; }
 .growth-chart .hitbox { fill: transparent; }
 .growth-chart .hit:hover .hitbox { fill: var(--rule); opacity: .5; }
 .growth-chart .key { display: inline-block; width: .7em; height: .7em; border-radius: 2px; margin: 0 .25em 0 .6em; vertical-align: -.05em; }
