@@ -23,9 +23,8 @@
    "75ea395ecf3f1ee8bb0d2c94f7111cd7": 1795225728.0,
    "77ea1431714fbb60718d79ef244beef6": 1795227284.0,
    "8bbfd191379869c75a0c72ed1bad6a57": 1795391983.632026,
-   "8cf8bd03627d3aa55351eaef86e27ea3": 1795166114.0,
    "a01e0e0242a49858aece9a5d7afacc0e": 1795380680.0,
-   "a3f6ad2ca64fade082b478086f3e4321": 1795425258.355261,
+   "a3f6ad2ca64fade082b478086f3e4321": 1795425367.61575,
    "ab0d3483ba4b7233e492548fce19734e": 1795375900.860691,
    "b0186595b978b8da33c3ab396c4920a6": 1795225933.0,
    "b51458549e411b16af18c266df382f84": 1795225678.662099,
@@ -46,7 +45,8 @@
   },
   "per_gen": {
    "a3f6ad2ca64fade082b478086f3e4321": {
-    "10924": 1
+    "10924": 1,
+    "10925": 1
    }
   },
   "queue": [],
@@ -110,7 +110,6 @@
    "4d6eaf4ca209ad79bb9a7ed59bfc4759": 1795382549.150393,
    "4f94298dd3a4e22bbfb5f1823c65d100": 1795229238.207249,
    "50f3b8d282a186d5789e80a3d4e659c4": 1795368479.18759,
-   "5441e1be8299c460221c1a55efdda006": 1795166114.0,
    "54c3440edca5bb67eefcd063ddcc370f": 1795383415.023069,
    "553307e1a63f9c84aed703460e7b9fb5": 1795350281.588876,
    "5588a5f832b21a390f6317b4bea70083": 1795368462.467487,
@@ -182,6 +181,7 @@
    "aed67f1936678bf675bb254f652565ae": 1795368441.758414,
    "aef9433697781919dfcd443eb7c32aca": 1795368362.982078,
    "af2ddc1050f26d265de07e4d0adfaf5a": 1795368359.260772,
+   "b00d1c7fde8808c8727ad086d75e1918": 1795425367.61575,
    "b1cde15ddab8e7766c4d5dd760275cc9": 1795180273.524695,
    "b2c8951bb87bf7a348fd87dcb63fa25f": 1795300064.073091,
    "b4671746765fc6f219807dcf27e1ebbe": 1795310739.817647,
@@ -246,13 +246,13 @@
  "chat": {
   "id": "KicKGFVDaDlvNWRHaGljek5jcTI5UXNSWjZwZxILSGZVcXpOSXlxOTA",
   "looked": 1794868714.0820858,
-  "token": "GL30-qXgnZgDILCfr7jgnZgD"
+  "token": "GIbSh9rgnZgDIITZiOHgnZgD"
  },
  "comments_read_at": 1795425265.1899598,
  "comments_seen": {
   "day": 16,
-  "today": 1,
-  "total": 1677
+  "today": 2,
+  "total": 1678
  },
  "config": {
   "extra_videos": [
@@ -415,6 +415,10 @@
    [
     37,
     28
+   ],
+   [
+    73,
+    37
    ]
   ],
   "last_thumb_at": 1795420945.498538,
@@ -583,27 +587,27 @@
     "views": 1309
    }
   },
-  "pinned_core": "🟢 ALIVE · this video dies in ~2 days if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail, on the 24/7 live stream and on the live page (links at the bottom), and the title counts down to its death. Every comment adds cells (up to 3 moves per person every 2 minutes; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 10,924: rpent 35,28 cyan · 2d 7h → 2d 13h\n• gen 10,701: random 5x5 at 61,38 blue · 4d 19h → 2d 14h\n• gen 10,647: glider 105,43 se pink · 2d 19h → 4d 21h\n• gen 10,647: glider 105,43 se black · 11d 9h → 2d 19h\n• gen 10,646: glider 105,43 se · 2d 19h → 11d 9h\n• gen 10,625: random 5x5 at 109,58 blue · 6d 1h → 2d 20h\n• gen 10,612: random 5x5 at 50,27 · 2d 16h → 6d 1h\n• gen 10,576: acorn 58,31 blue · 5d 10h → 2d 17h\n\n📺 Watch it live, 24/7, with sound, and see your comment land: https://www.youtube.com/channel/UCh9o5dGhiczNcq29QsRZ6pg/live\nRewind every move: davidackerman.github.io/still-life",
-  "pinned_suggest": "acorn 110,6 cyan",
+  "pinned_core": "🟢 ALIVE · this video dies in ~2 days if nobody comments\nThe video is the explainer. The universe itself lives in this video's thumbnail, on the 24/7 live stream and on the live page (links at the bottom), and the title counts down to its death. Every comment adds cells (up to 3 moves per person every 2 minutes; replies count too).\n\nLatest moves (time it had left: before → after):\n• gen 10,925: cells 73,37 cyan (changed nothing)\n• gen 10,924: rpent 35,28 cyan · 2d 7h → 2d 13h\n• gen 10,701: random 5x5 at 61,38 blue · 4d 19h → 2d 14h\n• gen 10,647: glider 105,43 se pink · 2d 19h → 4d 21h\n• gen 10,647: glider 105,43 se black · 11d 9h → 2d 19h\n• gen 10,646: glider 105,43 se · 2d 19h → 11d 9h\n• gen 10,625: random 5x5 at 109,58 blue · 6d 1h → 2d 20h\n• gen 10,612: random 5x5 at 50,27 · 2d 16h → 6d 1h\n\n📺 Watch it live, 24/7, with sound, and see your comment land: https://www.youtube.com/channel/UCh9o5dGhiczNcq29QsRZ6pg/live\nRewind every move: davidackerman.github.io/still-life",
+  "pinned_suggest": "acorn 111,6 cyan",
   "recent": [
+   "gen 10,925: cells 73,37 cyan (changed nothing)",
    "gen 10,924: rpent 35,28 cyan · 2d 7h → 2d 13h",
    "gen 10,701: random 5x5 at 61,38 blue · 4d 19h → 2d 14h",
    "gen 10,647: glider 105,43 se pink · 2d 19h → 4d 21h",
    "gen 10,647: glider 105,43 se black · 11d 9h → 2d 19h",
    "gen 10,646: glider 105,43 se · 2d 19h → 11d 9h",
    "gen 10,625: random 5x5 at 109,58 blue · 6d 1h → 2d 20h",
-   "gen 10,612: random 5x5 at 50,27 · 2d 16h → 6d 1h",
-   "gen 10,576: acorn 58,31 blue · 5d 10h → 2d 17h"
+   "gen 10,612: random 5x5 at 50,27 · 2d 16h → 6d 1h"
   ],
   "recent_by": [
+   "chat:a3f6ad2ca64fade082b478086f3e4321",
    "chat:a3f6ad2ca64fade082b478086f3e4321",
    "chat:483f95e93a6d883e431f96b51a1c7738",
    "chat:8bbfd191379869c75a0c72ed1bad6a57",
    "chat:8bbfd191379869c75a0c72ed1bad6a57",
    "chat:8bbfd191379869c75a0c72ed1bad6a57",
    "chat:483f95e93a6d883e431f96b51a1c7738",
-   "4db19c2f0cf4699bccfd74a7acc95338",
-   "chat:483f95e93a6d883e431f96b51a1c7738"
+   "4db19c2f0cf4699bccfd74a7acc95338"
   ],
   "saves": 0
  },
@@ -638,8 +642,8 @@
   "gen": 10924
  },
  "log": {
-  "head": "7f6cc6a838fd7a1ad7e7993fe747b3450aaffb7f4600d5ea08258d2d1894595c",
-  "seq": 16229
+  "head": "d63208c3e4dbfdec62955cd387be90bfb68cf01ba2f7447f8860f1aa9987f6a2",
+  "seq": 16231
  },
  "people_days": {
   "10": 309,
@@ -659,7 +663,7 @@
  },
  "quota": {
   "day": "2026-11-23",
-  "used": 929
+  "used": 944
  },
  "reply_counts": {
   "1129286fea3978c1b7c84499c47839f6": [
