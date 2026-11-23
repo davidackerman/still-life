@@ -1567,6 +1567,7 @@ REWIND_STEP = 3  # the hook and the ending: a generation every 3 frames, as in t
 ACORN_ZOOM = 6.0
 LONE_PULL_S = 1.4  # pulling back from the acorn while the comment-free universe grows
 REWIND_LOOK = "3d"  # "flat", or "3d": lit blocks on a tilted floor (look3d.py), as the countdown (from Nov 22)
+REWIND_TITLE = "Can a zero-player game have players?"  # the hook and the title (from Nov 22)
 REWIND_3D_ZOOM = COUNTDOWN_3D_ZOOM  # in 3D, every shot this much closer: most of the board, wrapping on to fill the screen
 
 
@@ -1608,9 +1609,10 @@ def build_rewind(state_dir: str, look: str | None = None) -> list:
     n_people = people(state_dir)
 
     # 1. the hook, over the whole board as it was a minute ago, playing up to now
-    hook_top = [("THIS SHORT", "bold", 112), ("DIES", "bold", 196)]
-    hook_bottom = [("if nobody comments", "demi", 80)]
-    n_hook = max(int(2.7 * FPS), rf("THIS SHORT", "DIES", "if nobody comments"))
+    # the Game of Life is the textbook zero-player game: the story below answers this
+    hook_top = [(REWIND_TITLE, "bold", 112)]  # wraps as "Can a / zero-player game / have players?"
+    hook_bottom = [("Conway's Game of Life", "demi", 72)]
+    n_hook = max(int(2.7 * FPS), rf(REWIND_TITLE, "Conway's Game of Life"))
     hook0 = max(0, now_gen - n_hook // REWIND_STEP)
 
     # 2. the week backward: slow at first (you see it un-happen), fast, slow again into the acorn
@@ -1658,7 +1660,7 @@ def build_rewind(state_dir: str, look: str | None = None) -> list:
     if lone is not None:
         stuck, died = lone
         when = render._at(launch, died, G, "%b %d").replace(" 0", " ")  # a date: "Wednesday" read as the coming one
-        alone = [("Left alone, it would", "bold", 88), (f"have died {when}.", "bold", 88)]
+        alone = [("With zero players,", "bold", 88), (f"it would have died {when}.", "bold", 88)]
         n_alone = rf(*[t for t, _, _ in alone]) + int(0.6 * FPS)  # and a beat on it, dead
         g0, pull = lu.generation, int(LONE_PULL_S * FPS)
         run = n_alone - int(0.9 * FPS)  # it reaches its death with time to see it
@@ -1701,7 +1703,6 @@ def build_rewind(state_dir: str, look: str | None = None) -> list:
     return frames
 
 
-REWIND_TITLE = "It started as 7 cells"
 
 
 # ---------------------------------------------------------------- "1,000 comments built this"

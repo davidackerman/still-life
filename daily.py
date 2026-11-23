@@ -125,15 +125,16 @@ INTROS = {"stranger": "every comment on this Short adds cells to a live Game of 
                        "adds cells and can change that.",
           "flight": "this Short follows it across the universe until it hits something.",
           "made": "it started as 7 cells, and every comment since has added more.",
-          "rewind": "this Short rewinds all of it to the 7-cell acorn it began as, then shows the "
-                    "universe it would have been with no comments at all."}
+          "rewind": "Conway's Game of Life is a zero-player game: it plays itself out from wherever it starts. "
+                    "This one has players: every comment adds cells. This Short rewinds all of it to the 7 cells "
+                    "it started as, then shows the universe it would have been with zero players."}
 
 
 def satisfying(kind: str) -> bool:
     """A Short drawn in 3D (lit blocks rising and sinking): tagged #satisfying, for the much
     bigger satisfying-simulation audience, not only people who know the Game of Life."""
     import short
-    return {"countdown": short.COUNTDOWN_LOOK, "made": short.MADE_LOOK}.get(kind) == "3d"
+    return {"countdown": short.COUNTDOWN_LOOK, "made": short.MADE_LOOK, "rewind": short.REWIND_LOOK}.get(kind) == "3d"
 
 
 def snippet(world, day: int, count: int, mark: str, total: int | None = None, main: str | None = None,
@@ -153,7 +154,8 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
         fate = "it won't get stuck for weeks unless a comment changes that."
     countdown = f" The main video's title counts down live: https://youtu.be/{main}" if main else ""
     so_far = f" ({total:,} since it began)" if total is not None and total > count else ""
-    intro = f"{headline}: {INTROS.get(kind, INTROS['flight'])}\n\n" if headline else ""
+    sep = " " if headline and headline.endswith("?") else ": "  # "Can a zero-player game have players? Conway's ..."
+    intro = f"{headline}{sep}{INTROS.get(kind, INTROS['flight'])}\n\n" if headline else ""
     desc = (f"{intro}Day {day} of universe {world.universe_no}, a live Conway's Game of Life: {count} comment{'s' * (count != 1)} in the last "
             f"{hours} hours{so_far}. As of day {day}, {fate}{countdown}\n\n"
             f"This Short is a replay: your comment lands in the live universe within minutes. Watch it happen on "
@@ -166,7 +168,7 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             f"{'#satisfying #simulation ' if satisfying(kind) else ''}#ConwaysGameOfLife #GameOfLife\n\n({mark})")
     when = f"Day {day}, evening" if evening else f"Day {day}"
     title = f"{headline or 'This Short dies if nobody comments'} · Universe {world.universe_no}, {when} #GameOfLife"
-    if headline and kind in ("stranger", "countdown", "made"):  # for strangers: what happened, not the channel's day count
+    if headline and kind in ("stranger", "countdown", "made", "rewind"):  # for strangers: what happened, not the channel's day count
         title = f"{headline} {'#satisfying ' if satisfying(kind) else ''}#GameOfLife"
     return {"title": title,
             "description": desc,

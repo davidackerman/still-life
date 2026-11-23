@@ -274,8 +274,9 @@ def test_a_planned_slot_posts_the_rewind_short(d, monkeypatch):
     tick.run(d, LAUNCH + 13.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live",
              render_short=fake_render(calls))
     assert calls == [{"kind": "rewind"}, {}]  # the plan's slot, then the recap
-    assert yt.uploads[0]["title"] == "It started as 7 cells · Universe 1, Day 1 #GameOfLife"
-    assert yt.uploads[0]["description"].startswith("It started as 7 cells: this Short rewinds all of it")
+    assert yt.uploads[0]["title"] == "Can a zero-player game have players? #satisfying #GameOfLife"
+    assert yt.uploads[0]["description"].startswith("Can a zero-player game have players? Conway's Game of Life is a "
+                                                   "zero-player game")
     assert yt.uploads[1]["title"].startswith("This Short dies if nobody comments")
 
 
@@ -353,6 +354,6 @@ def test_a_dates_extra_slot(d, monkeypatch):
     tick.run(d, noon + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
     assert len(yt.uploads) == 2 and yt.notified == [True, True]  # the extra slot goes out to subscribers too
     assert "slot 12" in yt.uploads[0]["description"] and "slot 20" in yt.uploads[1]["description"]
-    assert "evening" in yt.uploads[1]["title"]  # the 8 PM Short is the day's second
+    assert "in the last 8 hours" in yt.uploads[1]["description"]  # the 8 PM Short is the day's second
     tick.run(d, evening + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
     assert len(yt.uploads) == 3  # the next day: 8 PM only
