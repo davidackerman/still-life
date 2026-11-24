@@ -40,7 +40,8 @@ NOTIFY_SLOTS = SLOTS_ET
 # A date's extra slots (New York), as well as SLOTS_ET; they notify subscribers too. Sun Nov 22
 # (Day 15): the countdown at noon, then the week's summary (the rewind) at 8 PM, as on Sun Nov 15
 # (the day's two Shorts: 23 and 22 comments; the 3D tree Shorts at 8 PM on Nov 20-21: 5 and 2).
-EXTRA_SLOTS = {"2026-11-22": (12,)}
+# Tue Nov 24 (Day 17): a noon one as well, the 9-second Blender creature countdown (posted by hand into the slot).
+EXTRA_SLOTS = {"2026-11-22": (12,), "2026-11-24": (12,)}
 RECAP_HOURS = 24  # the first slot's recap; a later slot's covers the hours since the slot before it
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"
@@ -101,7 +102,8 @@ DEFAULT_KINDS = {12: "stranger", 20: "countdown"}
 PLAN = {"2026-11-14": "flight",  # Sat Nov 14 (Day 7): the glider Short (short.build_flight)
         "2026-11-15": {20: "rewind"},  # Sun Nov 15 (Day 8), 8 PM: the week backward (short.build_rewind)
         "2026-11-17": {12: "made"},  # Tue Nov 17 (Day 10), noon: "1,000 comments built this" (short.build_made)
-        "2026-11-22": {12: "countdown", 20: "rewind"}}  # Sun Nov 22 (Day 15): the countdown, then the two weeks backward
+        "2026-11-22": {12: "countdown", 20: "rewind"},  # Sun Nov 22 (Day 15): the countdown, then the two weeks backward
+        "2026-11-24": {12: "countdown"}}  # Tue Nov 24 (Day 17), noon: the countdown (the creature donut, by hand)
 
 
 def kind(now: float) -> str:
