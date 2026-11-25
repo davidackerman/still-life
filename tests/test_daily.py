@@ -358,3 +358,23 @@ def test_a_dates_extra_slot(d, monkeypatch):
     assert "in the last 8 hours" in yt.uploads[1]["description"]  # the 8 PM Short is the day's second
     tick.run(d, evening + 86400, lambda w: yt, KEY, thumb_path=None, daily_mode="live", render_short=fake_render(calls))
     assert len(yt.uploads) == 3  # the next day: 8 PM only
+
+
+def test_a_short_its_slot_run_missed_is_adopted_once_after_the_one_before_it(d, monkeypatch):
+    yt = DailyYT()
+    tick.run(d, LAUNCH + 11.2 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")  # posts SHORT1
+    assert state(d)["config"]["extra_videos"] == ["SHORT1"]  # a new world: the real LATE_ADOPT isn't for it
+    monkeypatch.setattr(tick, "LATE_ADOPT", {"LATE1": ("SHORT1", "the Day 1 evening Short"), "LATE2": ("NOPE", "x")})
+    monkeypatch.setattr(tick, "LATE_ADOPT_MARK", "late-adopt-test")
+    read = []
+
+    def factory(w):  # what this run reads: the hand uploads first, then the daily Shorts, the late one last
+        read.append(tick.choose_extras(w, ["HAND"], LAUNCH + 12 * 3600, mark=False)[0])
+        return yt
+    tick.run(d, LAUNCH + 12 * 3600, factory, KEY, thumb_path=None)
+    s = state(d)
+    assert read == [["HAND", "SHORT1", "LATE1"]] and s["config"]["extra_videos"] == ["SHORT1", "LATE1"]
+    assert s["video_names"]["LATE1"] == "the Day 1 evening Short" and "LATE2" not in s["video_names"]
+    assert "late-adopt-test" in s["display"]["migrations"]
+    tick.run(d, LAUNCH + 35.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")  # the next day's Short
+    assert state(d)["config"]["extra_videos"] == ["SHORT1", "LATE1", "SHORT2"]  # after it, once

@@ -47,6 +47,12 @@ SLOW_EXTRA_S = 30 * 60  # Shorts older than the newest three: comments read ever
 # What the live page calls each hand-uploaded video (EXTRA_VIDEO_IDS) a move came from
 HAND_UPLOADS = {"m-JcepjW41U": "the teaser Short", "iCukC64w-wQ": "the week-one video"}
 COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come every 1-3 for the chat: deploy/kick.py)
+# Hand-uploaded Shorts whose slot run failed to adopt them: the Day 17 evening Short (Nov 24; the 8 PM run hit the
+# quota cap before it found the upload). Adopted once, at the end of the daily Shorts, as that run would have done
+# (not EXTRA_VIDEO_IDS: those come first, which would move every daily Short's status-comment slot). Only in the
+# world that has the Short adopted before it (the Day 17 noon one): video -> (that Short, its name on the live page)
+LATE_ADOPT = {"sadPXFjaqoE": ("b8ZdHhlw3X8", "the Day 17 evening Short")}
+LATE_ADOPT_MARK = "late-adopt-2026-11-25"
 
 
 def choose_extras(world, env_extras: list[str], now: float, mark: bool = True) -> tuple[list[str], set[str]]:
@@ -122,6 +128,14 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world.effects_backfilled = True
         world.recent = None  # rebuilt below, with the effects
         store.save(world, effects)
+    if LATE_ADOPT_MARK not in world.migrations:  # once: see LATE_ADOPT
+        world.migrations.append(LATE_ADOPT_MARK)
+        for v, (before, name) in LATE_ADOPT.items():
+            if before not in world.extra_videos:
+                continue
+            if v not in world.extra_videos:
+                world.extra_videos.append(v)
+            world.video_names.setdefault(v, name)
     if "recent-in-hours-2026-11-09" not in world.migrations:  # once: rewrite old lines as "3d 5h"
         world.migrations.append("recent-in-hours-2026-11-09")
         world.recent = None
