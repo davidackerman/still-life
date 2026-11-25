@@ -380,3 +380,24 @@ def test_a_short_its_slot_run_missed_is_adopted_once_after_the_one_before_it(d, 
     assert "late-adopt-test" in s["display"]["migrations"]
     tick.run(d, LAUNCH + 35.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")  # the next day's Short
     assert state(d)["config"]["extra_videos"] == ["SHORT1", "LATE1", "SHORT2"]  # after it, once
+
+
+def test_a_hand_upload_adopted_before_its_slot_run_is_read_at_once_and_that_run_only_records_it(d, monkeypatch):
+    yt = DailyYT()
+    tick.run(d, LAUNCH + 11.2 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")  # posts SHORT1
+    monkeypatch.setattr(tick, "EARLY_ADOPT", {"EARLY1": ("SHORT1", "the Day 2 evening Short")})
+    monkeypatch.setattr(tick, "EARLY_ADOPT_MARK", "early-adopt-test")
+    read = []
+
+    def factory(w):
+        read.append(tick.choose_extras(w, [], LAUNCH + 34 * 3600, mark=False)[0])
+        return yt
+    tick.run(d, LAUNCH + 34 * 3600, factory, KEY, thumb_path=None)  # before the next slot: read from now on
+    assert read == [["SHORT1", "EARLY1"]] and state(d)["config"]["extra_videos"] == ["SHORT1", "EARLY1"]
+    yt.find_upload = lambda marker: "EARLY1"  # the slot run finds it by its marker (uploaded by hand with it)
+    tick.run(d, LAUNCH + 35.1 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")
+    s = state(d)
+    assert s["config"]["extra_videos"] == ["SHORT1", "EARLY1"] and len(yt.uploads) == 1  # recorded, not posted again
+    assert [v for v, _ in yt.posted].count("EARLY1") == 1  # its status comment, once
+    tick.run(d, LAUNCH + 35.3 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")
+    assert len(yt.uploads) == 1 and [v for v, _ in yt.posted].count("EARLY1") == 1  # that slot is done

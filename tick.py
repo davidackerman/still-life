@@ -54,6 +54,11 @@ COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come
 # world that has the Short adopted before it (the Day 17 noon one): video -> (that Short, its name on the live page)
 LATE_ADOPT = {"sadPXFjaqoE": ("b8ZdHhlw3X8", "the Day 17 evening Short")}
 LATE_ADOPT_MARK = "late-adopt-2026-11-25"
+# The same, early: the Day 18 evening Short (Nov 25), uploaded by hand at 5:52 PM, had comments within minutes, so it's
+# read from now on instead of from its 8 PM slot run. That run still finds it by its marker and only records it
+# (daily.py: it's adopted already), and posts its status comment.
+EARLY_ADOPT = {"4c769k-exvE": ("sadPXFjaqoE", "the Day 18 evening Short")}
+EARLY_ADOPT_MARK = "early-adopt-2026-11-25"
 
 
 def choose_extras(world, env_extras: list[str], now: float, mark: bool = True) -> tuple[list[str], set[str]]:
@@ -129,9 +134,11 @@ def run(state_dir: str, now: float, yt_factory, key: bytes, thumb_path: str | No
         world.effects_backfilled = True
         world.recent = None  # rebuilt below, with the effects
         store.save(world, effects)
-    if LATE_ADOPT_MARK not in world.migrations:  # once: see LATE_ADOPT
-        world.migrations.append(LATE_ADOPT_MARK)
-        for v, (before, name) in LATE_ADOPT.items():
+    for mark, adopt in ((LATE_ADOPT_MARK, LATE_ADOPT), (EARLY_ADOPT_MARK, EARLY_ADOPT)):  # once each: see LATE_ADOPT
+        if mark in world.migrations:
+            continue
+        world.migrations.append(mark)
+        for v, (before, name) in adopt.items():
             if before not in world.extra_videos:
                 continue
             if v not in world.extra_videos:
