@@ -68,6 +68,12 @@ RISE_STEPS = 6  # in 3D, a new generation's cells rise (and dying ones sink) in 
 # frame) the board is drawn plain (no smoothing, no glow) and only as often as it can be
 # without the stream falling behind: the frames between show the last one (PLAY_SHARE).
 LOOK_BUDGET_S, LOOK_SAMPLES = 0.25, 10
+# The creature cam (3D only): the whole board's cells are too small for their faces (11 px, a few on a phone),
+# so for the first CAM_HOLD_S of every CAM_EVERY_S, while nothing plays, the board fades to a CAM_W x CAM_H
+# window, cells about 3x bigger: on the latest move if it's recent (CAM_MOVE_S), else the liveliest spot.
+CAM = os.environ.get("STREAM_CAM", "1") != "0"
+CAM_EVERY_S, CAM_HOLD_S, CAM_FADE_S, CAM_MOVE_S = 180, 15, 0.8, 1800
+CAM_W, CAM_H = 40, 22
 PLAY_SHARE = 0.6  # at most this share of the time goes to drawing the playing board
 # A rewind is known ahead (the log up to its slot), so a niced process draws its boards in
 # full (smoothing, glow) from PREBUILD_LEAD_S before it, into CACHE; the rewind plays them.
@@ -723,7 +729,8 @@ def prebuild_rewind(repo: str, slot: float) -> str:
     n = int(REWIND_S * IN_FPS)
     times = [slot + k / IN_FPS for k in range(n)]
     gens = [int(round(r.end * min(1.0, (t - slot) / REWIND_S))) for t in times]  # as Rewind.advance steps
-    look = [board3d.TILT, board3d.HEIGHT, board3d.MARGIN, board3d.GLOW, board3d.GLOW_BLUR, board3d.SS]  # a new look: drawn again
+    look = [board3d.TILT, board3d.HEIGHT, board3d.MARGIN, board3d.GLOW, board3d.GLOW_BLUR, board3d.SS,
+            board3d.EYES]  # a new look: drawn again
     meta = {"end": r.end, "gens": gens, "moves": sorted(int(g) for g in r.h.batches), "look": look}
     out = rewind_dir(slot)
     os.makedirs(out, exist_ok=True)
@@ -807,6 +814,10 @@ class Screen:
         self._play_at = -1e9
         self._pre = None  # the prebuilt rewind being played: (dir, meta, first new move's gen, checked at)
         self._pre_frame = (None, None)  # (path, board) last shown from it
+        self._cam = None  # the creature cam's visit: (its start, (x0, y0) its window's top left, its View)
+        self._cam_img, self._cam_key = None, None
+        self._cam_last = None  # the window of the visit before, so the next one looks somewhere else
+        self._last_move = None  # (when it landed, its cells): where the creature cam looks first
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -820,6 +831,8 @@ class Screen:
         if not same:
             self.tags = []
         moves = [e for e in snap.new if e.get("cells")]
+        if moves:
+            self._last_move = (now, [tuple(c) for c in moves[-1]["cells"]])
         if self.future and moves:  # someone commented: that future is gone
             self.future = None
             self._changed(now)
@@ -966,6 +979,59 @@ class Screen:
             self._view = board3d.View(tuple(shape))
         return self._view
 
+    def cam(self, now: float):
+        """The creature cam now: ((x0, y0) its window's top left, its View, how far faded in, 0..1), or None:
+        the whole board. On for the first CAM_HOLD_S of every CAM_EVERY_S, while nothing plays."""
+        if not (CAM and self.look3d) or self.rewind or self.replay or self.future:
+            return None
+        t = now % CAM_EVERY_S
+        if t >= CAM_HOLD_S:
+            return None
+        start = now - t
+        if self._cam is None or self._cam[0] != start:  # a new visit: where it looks is chosen once
+            import board3d
+            spot = self._cam_spot(now)
+            self._cam_last = spot
+            self._cam = (start, spot, board3d.View((CAM_H, CAM_W), origin=spot, full=self.snap.u.grid.shape,
+                                                   steps=(4, 4)))
+            self._cam_key = None
+        return self._cam[1], self._cam[2], max(0.0, min(1.0, t / CAM_FADE_S, (CAM_HOLD_S - t) / CAM_FADE_S))
+
+    def _cam_spot(self, now: float) -> tuple[int, int]:
+        """Where the creature cam looks (its window's top left, wrapping): the latest move, once, if it landed
+        in the last CAM_MOVE_S; else the window with the most creatures and lately the most change, away from
+        the last visit's."""
+        u = self.snap.u
+        h, w = u.grid.shape
+        if self._last_move and now - self._last_move[0] < CAM_MOVE_S and getattr(self, "_cam_moved", None) != self._last_move[0]:
+            self._cam_moved = self._last_move[0]
+            cx, cy = centre_cells(self._last_move[1], u.grid.shape)
+            return int(round(cx - CAM_W / 2)) % w, int(round(cy - CAM_H / 2)) % h
+        m = u.grid.astype(np.float64)
+        if self.snap.trail is not None:
+            m = m + 3 * (self.snap.trail.layer(u.grid)[0] > 0.004)  # where cells died lately: things happening
+        p = np.pad(np.pad(m, ((0, CAM_H), (0, CAM_W)), mode="wrap").cumsum(0).cumsum(1), ((1, 0), (1, 0)))
+        s = p[CAM_H:CAM_H + h, CAM_W:CAM_W + w] - p[:h, CAM_W:CAM_W + w] - p[CAM_H:CAM_H + h, :w] + p[:h, :w]
+        if self._cam_last is not None:  # somewhere else than last time
+            lx, ly = self._cam_last
+            dx = np.abs((np.arange(w) - lx + w // 2) % w - w // 2)
+            dy = np.abs((np.arange(h) - ly + h // 2) % h - h // 2)
+            s[(dy[:, None] < CAM_H // 2) & (dx[None, :] < CAM_W // 2)] = -1
+        y0, x0 = np.unravel_index(int(np.argmax(s)), s.shape)
+        return int(x0), int(y0)
+
+    def _cam_label(self, d, cam) -> None:
+        """Where the creature cam is, in board coordinates, so anyone can still aim a move at what they see."""
+        (x0, y0), cv, a = cam
+        h, w = self.snap.u.grid.shape
+        text = f"Up close · x {x0}–{(x0 + CAM_W - 1) % w}, y {y0}–{(y0 + CAM_H - 1) % h}"
+        f = font("bold", 26)
+        x, y = cv.area[0] + 12, cv.area[3] - 50
+        al = int(255 * a)
+        d.rounded_rectangle((x, y, x + d.textlength(text, font=f) + 28, y + 42), radius=12,
+                            fill=(8, 12, 16, int(220 * a)), outline=(120, 220, 160, al), width=2)
+        d.text((x + 14, y + 21), text, font=f, fill=(230, 240, 235, al), anchor="lm")
+
     def board3d(self, now: float) -> np.ndarray:
         """The board in blocks (board3d.View's area). A change of board (a generation, a
         move landing, the end of a rewind) raises the new cells and sinks the dying ones
@@ -1007,7 +1073,26 @@ class Screen:
             self.cur3d_key = k
         if not rising:
             self._grid_shown = u.grid.copy()
-        return self.cur3d
+        cam = self.cam(now)
+        if cam is None:
+            return self.cur3d
+        (x0, y0), cv, fa = cam  # the creature cam: the same board, its window drawn big, faded in over the whole
+        if (k, x0, y0) != self._cam_key:
+            h, w = u.grid.shape
+            ys, xs = (np.arange(CAM_H) + y0) % h, (np.arange(CAM_W) + x0) % w
+
+            def win(m):
+                return None if m is None else m[np.ix_(ys, xs)]
+
+            tails = self.snap.trail.layer(u.grid, frac) if self.snap.trail is not None else None
+            self._cam_img = cv.render(win(u.grid), u.phase, win(lit), win(self.snap.paint),
+                                      None if tails is None else (win(tails[0]), win(tails[1])), win(ghost), ghost_a,
+                                      before=win(before) if rising else None, rise=rise, font=font,
+                                      glow=self.simpler < 2, ss=1 if self.simpler else None)
+            self._cam_key = (k, x0, y0)
+        if fa >= 1:
+            return self._cam_img
+        return (self.cur3d * (1 - fa) + self._cam_img * fa).astype(np.uint8)
 
     def _prebuilt(self, r) -> np.ndarray | None:
         """This rewind's board drawn ahead (prebuild_rewind), or None: not there (yet), or
@@ -1107,9 +1192,12 @@ class Screen:
             img[top:top + b.shape[0], left:left + b.shape[1]] = b
         im = Image.fromarray(img)
         d = ImageDraw.Draw(im, "RGBA")
+        cam = self.cam(now) if self.look3d else None
         if self.look3d and u.phase in (FLATLINING, CONTESTED):  # the edge says it's in trouble
-            v = self.view(shape)
+            v = cam[1] if cam is not None and cam[2] > 0.5 else self.view(shape)
             d.line(v.edge + v.edge[:1], fill=PHASE_COLOR[u.phase], width=3, joint="curve")
+        if cam is not None:
+            self._cam_label(d, cam)
         self._films(d, now)
         if playing:
             self._graph(d)
@@ -1123,7 +1211,7 @@ class Screen:
             self._replay_banner(d, now, shape, y0)
         elif self.future:  # no move labels: nobody has commented in the future it shows
             self._future_banner(d, now, shape)
-        else:
+        elif cam is None:  # (up close, the labels would point at the whole board's places: none)
             self._moves(d, now, shape)
         return im
 

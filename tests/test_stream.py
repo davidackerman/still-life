@@ -694,6 +694,43 @@ def test_the_3d_board_fits_its_area_with_up_still_up():
     assert v.cx < stream.COL_X - 20 and v.bottom < stream.BOARD_Y + stream.BOARD_H + 25  # clear of the column and the text
 
 
+def test_a_window_onto_the_board_numbers_the_full_boards_columns_and_rows():
+    import board3d
+
+    def labels(v):
+        out = []
+
+        class D:
+            def text(self, xy, s, **kw):
+                out.append(s)
+        v.numbers(D(), lambda weight, size: None)
+        return set(out)
+    assert labels(board3d.View((72, 128))) == {str(n) for n in range(0, 128, 16)} | {str(n) for n in range(0, 72, 8)} | {"x"}
+    # the creature cam's window from column 125 (it wraps), row 1: every 4th of the full board's, as they are
+    assert labels(board3d.View((22, 40), origin=(125, 1), full=(72, 128), steps=(4, 4))) == \
+        {str(n) for n in range(0, 37, 4)} | {"x"}
+
+
+def test_the_creature_cam_looks_up_close_for_a_while_every_few_minutes_while_nothing_plays(state_dir, monkeypatch):
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    snap = stream.load(state_dir, now=LAUNCH + 3700)
+    screen = stream.Screen(snap)
+    t0 = (LAUNCH + 3700) // stream.CAM_EVERY_S * stream.CAM_EVERY_S + stream.CAM_EVERY_S
+    screen._last_move = (t0 - 60, [(10, 20), (11, 20), (12, 20)])
+    (x0, y0), v, a = screen.cam(t0 + 5)
+    assert a == 1.0 and v.shape == (stream.CAM_H, stream.CAM_W) and v.origin == (x0, y0)
+    assert all((x - x0) % 128 < stream.CAM_W and (y - y0) % 72 < stream.CAM_H for x, y in screen._last_move[1])
+    assert 0 < screen.cam(t0 + 0.2)[2] < 1  # fading in
+    assert screen.cam(t0 + stream.CAM_HOLD_S + 1) is None  # the whole board again
+    assert screen.compose(t0 + 5).size == (stream.SW, stream.SH)
+    assert screen.cam(t0 + stream.CAM_EVERY_S + 5)[0] != (x0, y0)  # the next visit: the move once, then elsewhere
+    screen.replay = object()  # anything playing: the whole board, its labels on their cells
+    assert screen.cam(t0 + 5) is None
+    screen.replay = None
+    monkeypatch.setattr(stream, "CAM", False)
+    assert screen.cam(t0 + 5) is None
+
+
 def test_in_3d_a_moves_label_and_ripple_land_on_its_cells(state_dir, monkeypatch):
     monkeypatch.setattr(stream, "LOOK", "3d")
     snap = stream.load(state_dir, now=LAUNCH + 3700)

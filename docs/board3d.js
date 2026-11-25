@@ -10,6 +10,7 @@ const Board3D = (() => {
   const HEIGHT = 0.8, MARGIN = 0.12;  // a block's height and its gap to the next, in cells
   const FRONT = 0.55, SIDE = 0.38;  // the front and side faces' shade (the top is lit)
   const GLOW = 0.42, TRAIL_INSET = 0.14;  // (as the stream's: more glow reads as blur)
+  const EYES = 0.25;  // a face on every block: each eye's radius, a fraction of its top's width (0: none), as the stream's
   const SCREEN = "#050609", FLOOR = "#0a0c10", GRID = "#16191f", EDGE = "#2a2e3a", MUTED = "#7d8391";
   const XS = 16, YS = 8;  // a number every this many columns / rows
   const ease = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
@@ -120,6 +121,18 @@ const Board3D = (() => {
         poly([this.at(X0, Y1, 0), this.at(X1, Y1, 0), this.at(X1, Y1, z), this.at(X0, Y1, z)], b.rgb, FRONT);
         const top = b.rgb.map((v) => Math.min(255, v * 1.06 + 10));
         poly([this.at(X0, Y0, z), this.at(X1, Y0, z), this.at(X1, Y1, z), this.at(X0, Y1, z)], top, 1);
+        if (EYES && z > 0.5 * HEIGHT) {  // two eyes on the top, toward its front edge, if big enough to read
+          const p0 = this.at(X0, Y0, z), p1 = this.at(X1, Y0, z);
+          const r = EYES * Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+          if (r > 0.75) for (const u of [0.27, 0.73]) {
+            const [ex, ey] = this.at(X0 + u * (X1 - X0), Y0 + 0.6 * (Y1 - Y0), z);
+            c.beginPath(); c.ellipse(ex, ey, r, r * 1.15, 0, 0, 2 * Math.PI);
+            c.fillStyle = "#fff"; c.fill();
+            c.lineWidth = Math.max(0.5, r * 0.18); c.strokeStyle = "rgb(20, 40, 30)"; c.stroke();
+            c.beginPath(); c.arc(ex, ey + r * 0.25, r * 0.62, 0, 2 * Math.PI);  // the pupil, a little low: looking up at you
+            c.fillStyle = "rgb(12, 12, 16)"; c.fill();
+          }
+        }
       }
     }
 

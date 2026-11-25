@@ -38,6 +38,8 @@ MUTED = (125, 131, 145)
 GHOST = (150, 156, 172)
 XS, YS = 16, 8  # a number every this many columns / rows
 SS = 2  # drawn this many times bigger, then shrunk: smooth edges (Pillow's polygons have no anti-aliasing)
+EYES = 0.25  # a face on every block: each eye's radius, as a fraction of its top's width (0: none). As the Shorts' creatures
+EYE_WHITE, EYE_RIM, PUPIL = (255, 255, 255), (20, 40, 30), (12, 12, 16)
 
 
 def ease(t: float) -> float:
@@ -48,9 +50,14 @@ def ease(t: float) -> float:
 class View:
     """The camera for a board of `shape` (h, w), fitted inside `area`."""
 
-    def __init__(self, shape, area=AREA, tilt: float = TILT):
+    def __init__(self, shape, area=AREA, tilt: float = TILT, origin=(0, 0), full=None, steps=(None, None)):
+        """`origin`, `full`, `steps`: for a window onto a bigger board (the stream's creature cam). This board's
+        (0, 0) is the full board's `origin` (x, y), on a board of `full` (h, w) that wraps; the edge numbers
+        count the full board's columns and rows, every `steps` (x, y) of them (default XS, YS)."""
         h, w = shape
         self.shape, self.area = shape, area
+        self.origin, self.full = origin, tuple(full or shape)
+        self.steps = (steps[0] or XS, steps[1] or YS)
         t = math.radians(tilt)
         self.c = np.array([w / 2, h / 2 + DIST * w * math.sin(t), DIST * w * math.cos(t)])
         self.fwd = np.array([0.0, -math.sin(t), -math.cos(t)])
@@ -108,15 +115,20 @@ class View:
     def numbers(self, d, font) -> None:
         """The coordinates along all four edges (drawn at the frame's own size: sharp)."""
         h, w = self.shape
+        (ox, oy), (fh, fw), (sx, sy) = self.origin, self.full, self.steps
         small, near = font("regular", 15), font("regular", 17)
-        for x in range(0, w, XS):  # x along the far (top) edge and the near (bottom) edge
+        for x in range(w):  # x along the far (top) edge and the near (bottom) edge
+            if (x + ox) % sx:
+                continue
             a, b = self.local([(x + 0.5, -1.0), (x + 0.5, h + 1.0)])
-            d.text(tuple(a), str(x), font=small, fill=MUTED, anchor="ms")
-            d.text(tuple(b), str(x), font=near, fill=MUTED, anchor="mt")
-        for y in range(0, h, YS):  # y down both sides
+            d.text(tuple(a), str((x + ox) % fw), font=small, fill=MUTED, anchor="ms")
+            d.text(tuple(b), str((x + ox) % fw), font=near, fill=MUTED, anchor="mt")
+        for y in range(h):  # y down both sides
+            if (y + oy) % sy:
+                continue
             a, b = self.local([(-0.9, y + 0.5), (w + 0.9, y + 0.5)])
-            d.text(tuple(a), str(y), font=small, fill=MUTED, anchor="rm")
-            d.text(tuple(b), str(y), font=small, fill=MUTED, anchor="lm")
+            d.text(tuple(a), str((y + oy) % fh), font=small, fill=MUTED, anchor="rm")
+            d.text(tuple(b), str((y + oy) % fh), font=small, fill=MUTED, anchor="lm")
         d.text(tuple(self.local([(w, -1.0)])[0]), "x", font=small, fill=MUTED, anchor="ls")
 
     def _bloom(self, scr, col, hgt, order, s: int) -> Image.Image:
@@ -196,6 +208,11 @@ class View:
         scr = self.local(pts.reshape(-1, 3)).reshape(-1, 12, 2) * s
         v = np.stack([xs + 0.5, ys + 0.5, hgt / 2], 1) - self.c
         order = np.argsort(-(v @ self.fwd))  # far to near
+        if EYES:  # two eyes on each top, toward its front edge (the camera looks down at the tops), if big enough to read
+            eye_xy = np.stack([self.local(np.stack([x0 + u * (x1 - x0), y0 + 0.6 * (y1 - y0), hgt], 1)) * s
+                               for u in (0.27, 0.73)], 1)
+            eye_r = EYES * np.linalg.norm(scr[:, 9] - scr[:, 8], axis=1)
+            eyed = (hgt > 0.5 * HEIGHT) & (eye_r > 0.75 * s)
         if glow:  # the tops' light, blurred, on the floor first: the blocks go over it and stay sharp
             img = ImageChops.add(img, self._bloom(scr, col, hgt, order, s))
             d = ImageDraw.Draw(img)
@@ -205,6 +222,16 @@ class View:
             d.polygon(p[4:8], fill=tuple(int(v) for v in c * SIDE))
             d.polygon(p[0:4], fill=tuple(int(v) for v in c * FRONT))
             d.polygon(p[8:12], fill=tuple(int(min(255, v * 1.06 + 10)) for v in c))
+            if EYES and eyed[i]:
+                r = eye_r[i]
+                for ex, ey in eye_xy[i]:
+                    if phase == DIED:  # a dead universe's creatures: eyes shut
+                        d.line((ex - r, ey, ex + r, ey), fill=EYE_RIM, width=max(1, s))
+                        continue
+                    d.ellipse((ex - r, ey - r * 1.15, ex + r, ey + r * 1.15), fill=EYE_WHITE, outline=EYE_RIM,
+                              width=max(1, s // 2))
+                    pr = r * 0.62  # the pupil, a little low: looking up at you
+                    d.ellipse((ex - pr, ey - pr + r * 0.25, ex + pr, ey + pr + r * 0.25), fill=PUPIL)
         return self._finish(img, s, font)
 
     def _finish(self, img: Image.Image, s: int, font) -> np.ndarray:
