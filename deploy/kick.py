@@ -14,7 +14,7 @@ the repo checkout the stream keeps up to date:
   - any new comment or chat message in the last hour: every 2 minutes
   - quieter than that: every 3 minutes (so a first message waits at most that)
 and it backs off as the day's YouTube quota fills (the bot's count, in
-state.json), so the reads always fit: the bot's writes stop at 9,700 less 120
+state.json), so the reads always fit: the bot's writes stop at 9,700 less 300
 units for each hour left in the Pacific day (youtube.Quota.write_limit), and
 within 1,500 units of that runs come every 3 minutes at the most, within 500 every 5.
 (Until 2026-11-18 the quiet gaps were 3 and 5 minutes; fewer status-comment rewrites pay for it.)
@@ -41,7 +41,7 @@ CHAT_WITHIN_S, CHAT_GAP_S = 10 * 60, 60  # chat lately: a run every minute
 ANY_WITHIN_S, ANY_GAP_S = 60 * 60, 2 * 60  # any comment this hour: every 2
 QUIET_GAP_S = 3 * 60
 SLOW_GAP_S, SLOWEST_GAP_S = 3 * 60, 5 * 60  # as the quota fills (BUDGET_GAPS)
-HARD_CAP, READ_RESERVE_PER_HOUR = 9700, 120  # as youtube.py
+HARD_CAP, READ_RESERVE_PER_HOUR = 9700, 300  # as youtube.py (120 until 2026-11-25)
 BUDGET_GAPS = [(500, SLOWEST_GAP_S), (1500, SLOW_GAP_S)]  # (within this of the write limit, shortest gap)
 STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "state")
 LOG = os.path.join(STATE, "log.jsonl")

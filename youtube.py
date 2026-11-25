@@ -119,9 +119,12 @@ def http_error_reason(err) -> tuple[int, str, str]:
 # Google's pool is 10,000 units per Pacific day; past it every call fails until midnight.
 HARD_CAP = 9700  # even the reads (critical) stop here, a little short of Google's limit
 # The reads are the game, so the writes (titles, status comments, thumbnails) give way:
-# they stop where the rest of the day's reads, at their slowest pace (chat every
-# 5 minutes, comments every ~5: ~110 units an hour), would no longer fit.
-READ_RESERVE_PER_HOUR = 120
+# they stop where the rest of the day's reads, at their slowest pace (a run every
+# 5 minutes: the chat, the comments, the view counts), would no longer fit. That pace
+# was ~110 units an hour once; on 2026-11-24, with writes stopped, it measured ~270
+# (about 20 Shorts to read), and at 120 the writes took the reads' share: the reads hit
+# the cap at 8 PM ET and the evening slot's Short went unfound until the next morning.
+READ_RESERVE_PER_HOUR = 300
 DAILY_BUDGET = 8000  # (what the writes' limit was, fixed, until 2026-11-12)
 PACIFIC = ZoneInfo("America/Los_Angeles")
 COST = {"commentThreads.list": 1, "comments.list": 1, "videos.list": 1, "videos.update": 50,
