@@ -91,8 +91,9 @@ def test_live_posts_once_a_day_and_its_comments_count(d):
     yt.comments = [Comment("c1", "u1", "2027-01-15T13:00:00Z", "glider 10,10")]
     tick.run(d, LAUNCH + 3600, lambda w: yt, KEY, thumb_path=None)
     ev = tick.run(d, LAUNCH + 11.2 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")  # 23:12 UTC
-    posted = [e for e in ev if e.get("alert", "").startswith("📼")]
-    assert len(yt.uploads) == 1 and posted and "https://youtube.com/shorts/SHORT1" in posted[0]["alert"]
+    posted = [e for e in ev if e["type"] == "daily_short" and e.get("posted")]
+    assert len(yt.uploads) == 1 and posted and posted[0]["video"] == "SHORT1"
+    assert not any(e.get("alert", "").startswith("📼") for e in ev)  # no issue per Short (LIVE_ALERTS is off)
     up = yt.uploads[0]
     assert up["title"] == "This Short dies if nobody comments · Universe 1, Day 1 #GameOfLife"
     assert "1 comment in the last 24 hours" in up["description"] and "still-life universe 1 day 1" in up["description"]

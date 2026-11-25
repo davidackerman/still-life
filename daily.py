@@ -42,6 +42,7 @@ NOTIFY_SLOTS = SLOTS_ET
 # (the day's two Shorts: 23 and 22 comments; the 3D tree Shorts at 8 PM on Nov 20-21: 5 and 2).
 # Tue Nov 24 (Day 17): a noon one as well, the 9-second Blender creature countdown (posted by hand into the slot).
 EXTRA_SLOTS = {"2026-11-22": (12,), "2026-11-24": (12,)}
+LIVE_ALERTS = False  # a GitHub issue for every Short that goes live: off for now (the owner, Nov 24)
 RECAP_HOURS = 24  # the first slot's recap; a later slot's covers the hours since the slot before it
 OUT = os.path.join("out", "daily.mp4")
 LIVE = "davidackerman.github.io/still-life"
@@ -248,10 +249,12 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
             yt.set_stream_title(stream_title(world, day))
         except Exception as e:  # noqa: BLE001 - only a title
             tip += f" Retitling the live stream failed ({e!r})."
-    events = [{"type": "daily_short", "day": day, "slot": at, "kind": what, "video": vid, "posted": True,
-               "alert": f"📼 {name} Short is live: https://youtube.com/shorts/{vid}",
-               "detail": f"Its comments now feed the universe. {tip}\n\nOptional, in Studio (the API can't): "
-                         "set its Related video to the live stream (more of its viewers play there than "
-                         "anywhere else), pin its status comment, and pick its thumbnail frame."}]
+    event = {"type": "daily_short", "day": day, "slot": at, "kind": what, "video": vid, "posted": True}
+    if LIVE_ALERTS or "failed" in tip:  # an issue (so an email) per Short only when asked for, or when something broke
+        event["alert"] = f"📼 {name} Short is live: https://youtube.com/shorts/{vid}"
+        event["detail"] = (f"Its comments now feed the universe. {tip}\n\nOptional, in Studio (the API can't): "
+                           "set its Related video to the live stream (more of its viewers play there than "
+                           "anywhere else), pin its status comment, and pick its thumbnail frame.")
+    events = [event]
     store.save(world, events)
     return events
