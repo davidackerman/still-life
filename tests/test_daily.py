@@ -133,17 +133,19 @@ def test_a_failure_is_alerted_and_not_retried_all_evening(d, monkeypatch):
     assert len(calls) == 1 and any(e.get("alert", "").startswith("⚠️ This slot's Short failed") for e in ev)
 
 
-def test_older_shorts_are_read_every_30_minutes():
+def test_older_shorts_are_read_every_3_hours():
     w = engine.World(Universe(life.mask(life.centered("acorn")), flatline_gens()), LAUNCH, key=KEY)
     w.extra_videos = ["S1", "S2", "S3", "S4", "S5"]
     extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH)
     assert extras == ["FIRST", "S1", "S2", "S3", "S4", "S5"] and skip == set()  # never read yet
     extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 600)
     assert skip == {"FIRST", "S1", "S2"}  # the newest three are always read
-    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 1800)
+    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 2 * 3600)
+    assert skip == {"FIRST", "S1", "S2"}  # still: they had a turn at the start
+    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 3 * 3600)
     assert skip == set()
     w.retired = ["S5"]
-    assert "S5" not in tick.choose_extras(w, ["FIRST"], LAUNCH + 3600)[0]
+    assert "S5" not in tick.choose_extras(w, ["FIRST"], LAUNCH + 4 * 3600)[0]
 
 
 def test_older_shorts_status_comments_update_rarely():

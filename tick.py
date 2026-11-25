@@ -43,7 +43,8 @@ THUMB_PATH = os.path.join("out", "thumbnail.png")
 ALERTS_PATH = os.path.join("out", "alerts.json")  # posted as GitHub issues by the workflow
 
 
-SLOW_EXTRA_S = 30 * 60  # Shorts older than the newest three: comments read every 30 minutes
+SLOW_EXTRA_S = 3 * 3600  # Shorts older than the newest three: comments read every 3 hours (30 minutes until
+# 2026-11-25: of the 241 moves from daily Shorts by then, 213 came on the Short's first day, 20 on its second, 8 later)
 # What the live page calls each hand-uploaded video (EXTRA_VIDEO_IDS) a move came from
 HAND_UPLOADS = {"m-JcepjW41U": "the teaser Short", "iCukC64w-wQ": "the week-one video"}
 COMMENTS_EVERY_S = 270  # the videos' comments: about every 5 minutes (runs come every 1-3 for the chat: deploy/kick.py)
