@@ -17,10 +17,16 @@ A pattern's x,y may also be written "x y", "x x y", "x.y" or "(x, y)" ("acorn 15
 coordinate out of range, or a `cells` list longer than 25, is invalid and
 ignored.
 
+A comment with no valid command but a place on its own, "x,y" with a comma
+("8, 56 red", "(8,56)"; not "1,000", "-1,5" or "1,2,3"), puts its move there:
+the pattern named anywhere in it ("glider red 8,56", "a block at 10,20"), or
+else its random patch (below). People write a place like that and expect it
+to count (Nov 25: "8, 56 red" and "1,1 red" in the live chat).
 A comment with no valid command but a pattern's name on its own, with no
 number after it ("block", "glider ne", "acorn red"), places that pattern (the
-first such name) at the spot (x, y) below; a glider heads se unless a direction
-follows its name. A comment with neither injects a 5x5 random patch, at (x, y):
+first such name) at its place, or the spot (x, y) below; a glider heads se unless
+a direction follows its name. A comment with neither injects a 5x5 random patch,
+at its place, or at (x, y):
 
     d = BLAKE2b-256((comment_id + text).encode("utf-8"))
     x = int.from_bytes(d[0:2], "big") % W     (W x H: the board size, 128 x 72 at first)
@@ -72,6 +78,9 @@ _RANDOM_RE = re.compile(rf"\brandom\s+(?:5\s*[x×]\s*5\s+(?:at\s+)?|at\s+)?(?!5\
 _CELLS_RE = re.compile(rf"\bcells((?:\s+{_COORD})+)", re.IGNORECASE | re.ASCII)
 # a pattern's name with no number after it (any digits, so "block ١,٢" is not one, nor "acorn -1,5")
 _BARE_RE = re.compile(r"\b(glider|block|blinker|rpent|acorn)\b(?!\s*[-+]?\s*\d)(?:\s+(ne|nw|se|sw)\b)?", re.IGNORECASE)
+# a place on its own, "8,56" or "8, 56" or "(8, 56)": not part of a longer number or list ("1,000", "-1,5", "1,2,3")
+_NUM = r"(0|[1-9][0-9]{0,2})"
+_PLACE_RE = re.compile(rf"(?<![\w.,+\-]){_NUM}\s*,\s*{_NUM}(?![\w.,])", re.ASCII)
 _PAIR_RE = re.compile(_COORD, re.ASCII)
 COLORS = ("red", "orange", "yellow", "blue", "purple", "pink", "cyan")  # paint 1..7 (0: unpainted)
 _COLOR_RE = re.compile(rf"\b({'|'.join(COLORS)})\b", re.IGNORECASE | re.ASCII)
@@ -136,13 +145,22 @@ def _spot(comment_id: str, text: str, shape) -> tuple[int, int, bytes]:
     return int.from_bytes(d[0:2], "big") % w, int.from_bytes(d[2:4], "big") % h, d
 
 
-def bare_pattern(comment_id: str, text: str, shape=(life.H, life.W)) -> Command | None:
-    """The first pattern named without coordinates, placed at the comment's spot, or None."""
+def place(text: str, shape=(life.H, life.W)) -> tuple[int, int] | None:
+    """The first place written on its own ("8, 56") that is on the board, or None."""
+    for m in _PLACE_RE.finditer(text):
+        x, y = int(m.group(1)), int(m.group(2))
+        if _in_range(x, y, shape):
+            return x, y
+    return None
+
+
+def bare_pattern(comment_id: str, text: str, shape=(life.H, life.W), at: tuple[int, int] | None = None) -> Command | None:
+    """The first pattern named without coordinates, placed at `at` or else the comment's spot, or None."""
     m = _BARE_RE.search(text)
     if not m:
         return None
     kind = m.group(1).lower()
-    x, y, _ = _spot(comment_id, text, shape)
+    x, y = at if at is not None else _spot(comment_id, text, shape)[:2]
     if kind == "glider":
         direction = (m.group(2) or "se").lower()
         return Command(kind, _norm(life.place(life.PATTERNS[f"glider_{direction}"], x, y, shape)),
@@ -169,8 +187,11 @@ def parse(comment_id: str, text: str, shape=(life.H, life.W)) -> Command:
         delay = min(MAX_DELAY_S, n * (3600 if unit.startswith("h") else 60))
         words = text[:m.start()] + " " + text[m.end():]
     valid = [(pos, cmd) for pos, cmd in _candidates(words, shape, comment_id, text) if cmd is not None]
-    cmd = (min(valid, key=lambda pc: pc[0])[1] if valid
-           else bare_pattern(comment_id, words, shape) or random_patch(comment_id, text, shape))
+    if valid:
+        cmd = min(valid, key=lambda pc: pc[0])[1]
+    else:  # no command: at the place it names, if any ("8, 56 red"), the pattern it names or its random patch
+        at = place(words, shape)
+        cmd = bare_pattern(comment_id, words, shape, at) or random_patch(comment_id, text, shape, at=at)
     named = cmd.kind in ERASERS or (cmd.kind == "random" and _RANDOM_WORD_RE.search(words))
     if named and _ERASE_RE.search(words):  # only a pattern named in words erases: never by accident
         return replace(cmd, erase=True, delay_s=delay)

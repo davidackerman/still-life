@@ -219,3 +219,32 @@ def test_black_without_a_pattern_never_erases():
         assert not commands.parse("c1", text).erase, text
     hi = commands.parse("c9", "black cats are cool")  # the usual random patch: it adds cells
     assert hi.kind == "random" and hi.color is None
+
+
+@pytest.mark.parametrize("text, desc, color", [
+    ("8, 56 red", "random 5x5 at 8,56", "red"),  # from the live chat, Nov 25: a place on its own is where it goes
+    ("1,1 red", "random 5x5 at 1,1", "red"),
+    ("(8, 56)", "random 5x5 at 8,56", None),
+    ("8,56 in 1h", "random 5x5 at 8,56", None),
+    ("glider red 8,56", "glider 8,56 se", "red"),  # and a pattern named anywhere goes there
+    ("Glider at 8, 56 Red", "glider 8,56 se", "red"),
+    ("put a block at 10,20 please", "block 10,20", None),
+    ("glider 5,5 then 1,1", "glider 5,5 se", None),  # a whole command still wins
+])
+def test_a_place_on_its_own_is_where_the_move_goes(text, desc, color):
+    c = commands.parse("c", text)
+    assert (c.desc, c.color) == (desc, color)
+    if c.kind == "random":  # the comment's own patch, only moved there
+        assert set(c.cells) == set(commands.random_patch("c", text, at=(int(desc.split()[-1].split(",")[0]),
+                                                                       int(desc.split(",")[-1]))).cells)
+
+
+@pytest.mark.parametrize("text", ["1,000 comments!", "2 '2 white", "12,5,7", "acorn -1,5", "block 128,0", "3.5,2",
+                                  "hello"])
+def test_numbers_that_are_not_a_place_leave_it_at_the_comments_own_spot(text):
+    assert commands.parse("c", text).desc == commands.random_patch("c", text).desc
+
+
+def test_a_place_never_makes_an_eraser_of_a_plain_message():
+    assert commands.parse("c", "glider black 8,56").erase and commands.parse("c", "glider black 8,56").desc == "glider 8,56 se"
+    assert not commands.parse("c", "8,56 black").erase  # no pattern named: it adds cells, as before
