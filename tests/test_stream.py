@@ -292,6 +292,7 @@ def test_new_moves_replay_from_where_they_landed_then_go_live(state_dir):
     now = LAUNCH + 3700
     old = stream.load(state_dir, now=now)
     screen = stream.Screen(old)
+    screen.zoom = False  # on the whole board (the tall stream's; in 3D they play up close: see below)
     new = stream.load(state_dir, after_seq=0, now=now)  # both comments' moves are new
     screen.swap(new, now, state_dir)
     r = screen.replay
@@ -309,6 +310,7 @@ def test_new_moves_replay_from_where_they_landed_then_go_live(state_dir):
     assert np.array_equal(r.u.grid, new.u.grid)  # it ends on the live board
     # an update in the middle of a replay finishes it first
     screen = stream.Screen(old)
+    screen.zoom = False
     screen.swap(new, now, state_dir)
     screen.swap(stream.load(state_dir, after_seq=new.seq, now=now), now + 1, state_dir)
     assert screen.replay is None and len(screen.tags) == len(new.new)
@@ -389,10 +391,11 @@ def test_the_panel_shows_a_replays_moves_as_they_land(state_dir):
     old = stream.load(state_dir, now=now)
     new = stream.load(state_dir, after_seq=0, now=now)
     screen = stream.Screen(old)
+    screen.zoom = False
     screen.swap(new, now, state_dir)
     r = screen.replay
     assert screen.panel() is old and r.shown == r.first - 1 and not r.landed()
-    last = max(t for t, g in r.steps if g in r.new)
+    last = max(s[0] for s in r.steps if s[3])  # the last step a move lands at
     screen.tick(last - 0.01)
     assert screen.panel() is old  # one still to land
     screen.tick(last + 0.01)
@@ -729,6 +732,98 @@ def test_the_creature_cam_looks_up_close_for_a_while_every_few_minutes_while_not
     screen.replay = None
     monkeypatch.setattr(stream, "CAM", False)
     assert screen.cam(t0 + 5) is None
+
+
+def test_in_3d_each_new_move_replays_up_close_in_the_order_it_landed_then_any_more_on_the_whole_board(
+        state_dir, monkeypatch):
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    monkeypatch.setattr(stream, "CAM", True)
+    now = LAUNCH + 3700
+    old = stream.load(state_dir, now=now)
+    new = stream.load(state_dir, after_seq=0, now=now)
+    moves = sorted([e for e in new.new if e.get("cells")], key=lambda e: e["gen"])
+    assert len(moves) == 2
+    said = []
+
+    def watch(screen):
+        screen._banner = lambda d, sh, y0, line1, line2, frac: said.append((line1, line2))
+        return screen
+
+    def play(screen, until):
+        seen, t = [], now
+        while screen.replay and t < until:
+            r = screen.replay
+            t += 0.05
+            screen.tick(t)
+            if screen.replay is None:
+                break
+            seen.append((r.shot, r.phase, r.shown, r.u.generation))
+            if r.phase == "enhance" and r.shot is not None:  # zooming in: the whole board, blown up a little more
+                assert screen._zoom() is None and not np.array_equal(screen._enhance(screen._board3d(t), 0.0),
+                                                                     screen._enhance(screen._board3d(t), 1.0))
+            if r.shot is not None and r.shown == r.zoomed[r.shot]["gen"]:  # its landing: its cells alive, only its lit
+                e = r.zoomed[r.shot]
+                assert all(r.u.grid[y % 72, x % 128] == 1 for x, y in e["cells"])
+                assert {(x, y) for x, y in r.lit} == {tuple(c) for c in e["cells"]}
+            assert screen.compose(t).size == (stream.SW, stream.SH)
+        return seen, t
+
+    # both up close, one after the other, in the order they landed; then the live board
+    screen = watch(stream.Screen(old))
+    screen.swap(new, now, state_dir)
+    r = screen.replay
+    assert r.zoomed == moves and r.shot == 0 and r.u.generation == r.first and r.frames is not None
+    for (x0, y0), e, found in zip(r.shots, r.zoomed, r.targeted):  # each window holds its move
+        assert all((x - x0) % 128 < stream.CAM_W and (y - y0) % 72 < stream.CAM_H for x, y in e["cells"])
+        assert found == (0 <= x0 <= 128 - stream.CAM_W and 0 <= y0 <= 72 - stream.CAM_H)  # on the board: found first
+    assert r.targeted == [False, True]  # the glider at 64,71 is on the board's bottom edge (it wraps to the top)
+    assert r.close() and screen._zoom()[0] == r.shots[0]  # so it goes straight in
+    seen, t = play(screen, now + 30)
+    assert [s for s, *_ in seen if s is not None] == sorted(s for s, *_ in seen if s is not None)  # in order
+    phases = [p for s, p, *_ in seen if s == 1]  # the other is found on the whole board first: brackets, the zoom, in
+    assert phases[0] == "target" and "enhance" in phases and phases[-1] is None
+    assert phases.index("enhance") > phases.index("target") and phases.index(None) > phases.index("enhance")
+    assert {s for s, *_ in seen} == {0, 1}  # no whole-board part: none left over
+    assert screen.replay is None and screen.snap is new and len(screen.tags) == 2
+    assert r.end - r.start <= stream.ZOOM_MAX * (stream.TARGET_S + stream.ENHANCE_S + stream.ZOOM_HOLD_S
+                                                 + stream.ZOOM_LAND_S + stream.ZOOM_GENS * stream.ZOOM_GEN_S) + 1e-6
+    assert said[0][0] == "NEW MOVE · 1 of 2" and said[0][1].startswith("from a comment")
+    assert any(a == "NEW MOVE · 2 of 2" for a, _ in said)
+    # in and out of each close-up, the board fades: here, back out to the live board
+    screen.compose(t + 0.05)
+    assert screen._zoom_k is None and screen._zoom_fade is not None
+    # just one up close: the other lands after it, on the whole board, which ends on the live board
+    monkeypatch.setattr(stream, "ZOOM_MAX", 1)
+    said.clear()
+    screen = watch(stream.Screen(old))
+    screen.swap(new, now, state_dir)
+    r = screen.replay
+    seen, _ = play(screen, now + 30)
+    assert [s for s, *_ in seen][0] == 0 and [s for s, *_ in seen][-1] is None
+    assert np.array_equal(r.u.grid, new.u.grid) and screen.snap is new and len(screen.tags) == 2
+    assert ("NEW MOVE · 2 of 2", ) == tuple({a for a, _ in said if not a.endswith("1 of 2")})
+    # the tall stream (flat) and moves from long ago: the whole board, as before
+    screen = stream.Screen(old)
+    screen.zoom = False
+    screen.swap(new, now, state_dir)
+    assert screen.replay.shots == [] and screen.replay.shot is None and screen._zoom() is None
+    monkeypatch.setattr(stream, "ZOOM_SPAN_MAX", 0)
+    screen = stream.Screen(old)
+    screen.swap(new, now, state_dir)
+    assert screen.replay.shots == [] or screen.replay.live == screen.replay.first
+
+
+def test_a_moves_label_says_in_words_what_it_did_to_the_time_left():
+    words = lambda before, after: stream.effect_words(  # noqa: E731
+        {"gen": 12823, "before": before, "after": after}, 720, 120)
+    assert words(13377, 15490) == "+3 days to live"  # 1d 18h left before it, 4d 16h after
+    assert words(15490, 13377) == "−3 days to live"
+    assert words(13377, 13400) == "still 2 days to live"  # (under an hour's difference)
+    assert words(13377, 13377 + 150) == "+5 hours to live"
+    assert words(13377, None) == "no end in sight now" and words(None, None) == "no end in sight"
+    assert words(None, 13377) == "now 2 days to live"
+    assert stream.effect_words(None, 720, 120) == ""
+    assert stream.span_words(1800) == "30 min" and stream.span_words(86400) == "1 day"
 
 
 def test_in_3d_a_moves_label_and_ripple_land_on_its_cells(state_dir, monkeypatch):

@@ -180,6 +180,26 @@ def snippet(world, day: int, count: int, mark: str, total: int | None = None, ma
             "categoryId": "28", "defaultLanguage": "en"}
 
 
+PLACEHOLDER = "This Short is alive. Latest changes to the universe will appear here in a few minutes."
+
+
+def first_status(world, now: float) -> str:
+    """A new Short's status comment, already saying what the bot's rewrites will (render.pinned_text, as
+    engine.tick writes it, less the leaderboard: its names cost reads). The placeholder only if that fails:
+    the first rewrite can wait hours when the day's quota is tight (Nov 25: 8 PM to ~2 AM)."""
+    try:
+        import engine
+        u, f, G = world.universe, world.forecast, world.gen_seconds
+        status = render.pinned_status(u, G, f and f["stuck_gen"], f and engine.FORECAST_GENS)
+        recent = [render.with_time(line, world.launch_time, G) for line in world.recent or []]
+        link = os.environ.get("PINNED_LINK", "true").strip().lower() in ("1", "true", "yes", "on")  # as tick's
+        return render.pinned_text(status, recent, world.pinned_suggest, link, main=False,
+                                  stamp=render.clock(now, date=False),
+                                  counts=engine.comment_counts(world, u.generation))
+    except Exception:  # noqa: BLE001 - the placeholder, as before (still a status comment: it has a marker)
+        return PLACEHOLDER
+
+
 def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: str | None = None) -> list[dict]:
     """Post today's Short if it's due. Returns events (already saved)."""
     if mode not in ("dry", "live") or not due(world, now):
@@ -240,7 +260,7 @@ def maybe_post(world, store, yt, now: float, mode: str, render_short=None, out: 
     events = [{"type": "daily_short", "day": day, "slot": at, "kind": what, "video": vid}]
     store.save(world, events)  # recorded before anything else can fail: never posted twice
     try:
-        yt.post_comment(vid, "This Short is alive. Latest changes to the universe will appear here in a few minutes.")
+        yt.post_comment(vid, first_status(world, now))
         tip = "Its status comment is posted; the bot keeps it up to date."
     except Exception as e:  # noqa: BLE001 - the Short still counts without it
         tip = f"Posting its status comment failed ({e!r}); the bot will pick up one you post by hand."

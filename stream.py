@@ -92,10 +92,21 @@ FUTURE_RACE, FUTURE_LOOP, FUTURE_LOOP_GEN_S = 0.55, 0.85, 0.4
 REWIND_NEWS_S = 4.0  # ...and its banner says what was new (docs/changes.json) as it passes when it came
 # The instant replay of new moves: the board as it was, each move landing, the generations since.
 REPLAY_HOLD_S, REPLAY_LAND_S, REPLAY_GEN_S, REPLAY_MAX_S = 1.2, 1.8, 1.0, 12.0
+# In 3D the first ZOOM_MAX of them are replayed up close instead, one at a time in the order they landed, each in
+# a CAM_W x CAM_H window on it (the creature cam's size, where faces read): the moment before it, its landing,
+# ZOOM_GENS generations after. Any more land on the whole board after (in ZOOM_REST_S), as above. Only when they
+# are within ZOOM_SPAN_MAX generations of now (they usually are a few: each board on the way is kept).
+# ZOOM_HOLD_S: the close-up before its move, long enough to take in (it starts under the ZOOM_FADE_S sharpening)
+ZOOM_MAX, ZOOM_HOLD_S, ZOOM_LAND_S, ZOOM_GEN_S, ZOOM_GENS = 3, 1.6, 1.5, 0.45, 2
+ZOOM_FADE_S, ZOOM_REST_S, ZOOM_SPAN_MAX = 0.4, 6.0, 240
+# Each close-up starts on the whole board, so you see where it is: brackets lock onto its window (TARGET_S), the
+# board zooms into it (ENHANCE_S), and the zoomed picture sharpens into the close-up (ZOOM_FADE_S). ~5 s a move.
+TARGET_S, ENHANCE_S = 0.6, 0.5
+TARGET_INK, TARGET_DIM = (120, 230, 255), 0.5  # the brackets; how much darker the board is around its window
 REWIND_SOUND, REPLAY_SOUND = 0.15, 0.3  # their notes' level: they play many at once (~ one live generation)
 FADE_S = 0.6  # crossfade between generations
 TRAIL_STEPS = 8  # the newest tails fade on in 8 steps through a live generation (life.Trail)
-RIPPLE_S, TAG_S, GLOW_S = 3.0, 90, 600  # a new move: ripple, label, its cells lit
+RIPPLE_S, TAG_S, GLOW_S = 3.0, 20, 600  # a new move: ripple, label (beside its cells, not on them), its cells lit
 GHOST = (150, 156, 172)  # an eraser's shape ("glider 40,20 black"), outlined where its cells died, fading over GLOW_S
 SCREEN = (5, 6, 9)
 MUTED, LIGHT, WHITE = (125, 131, 145), (222, 225, 232), (255, 255, 255)
@@ -132,7 +143,37 @@ def font(weight: str, size: int):
 
 
 def tidy(s: str) -> str:
-    return s if DEJAVU else s.replace("→", "to")
+    return s if DEJAVU else s.replace("→", "to").replace("−", "-")
+
+
+def span_words(secs: float) -> str:
+    """'3 days', '5 hours', '20 min': a length of time, roughly, in words."""
+    if secs >= 1.5 * 86400:
+        return f"{round(secs / 86400)} days"
+    if secs >= 86400:
+        return "1 day"
+    if secs >= 1.5 * 3600:
+        return f"{round(secs / 3600)} hours"
+    if secs >= 3600:
+        return "1 hour"
+    return f"{max(1, round(secs / 60))} min"
+
+
+def effect_words(effect: dict | None, flatline: int, gen_seconds: int) -> str:
+    """What a move did to the time the universe has left, in words: '+3 days to live', '−5 hours to live'
+    ('' if not known). The time left is render.life_left's: until it's stuck, plus the flatline after."""
+    if not effect:
+        return ""
+    b, a = effect.get("before"), effect.get("after")
+    if a is None:
+        return "no end in sight" if b is None else "no end in sight now"
+    left = (a + flatline - effect["gen"]) * gen_seconds
+    if b is None:
+        return f"now {span_words(left)} to live"
+    d = (a - b) * gen_seconds
+    if abs(d) < 3600:
+        return f"still {span_words(left)} to live"
+    return f"{'+' if d > 0 else '−'}{span_words(abs(d))} to live"
 
 
 def wrap(d, s: str, weight: str, size: int, width: int) -> list[str]:
@@ -648,41 +689,121 @@ def mask_of(cells, shape) -> np.ndarray | None:
     return m
 
 
+@dataclass
+class Frame:
+    """One board of a replay, kept, so each close-up can go back to its own move's moment."""
+    grid: np.ndarray
+    phase: str
+    paint: np.ndarray | None
+    generation: int
+
+
 class Replay:
     """New moves, played back from the log: the board as it was just before the
     first one landed, each landing (lit, with its ripple, chime and label), and
     the generations since, up to the live board. The moves land in the past
     (each at the generation it was sent), so without this they'd only show up
-    already a few generations old."""
+    already a few generations old.
 
-    def __init__(self, state_dir: str, moves: list[dict], start: float, live_gen: int, label):
+    With `zoom` (3D), the first ZOOM_MAX are each played up close instead, in the
+    order they landed (`shots`: each one's window, CAM_W x CAM_H; `shot`: the one
+    showing, None for the whole board), then any more on the whole board."""
+
+    def __init__(self, state_dir: str, moves: list[dict], start: float, live_gen: int, label, zoom: bool = False):
         import short
         self.h = short.History(state_dir)
         self.u = self.h.fresh()
         self.first = min(e["gen"] for e in moves)
         self.live = max(live_gen, self.first)
         self.h.goto(self.u, self.first - 1)
-        self.u.advance_to(self.first)  # the moment before the first one lands
+        self.h.advance(self.u, self.first)  # the moment before the first one lands
         self.new: dict[int, list[dict]] = {}
         for e in moves:
             self.new.setdefault(e["gen"], []).append(e)
-        gens = range(self.first, self.live + 1)
-        pause = lambda g: REPLAY_LAND_S if g in self.new else REPLAY_GEN_S  # noqa: E731
-        squeeze = min(1.0, (REPLAY_MAX_S - REPLAY_HOLD_S) / sum(pause(g) for g in gens))  # long ones go faster
-        t, self.steps = start + REPLAY_HOLD_S, []
-        for g in gens:
-            self.steps.append((t, g))
-            t += pause(g) * squeeze
-        self.start, self.end, self.label = start, t, label
-        self.lit: list = []  # the new moves' cells, drawn white
+        self.start, self.label = start, label
+        self.lit: list = []  # the new moves' cells, drawn white (up close: only the one in view)
         self.ghost: list = []  # the new erasers' cells, outlined
+        self._lit_all: list = []  # ... and every one so far, for the whole board
+        self._ghost_all: list = []
         self.shown = self.first - 1  # the last generation played (before the first: none yet)
         self.trail = life.Trail(self.u.grid.shape, *life.LIVE_TRAIL)  # the live board's past: its tails
         self.trail.see(self.u.grid, self.u.generation, getattr(self.u, "paint", None))
+        self.frames: dict | None = None  # (gen, before its moves landed?) -> Frame, when zoomed
+        self.zoomed: list[dict] = []  # the moves shown up close, in order, and each one's window and landing time
+        self.shots: list[tuple[int, int]] = []
+        self.targeted: list[bool] = []  # found on the whole board first (not for a window across the board's edge)
+        self.shot_landed: list[float] = []
+        self.shot: int | None = None
+        self.phase: str | None = None  # a close-up's "target" or "enhance" (still the whole board), or None
+        self.phase_at = start  # when the step showing began
+        # each step: (when, generation, the moment before its moves?, the moves landing, which close-up or None,
+        # its phase)
+        self.steps: list[tuple] = []
+        if zoom and self.live - self.first <= ZOOM_SPAN_MAX:
+            self._plan_zoom(sorted(moves, key=lambda e: e["gen"]))
+        else:
+            self._plan_whole(self.new, start + REPLAY_HOLD_S, REPLAY_MAX_S - REPLAY_HOLD_S, self.first)
+
+    def _plan_whole(self, new: dict, t: float, budget: float, first: int) -> None:
+        """The whole board from `first` to now, `new`'s moves landing on the way, in at most `budget` s."""
+        gens = range(first, self.live + 1)
+        pause = lambda g: REPLAY_LAND_S if g in new else REPLAY_GEN_S  # noqa: E731
+        squeeze = min(1.0, budget / sum(pause(g) for g in gens))  # long ones go faster
+        for g in gens:
+            self.steps.append((t, g, False, new.get(g, []), None, None))
+            t += pause(g) * squeeze
+        self.end = t
+
+    def _plan_zoom(self, moves: list[dict]) -> None:
+        def keep(u):
+            paint = getattr(u, "paint", None)
+            return Frame(u.grid.copy(), u.phase, None if paint is None else paint.copy(), u.generation)
+        self.frames = {(self.first, True): keep(self.u)}
+        for g in range(self.first, self.live + 1):  # every board from the first one's moment to now
+            if g > self.first and g in self.new:
+                self.h.advance(self.u, g)
+                self.frames[(g, True)] = keep(self.u)
+            self.h.goto(self.u, g)
+            self.frames[(g, False)] = keep(self.u)
+        h, w = self.u.grid.shape
+        self.zoomed, rest = moves[:ZOOM_MAX], moves[ZOOM_MAX:]
+        t = self.start
+        for k, e in enumerate(self.zoomed):
+            g = e["gen"]
+            cells = [tuple(c) for c in e["cells"]]
+            cx, cy = centre_cells(cells, (h, w))
+            # on the board, not across its edge: one rectangle to point at on the whole board. A move on the
+            # edge itself gets a window across it (as the creature cam's can be), and no finding first.
+            spot = (min(max(0, int(round(cx - CAM_W / 2))), w - CAM_W), min(max(0, int(round(cy - CAM_H / 2))), h - CAM_H))
+            inside = all((x - spot[0]) % w < CAM_W and (y - spot[1]) % h < CAM_H for x, y in cells)
+            self.shots.append(spot if inside else (int(round(cx - CAM_W / 2)) % w, int(round(cy - CAM_H / 2)) % h))
+            self.targeted.append(inside)
+            if inside:
+                self.steps.append((t, g, True, [], k, "target"))
+                t += TARGET_S
+                self.steps.append((t, g, True, [], k, "enhance"))
+                t += ENHANCE_S
+            self.steps.append((t, g, True, [], k, None))
+            t += ZOOM_HOLD_S
+            self.shot_landed.append(t)
+            self.steps.append((t, g, False, [e], k, None))
+            t += ZOOM_LAND_S
+            for j in range(1, min(ZOOM_GENS, self.live - g) + 1):
+                self.steps.append((t, g + j, False, [], k, None))
+                t += ZOOM_GEN_S
+        self.end = t
+        if rest:  # the rest on the whole board, from the moment before the first of them
+            new: dict[int, list[dict]] = {}
+            for e in rest:
+                new.setdefault(e["gen"], []).append(e)
+            self.steps.append((t, rest[0]["gen"], True, [], None, None))
+            self._plan_whole(new, t + REPLAY_HOLD_S / 2, ZOOM_REST_S - REPLAY_HOLD_S / 2, rest[0]["gen"])
+        self.u = self.frames[(self.first, True)]  # the first close-up's first board, until it plays
+        self.shot, self.phase = 0, self.steps[0][5]
 
     def landed(self) -> bool:
         """All its moves have landed (the panel can show what they did)."""
-        return not any(g in self.new for _, g in self.steps)
+        return not any(s[3] for s in self.steps)
 
     def done(self, now: float) -> bool:
         return now >= self.end
@@ -691,17 +812,28 @@ class Replay:
         """Play the generations that are due. The labels of the moves that landed."""
         tags = []
         while self.steps and self.steps[0][0] <= now:
-            t, g = self.steps.pop(0)
+            t, g, pre, landing, shot, self.phase = self.steps.pop(0)
+            self.phase_at = t
             before = self.u.grid.copy()
-            self.h.goto(self.u, g)
-            self.shown = g
+            if self.frames is None:
+                self.h.goto(self.u, g)
+            else:
+                self.u = self.frames[(g, pre)]
+            cut = shot != self.shot
+            if cut:  # another close-up, or the whole board: its own tails, and its own moves lit
+                self.shot = shot
+                self.trail = life.Trail(self.u.grid.shape, *life.LIVE_TRAIL)
+                self.lit, self.ghost = ([], []) if shot is not None else (list(self._lit_all), list(self._ghost_all))
+            self.shown = g - 1 if pre else g
             self.trail.see(self.u.grid, g, getattr(self.u, "paint", None))
-            for e in self.new.get(g, []):
+            for e in landing:
                 tags.append(self.label(e, t))
-                (self.ghost if e.get("erase") else self.lit).extend(tuple(c) for c in e["cells"])
+                cells = [tuple(c) for c in e["cells"]]
+                (self.ghost if e.get("erase") else self.lit).extend(cells)
+                (self._ghost_all if e.get("erase") else self._lit_all).extend(cells)
                 if sound and e["cells"]:
                     sound.landed(e["cells"][0][0], self.u.grid.shape[1], REPLAY_SOUND)
-            if sound:
+            if sound and not cut:
                 sound.generation(before, self.u.grid, gain=REPLAY_SOUND)
         return tags
 
@@ -710,6 +842,16 @@ class Replay:
 
     def ghost_mask(self) -> np.ndarray | None:
         return mask_of(self.ghost, self.u.grid.shape)
+
+    def close(self) -> bool:
+        """Showing a close-up's window now (not the whole board, nor its target or zoom on the whole board)."""
+        return self.shot is not None and self.phase is None
+
+    def moves_now(self) -> list[dict]:
+        """The moves this part of it shows: the close-up's one, or (on the whole board) those not shown up close."""
+        if self.shot is not None:
+            return [self.zoomed[self.shot]]
+        return [e for v in self.new.values() for e in v if not any(e is z for z in self.zoomed)]
 
 
 def rewind_dir(slot: float) -> str:
@@ -818,6 +960,13 @@ class Screen:
         self._cam_img, self._cam_key = None, None
         self._cam_last = None  # the window of the visit before, so the next one looks somewhere else
         self._last_move = None  # (when it landed, its cells): where the creature cam looks first
+        self.zoom = True  # a replay's moves up close, in 3D (not on the tall stream: it draws the flat board)
+        self._zoom_views: dict = {}  # board3d.View of each close-up's window, by its top left
+        self._zoom_k = None  # the replay's close-up shown last (None: the whole board), the frame then,
+        self._zoom_last = None  # and the fade from it when that changes: (frame, when)
+        self._zoom_fade = None
+        self._zoom_wipe = False  # that change is the zoomed-in picture sharpening into a close-up: a scan, not a fade
+        self._dim = None  # (shot, the board darkened around its window: a mask), while it's being found
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -838,7 +987,8 @@ class Screen:
             self._changed(now)
         if state_dir and same and moves and self.rewind is None and snap.u.phase != DIED:
             try:
-                self.replay = Replay(state_dir, moves, now, snap.u.generation, lambda e, t: self._tag(snap, e, t))
+                self.replay = Replay(state_dir, moves, now, snap.u.generation, lambda e, t: self._tag(snap, e, t),
+                                     zoom=CAM and self.look3d and self.zoom)
                 self.after_replay = snap
                 log(f"replay: {len(moves)} new move(s), gen {self.replay.first:,} to {self.replay.live:,}")
                 return
@@ -857,15 +1007,17 @@ class Screen:
 
     @staticmethod
     def _tag(snap: Snapshot, e: dict, t0: float) -> Tag:
-        eff = snap.effects.get((e["gen"], e["command"]))
-        suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
-        return Tag(render.move_label(e) + suffix, [tuple(c) for c in e["cells"]], t0, bool(e.get("erase")))
+        words = effect_words(snap.effects.get((e["gen"], e["command"])), snap.u.flatline_gens, snap.gen_seconds)
+        return Tag(render.move_label(e) + (f" · {words}" if words else ""), [tuple(c) for c in e["cells"]], t0,
+                   bool(e.get("erase")))
 
     def _end_replay(self, now: float) -> None:
         r, self.replay = self.replay, None
+        self._zoom_views = {}
         if self.after_replay is not None:
             self.snap, self.after_replay = self.after_replay, None
-            carry_trail(r.trail if r is not None else None, self.snap)  # its tails carry on from the replay
+            # its tails carry on from the replay's whole board (a close-up's own begin with it: none to carry)
+            carry_trail(r.trail if r is not None and r.shot is None else None, self.snap)
             step(self.snap, now)
         self._changed(now)  # crossfade from the replay to the live board
 
@@ -1032,7 +1184,108 @@ class Screen:
                             fill=(8, 12, 16, int(220 * a)), outline=(120, 220, 160, al), width=2)
         d.text((x + 14, y + 21), text, font=f, fill=(230, 240, 235, al), anchor="lm")
 
+    def _zoom(self):
+        """The replay's close-up showing now: (x0, y0) its window's top left and its View; or None."""
+        r = self.replay
+        if r is None or not r.close() or not self.look3d:
+            return None
+        spot = r.shots[r.shot]
+        if spot not in self._zoom_views:
+            import board3d
+            self._zoom_views[spot] = board3d.View((CAM_H, CAM_W), origin=spot, full=self.snap.u.grid.shape, steps=(4, 4))
+        return spot, self._zoom_views[spot]
+
     def board3d(self, now: float) -> np.ndarray:
+        """The board in blocks (see _board3d), faded over ZOOM_FADE_S into and out of a replay's close-ups."""
+        img = self._board3d(now)
+        r = self.replay
+        if r is not None and r.shot is not None and r.phase in ("target", "enhance") and self.look3d:
+            a = min(1.0, (now - r.phase_at) / 0.3) if r.phase == "target" else 1.0
+            img = self._dimmed(img, a)  # the rest of the board darker, so its window stands out
+            if r.phase == "enhance":
+                img = self._enhance(img, (now - r.phase_at) / ENHANCE_S)
+        z = self._zoom()
+        k = None if z is None else (self.replay.shot, z[0])
+        if k != self._zoom_k:
+            if self._zoom_last is not None:
+                self._zoom_fade = (self._zoom_last, now)
+                self._zoom_wipe = k is not None and r is not None and r.targeted[r.shot]  # zoomed in, now sharpen
+            self._zoom_k = k
+        if self._zoom_fade is not None:
+            a = (now - self._zoom_fade[1]) / ZOOM_FADE_S
+            if 0 <= a < 1 and self._zoom_fade[0].shape == img.shape:
+                if self._zoom_wipe:  # a scan line down the picture: the close-up above it, the blown-up one below
+                    y = int(a * img.shape[0])
+                    img = np.concatenate([img[:y], self._zoom_fade[0][y:]])
+                    img[max(0, y - 2):y + 2] = TARGET_INK
+                else:
+                    img = (self._zoom_fade[0] * (1 - a) + img * a).astype(np.uint8)
+            else:
+                self._zoom_fade = None
+        self._zoom_last = img
+        return img
+
+    def _window_quad(self, shape) -> np.ndarray:
+        """The replay's close-up window on the whole board: its four floor corners on the frame."""
+        x0, y0 = self.replay.shots[self.replay.shot]
+        return self.view(shape).at([(x0, y0), (x0 + CAM_W, y0), (x0 + CAM_W, y0 + CAM_H), (x0, y0 + CAM_H)])
+
+    def _dimmed(self, img: np.ndarray, a: float) -> np.ndarray:
+        """The board darker outside the close-up's window (by TARGET_DIM, times `a` as it comes on)."""
+        r, shape = self.replay, self.snap.u.grid.shape
+        if self._dim is None or self._dim[0] != (r.shot, img.shape):
+            v = self.view(shape)
+            q = self._window_quad(shape) - np.array(v.area[:2], float)
+            m = Image.new("L", (img.shape[1], img.shape[0]), 255)
+            ImageDraw.Draw(m).polygon([tuple(p) for p in q], fill=0)
+            self._dim = ((r.shot, img.shape), np.asarray(m, np.float32)[..., None] / 255)
+        return (img * (1 - TARGET_DIM * a * self._dim[1])).astype(np.uint8)
+
+    def _enhance(self, img: np.ndarray, p: float) -> np.ndarray:
+        """The whole board zooming into the close-up's window: at `p` 0 the board, at 1 the window filling the
+        area (the same picture blown up, soft; the close-up then sharpens out of it)."""
+        v = self.view(self.snap.u.grid.shape)
+        q = self._window_quad(self.snap.u.grid.shape) - np.array(v.area[:2], float)
+        H, W = img.shape[:2]
+        x0, y0, x1, y1 = q[:, 0].min(), q[:, 1].min(), q[:, 0].max(), q[:, 1].max()
+        cx, cy, bw, bh = (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0
+        if bw / bh > W / H:  # the area's shape, around the window
+            bh = bw * H / W
+        else:
+            bw = bh * W / H
+        e = 1 - (1 - min(1.0, max(0.0, p))) ** 3  # fast, then settling
+        cw, ch = W + (bw - W) * e, H + (bh - H) * e
+        ccx, ccy = W / 2 + (cx - W / 2) * e, H / 2 + (cy - H / 2) * e
+        box = (ccx - cw / 2, ccy - ch / 2, ccx + cw / 2, ccy + ch / 2)
+        return np.asarray(Image.fromarray(img).resize((W, H), Image.BILINEAR, box=box))
+
+    def _target(self, d, now: float, shape) -> None:
+        """Brackets locking onto the close-up's window on the whole board: in from wider, then a blink."""
+        r = self.replay
+        q = self._window_quad(shape)
+        c = q.mean(0)
+        a = (now - r.phase_at) / TARGET_S
+        k = 1 + 0.8 * (1 - min(1.0, a / 0.5)) ** 2  # the brackets close in over the first half
+        if 0.6 < a < 0.75:  # ... and blink once, locked on
+            return
+        d.line([tuple(p) for p in q] + [tuple(q[0])], fill=TARGET_INK + (110,), width=2)  # its outline
+        for grow, width, alpha in ((k, 7, 255), (k * 1.05 + 0.03, 3, 140)):  # a bright bracket and a faint one
+            pts = c + (q - c) * grow
+            for i in range(4):
+                p0, prev, nxt = pts[i], pts[i - 1], pts[(i + 1) % 4]
+                for o in (prev, nxt):
+                    end = p0 + (o - p0) * 0.2
+                    d.line([tuple(p0), tuple(end)], fill=TARGET_INK + (alpha,), width=width)
+        x0, y0 = r.shots[r.shot]  # and where it is, so anyone can aim at what they'll see
+        text = f"x {x0}–{x0 + CAM_W - 1}, y {y0}–{y0 + CAM_H - 1}"
+        f = font("bold", 24)
+        tx, ty = float(c[0]), float(q[:, 1].max()) + 22
+        if ty + 20 > self._box(shape)[2] + 30:  # (no room below it: above)
+            ty = float(q[:, 1].min()) - 22
+        d.text((tx, ty), tidy(text), font=f, fill=TARGET_INK + (255,), anchor="mm", stroke_width=3,
+               stroke_fill=(5, 6, 9))
+
+    def _board3d(self, now: float) -> np.ndarray:
         """The board in blocks (board3d.View's area). A change of board (a generation, a
         move landing, the end of a rewind) raises the new cells and sinks the dying ones
         over FADE_S, in RISE_STEPS steps, instead of the flat board's crossfade."""
@@ -1052,8 +1305,20 @@ class Screen:
             ghost = playing.ghost_mask() if hasattr(playing, "ghost_mask") else None
             self._grid_shown = r.grid.copy()
             t0 = time.perf_counter()
-            self.cur3d = v.render(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None),
-                                  playing.trail.layer(r.grid), ghost, font=font, glow=False, ss=1)
+            z = self._zoom() if playing is self.replay else None
+            if z is not None:  # up close: the same layers, cut to the close-up's window
+                (x0, y0), zv = z
+                h, w = r.grid.shape
+                ys, xs = (np.arange(CAM_H) + y0) % h, (np.arange(CAM_W) + x0) % w
+
+                def win(m):
+                    return None if m is None else m[np.ix_(ys, xs)]
+                tails = playing.trail.layer(r.grid)
+                self.cur3d = zv.render(win(r.grid), r.phase, win(playing.lit_mask()), win(getattr(r, "paint", None)),
+                                       (win(tails[0]), win(tails[1])), win(ghost), font=font, glow=False, ss=1)
+            else:
+                self.cur3d = v.render(r.grid, r.phase, playing.lit_mask(), getattr(r, "paint", None),
+                                      playing.trail.layer(r.grid), ghost, font=font, glow=False, ss=1)
             cost = time.perf_counter() - t0
             self._play_cost = cost if self._play_cost == 0 else 0.7 * self._play_cost + 0.3 * cost
             self._play_at, self.cur3d_key = now, None
@@ -1148,6 +1413,20 @@ class Screen:
         cell, left, top = geometry(shape)
         return left + shape[1] * cell / 2, top, top + shape[0] * cell
 
+    def _extent(self, cells, shape) -> tuple[float, float, float, float]:
+        """A move's cells on the frame: (left, top, right, bottom); in 3D from the floor to its blocks' tops."""
+        h, w = shape
+        x0, y0 = cells[0]
+        xs = [x0 + (x - x0 + w // 2) % w - w // 2 for x, _ in cells]  # unwrapped around its first cell
+        ys = [y0 + (y - y0 + h // 2) % h - h // 2 for _, y in cells]
+        a, b, c, e = min(xs), max(xs) + 1, min(ys), max(ys) + 1
+        if self.look3d:
+            import board3d
+            p = self.view(shape).at([(x, y, z) for x in (a, b) for y in (c, e) for z in (0.0, board3d.HEIGHT)])
+            return float(p[:, 0].min()), float(p[:, 1].min()), float(p[:, 0].max()), float(p[:, 1].max())
+        cell, left, top = geometry(shape)
+        return left + a * cell, top + c * cell, left + b * cell, top + e * cell
+
     def _centre(self, cells, shape, z: float = 0.0) -> tuple[float, float]:
         """Where a move's cells are on the frame (in 3D, `z` cells up off the floor)."""
         if self.look3d:
@@ -1193,8 +1472,9 @@ class Screen:
         im = Image.fromarray(img)
         d = ImageDraw.Draw(im, "RGBA")
         cam = self.cam(now) if self.look3d else None
+        z = self._zoom()
         if self.look3d and u.phase in (FLATLINING, CONTESTED):  # the edge says it's in trouble
-            v = cam[1] if cam is not None and cam[2] > 0.5 else self.view(shape)
+            v = z[1] if z is not None else cam[1] if cam is not None and cam[2] > 0.5 else self.view(shape)
             d.line(v.edge + v.edge[:1], fill=PHASE_COLOR[u.phase], width=3, joint="curve")
         if cam is not None:
             self._cam_label(d, cam)
@@ -1205,6 +1485,13 @@ class Screen:
         if self.rewind:
             self._moves(d, now, shape, self.rewind.tags, REWIND_TAG_S, avoid=self._banner_rows(shape, self._box(shape)[1] + 18))
             self._rewind_banner(d, now, shape)
+        elif self.replay and z is not None:  # up close: the move's own label below it, the banner above
+            self._zoom_label(d, now, z)
+            self._replay_banner(d, now, shape, int(z[1].top) + 12)
+        elif self.replay and self.replay.shot is not None and self.look3d:  # finding it: on the whole board
+            if self.replay.phase == "target":
+                self._target(d, now, shape)
+            self._replay_banner(d, now, shape, self._replay_y0(shape))
         elif self.replay:
             y0 = self._replay_y0(shape)
             self._moves(d, now, shape, avoid=self._banner_rows(shape, y0))
@@ -1218,17 +1505,64 @@ class Screen:
     def _replay_y0(self, shape) -> int:
         """The replay banner's top: at the top of the board, or the bottom if a move landed up there."""
         _, top, bottom = self._box(shape)
-        high = any(self._centre(e["cells"], shape)[1] < top + 150 for v in self.replay.new.values() for e in v)
+        high = any(self._centre(e["cells"], shape)[1] < top + 150 for e in self.replay.moves_now())
         return bottom - 114 if high else top + 18
 
     def _replay_banner(self, d, now: float, shape, y0: int) -> None:
-        """'REPLAY · 3 new moves', and when, and how long until it's live again."""
+        """'NEW MOVE · 1 of 3', where it came from and when, and how long until it's live again."""
         r, snap = self.replay, self.snap
         n = sum(len(v) for v in r.new.values())
-        line1 = f"REPLAY · {'a new move' if n == 1 else f'{n} new moves'}"
-        when = render._at(snap.launch, r.u.generation, snap.gen_seconds, "%I:%M %p").lstrip("0")
-        line2 = f"gen {r.u.generation:,} · {when} · live again in {max(0, math.ceil(r.end - now))} s"
-        self._banner(d, shape, y0, line1, line2, (now - r.start) / max(0.1, r.end - r.start))
+        moves, k = r.moves_now(), len(r.zoomed)
+        if r.shot is not None:
+            line1, gen = (f"NEW MOVE · {r.shot + 1} of {n}" if n > 1 else "NEW MOVE"), moves[0]["gen"]
+        else:  # the whole board: all of them, or the ones after the close-ups
+            line1 = (("NEW MOVE" if n == 1 else f"{n} NEW MOVES") if not k else
+                     f"NEW MOVE · {n} of {n}" if n - k == 1 else f"NEW MOVES · {k + 1}–{n} of {n}")
+            gen = r.u.generation
+        # where and when it came from, to the minute: how anyone can tell it's theirs (the log keeps no names, nor
+        # what was said, only the move it made: no one else's words on the stream)
+        vias = {"chat" if e.get("via") == "chat" else "comment" for e in moves}
+        if len(moves) == 1 and vias == {"comment"}:
+            via = moves[0].get("via")  # (none on the oldest moves)
+            source = ("from a comment" if not via else "from a comment on the main video" if via == snap.video
+                      else "from a comment on a Short")
+        else:
+            source = ("from comments and the chat" if len(vias) > 1 else "from the live chat" if vias == {"chat"}
+                      else "from comments")
+        when = render._at(snap.launch, gen, snap.gen_seconds, "%I:%M %p").lstrip("0")
+        line2 = tidy(f"{source} at {when} · live again in {max(0, math.ceil(r.end - now))} s")
+        self._banner(d, shape, y0, tidy(line1), line2, (now - r.start) / max(0.1, r.end - r.start))
+
+    def _zoom_label(self, d, now: float, z) -> None:
+        """A close-up's move: what was typed and what it did, on a chip below it at the window's near edge
+        (off its cells), and a ripple on the floor as it lands."""
+        (x0, y0), zv = z
+        r = self.replay
+        e = r.zoomed[r.shot]
+        snap = self.after_replay or self.snap
+        h, w = self.snap.u.grid.shape
+        cx, cy = centre_cells([tuple(c) for c in e["cells"]], (h, w))
+        lx, ly = (cx - x0) % w, (cy - y0) % h  # in the window's cells
+        age = now - r.shot_landed[r.shot]
+        ring = np.linspace(0, 2 * math.pi, 49)
+        for k in range(3):
+            p = (age - k * 0.4) / (RIPPLE_S - 0.8)
+            if 0 < p < 1:
+                rc = 1 + p * 8
+                pts = zv.at(np.stack([lx + rc * np.cos(ring), ly + rc * np.sin(ring)], 1))
+                d.line([tuple(q) for q in pts], fill=(255, 255, 255, int(230 * (1 - p))), width=4, joint="curve")
+        line1 = tidy(render.move_label(e))
+        line2 = tidy(effect_words(snap.effects.get((e["gen"], e["command"])), snap.u.flatline_gens, snap.gen_seconds))
+        f1, f2 = font("bold", 34), font("regular", 26)
+        tw = max(d.textlength(line1, font=f1), d.textlength(line2, font=f2) if line2 else 0) + 40
+        hgt = 88 if line2 else 54
+        px = float(zv.at([(lx, CAM_H)])[0][0])
+        x = int(min(max(px - tw / 2, zv.area[0] + 12), zv.area[2] - tw - 12))
+        y = int(min(zv.bottom + 8, zv.area[3] - hgt - 6))
+        d.rounded_rectangle((x, y, x + tw, y + hgt), radius=12, fill=(5, 6, 9, 215), outline=(255, 255, 255, 90))
+        d.text((x + 20, y + 28), line1, font=f1, fill=WHITE, anchor="lm")
+        if line2:
+            d.text((x + 20, y + 66), line2, font=f2, fill=LIGHT, anchor="lm")
 
     def _rewind_banner(self, d, now: float, shape) -> None:
         """What the board is showing: the past, when, and how long until it's live again."""
@@ -1328,16 +1662,18 @@ class Screen:
                         d.line([tuple(q) for q in pts], fill=ink, width=3, joint="curve")
                     else:
                         d.ellipse((cx - r, cy - r, cx + r, cy + r), outline=ink, width=3)
-            f = font("bold", 19)
+            f = font("bold", 18)
             label = tidy(t.text)
             tw = d.textlength(label, font=f)
             x0 = min(max(cx - tw / 2 - 9, lo_x + 4), hi_x - tw - 22)
-            y0 = cy - 46 if cy - 46 > top + 4 else cy + 18
+            ex = self._extent(t.cells, shape)  # beside its cells, not on them: above, or below if that's off the top
+            y0 = ex[1] - 34 if ex[1] - 34 > top + 4 else ex[3] + 6
             y0 = free_row(y0, x0, x0 + tw + 18, placed, top + 4, bottom - 30)
             placed.append((x0, x0 + tw + 18, y0))
-            alpha = int(255 * min(1.0, (life - age) / fade))
-            d.rounded_rectangle((x0, y0, x0 + tw + 18, y0 + 28), radius=6, fill=(255, 255, 255, alpha))
-            d.text((x0 + 9, y0 + 14), label, font=f, fill=(10, 12, 16, alpha), anchor="lm")
+            alpha = int(255 * min(1.0, (life - age) / fade))  # a dark chip the board shows through, white words
+            d.rounded_rectangle((x0, y0, x0 + tw + 18, y0 + 28), radius=6, fill=(5, 6, 9, int(alpha * 0.8)),
+                                outline=(255, 255, 255, alpha // 3))
+            d.text((x0 + 9, y0 + 14), label, font=f, fill=(255, 255, 255, alpha), anchor="lm")
 
     def _column(self, d, now: float) -> None:
         snap = self.panel()
@@ -1695,6 +2031,7 @@ def stream(repo: str, out: str, secret: str | None, seconds: float | None, pull:
     screen = Screen(snap)
     draw, size, code = screen.compose, (SW, SH), CODE
     if tall:
+        screen.zoom = False  # it draws the flat board: its replays stay on the whole board
         import vertical
         draw, size, code = (lambda now: vertical.compose(screen, now)), (vertical.TW, vertical.TH), vertical.CODE
     audio_r = audio = None
@@ -1827,8 +2164,8 @@ def main(argv=None) -> int:
         entries = [json.loads(ln) for ln in open(os.path.join(args.repo, "state", "log.jsonl"), encoding="utf-8")]
         effects = {(e["gen"], e["command"]): e for e in entries if e["type"] == "effect"}
         for i, e in enumerate([e for e in entries if e["type"] == "injection"][-3:]):  # as if just committed
-            eff = effects.get((e["gen"], e["command"]))
-            suffix = render.effect_suffix(eff, snap.u.flatline_gens, snap.gen_seconds) if eff else ""
+            words = effect_words(effects.get((e["gen"], e["command"])), snap.u.flatline_gens, snap.gen_seconds)
+            suffix = f" · {words}" if words else ""
             screen.tags.append(Tag(render.move_label(e) + suffix, [tuple(c) for c in e["cells"]], now - 0.5 - 0.5 * i,
                                    bool(e.get("erase"))))
         os.makedirs(os.path.dirname(os.path.abspath(args.preview)), exist_ok=True)

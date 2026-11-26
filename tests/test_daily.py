@@ -101,6 +101,9 @@ def test_live_posts_once_a_day_and_its_comments_count(d):
     assert "As of day 1, it" in up["description"] and "counts down live: https://youtu.be/MAIN" in up["description"]
     assert yt.stream_titles == ["This stream dies if nobody chats · Game of Life, Universe 1, Day 1"]
     assert yt.posted[0][0] == "SHORT1"
+    text = yt.posted[0][1]  # its status comment says it all from the start, not "will appear here in a few minutes"
+    assert text != daily.PLACEHOLDER and "Latest moves" in text and "glider 10,10" in text and "updated" in text
+    assert any(m.lower() in text.lower() for m in daily.render.PINNED_MARKERS)  # still read as the bot's own
     s = state(d)
     assert s["config"]["extra_videos"] == ["SHORT1"] and s["daily"]["video"] == "SHORT1"
     tick.run(d, LAUNCH + 11.5 * 3600, lambda w: yt, KEY, thumb_path=None, daily_mode="live")
@@ -133,19 +136,19 @@ def test_a_failure_is_alerted_and_not_retried_all_evening(d, monkeypatch):
     assert len(calls) == 1 and any(e.get("alert", "").startswith("⚠️ This slot's Short failed") for e in ev)
 
 
-def test_older_shorts_are_read_every_3_hours():
+def test_older_shorts_are_read_every_12_hours():
     w = engine.World(Universe(life.mask(life.centered("acorn")), flatline_gens()), LAUNCH, key=KEY)
     w.extra_videos = ["S1", "S2", "S3", "S4", "S5"]
     extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH)
     assert extras == ["FIRST", "S1", "S2", "S3", "S4", "S5"] and skip == set()  # never read yet
     extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 600)
     assert skip == {"FIRST", "S1", "S2"}  # the newest three are always read
-    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 2 * 3600)
+    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 11 * 3600)
     assert skip == {"FIRST", "S1", "S2"}  # still: they had a turn at the start
-    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 3 * 3600)
+    extras, skip = tick.choose_extras(w, ["FIRST"], LAUNCH + 12 * 3600)
     assert skip == set()
     w.retired = ["S5"]
-    assert "S5" not in tick.choose_extras(w, ["FIRST"], LAUNCH + 4 * 3600)[0]
+    assert "S5" not in tick.choose_extras(w, ["FIRST"], LAUNCH + 13 * 3600)[0]
 
 
 def test_older_shorts_status_comments_update_rarely():
