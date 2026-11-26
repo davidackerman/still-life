@@ -813,6 +813,40 @@ def test_in_3d_each_new_move_replays_up_close_in_the_order_it_landed_then_any_mo
     assert screen.replay.shots == [] or screen.replay.live == screen.replay.first
 
 
+def test_new_moves_during_the_creature_cam_wait_for_it_to_pull_back_and_it_does_not_cut_back_in(
+        state_dir, monkeypatch):
+    monkeypatch.setattr(stream, "LOOK", "3d")
+    monkeypatch.setattr(stream, "CAM", True)
+    now = LAUNCH + 3700
+    old = stream.load(state_dir, now=now)
+    new = stream.load(state_dir, after_seq=0, now=now)
+    t0 = now // stream.CAM_EVERY_S * stream.CAM_EVERY_S + stream.CAM_EVERY_S  # a creature cam visit starts
+    screen = stream.Screen(old)
+    assert screen.cam(t0 + 5)[2] == 1.0  # up close somewhere
+    screen.swap(new, t0 + 5, state_dir)
+    assert screen.replay is None and screen._pending is not None  # not yet: the cam first pulls back
+    assert 0 < screen.cam(t0 + 5 + stream.CAM_FADE_S / 2)[2] < 1  # fading out, from the same spot
+    assert screen.compose(t0 + 5.2).size == (stream.SW, stream.SH)
+    screen.tick(t0 + 5 + stream.CAM_FADE_S + 0.01)
+    assert screen.replay is not None and screen._pending is None and screen.cam(t0 + 6.5) is None
+    t = t0 + 6
+    while screen.replay and t < t0 + 40:
+        t += 0.1
+        screen.tick(t)
+    assert screen.replay is None and screen.snap is new and len(screen.tags) == len(new.new)
+    assert screen.cam(t0 + 14) is None  # that visit is over for good: no cut back into a close-up
+    assert screen.cam(t0 + stream.CAM_EVERY_S + 5) is not None  # the next one comes as usual
+    # a replay that ends inside a visit's time doesn't cut into it either
+    screen = stream.Screen(old)
+    screen.swap(new, t0 - 3, state_dir)
+    for k in range(1, 400):
+        if screen.replay is None:
+            break
+        screen.tick(t0 - 3 + 0.1 * k)
+    assert screen.replay is None and t0 < t0 - 3 + 0.1 * k < t0 + stream.CAM_HOLD_S  # it ended in the visit's time
+    assert screen.cam(t0 + 14) is None
+
+
 def test_a_moves_label_says_in_words_what_it_did_to_the_time_left():
     words = lambda before, after: stream.effect_words(  # noqa: E731
         {"gen": 12823, "before": before, "after": after}, 720, 120)

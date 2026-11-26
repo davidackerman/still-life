@@ -967,6 +967,12 @@ class Screen:
         self._zoom_fade = None
         self._zoom_wipe = False  # that change is the zoomed-in picture sharpening into a close-up: a scan, not a fade
         self._dim = None  # (shot, the board darkened around its window: a mask), while it's being found
+        # New moves while the creature cam is up close somewhere: it pulls back first (fading out from where it
+        # was: _cam_cut), and the replay starts after (_pending: its state, moves, snapshot and when); nor does
+        # that visit come back after it (_cam_skip: its start). A cut from one close-up to another was confusing.
+        self._cam_cut = None
+        self._pending = None
+        self._cam_skip = None
 
     # A new snapshot (the tick committed) or a new generation (the clock).
     def swap(self, snap: Snapshot, now: float, state_dir: str | None = None) -> None:
@@ -980,21 +986,42 @@ class Screen:
         if not same:
             self.tags = []
         moves = [e for e in snap.new if e.get("cells")]
+        if self._pending is not None:  # one already waiting for the creature cam: these join it
+            if same:
+                moves = self._pending[1] + moves
+                snap.new = self._pending[2].new + snap.new
+            self._pending = None
         if moves:
             self._last_move = (now, [tuple(c) for c in moves[-1]["cells"]])
         if self.future and moves:  # someone commented: that future is gone
             self.future = None
             self._changed(now)
         if state_dir and same and moves and self.rewind is None and snap.u.phase != DIED:
-            try:
-                self.replay = Replay(state_dir, moves, now, snap.u.generation, lambda e, t: self._tag(snap, e, t),
-                                     zoom=CAM and self.look3d and self.zoom)
-                self.after_replay = snap
-                log(f"replay: {len(moves)} new move(s), gen {self.replay.first:,} to {self.replay.live:,}")
+            cam = self.cam(now)
+            if cam is not None and cam[2] > 0.05:  # up close somewhere else: it pulls back first
+                self._cam_cut = (now, cam[2], cam[0], cam[1])
+                self._cam_skip = now - now % CAM_EVERY_S
+                self._pending = (state_dir, moves, snap, now + CAM_FADE_S * cam[2])
                 return
-            except Exception as e:  # noqa: BLE001 - no replay this time; show them as before
-                log(f"replay failed: {e!r}")
-                self.replay = self.after_replay = None
+            if self._start_replay(state_dir, moves, snap, now):
+                return
+        self._show(snap, now)
+
+    def _start_replay(self, state_dir: str, moves: list[dict], snap: Snapshot, now: float) -> bool:
+        try:
+            self.replay = Replay(state_dir, moves, now, snap.u.generation, lambda e, t: self._tag(snap, e, t),
+                                 zoom=CAM and self.look3d and self.zoom)
+            self.after_replay = snap
+            log(f"replay: {len(moves)} new move(s), gen {self.replay.first:,} to {self.replay.live:,}")
+            return True
+        except Exception as e:  # noqa: BLE001 - no replay this time; show them as before
+            log(f"replay failed: {e!r}")
+            self.replay = self.after_replay = None
+            return False
+
+    def _show(self, snap: Snapshot, now: float) -> None:
+        """A new snapshot, straight onto the board (no replay): its moves labelled as they are."""
+        same = snap.universe_no == self.snap.universe_no
         for e in snap.new:
             self.tags.append(self._tag(snap, e, now))
             if self.sound and e["cells"]:
@@ -1013,6 +1040,8 @@ class Screen:
 
     def _end_replay(self, now: float) -> None:
         r, self.replay = self.replay, None
+        if now % CAM_EVERY_S < CAM_HOLD_S:  # ended in a creature cam's time: no cut into it, it waits for the next
+            self._cam_skip = now - now % CAM_EVERY_S
         self._zoom_views = {}
         if self.after_replay is not None:
             self.snap, self.after_replay = self.after_replay, None
@@ -1022,6 +1051,11 @@ class Screen:
         self._changed(now)  # crossfade from the replay to the live board
 
     def tick(self, now: float, state_dir: str | None = None) -> None:
+        if self._pending is not None and now >= self._pending[3]:  # the creature cam has pulled back: play them
+            sd, moves, snap, _ = self._pending
+            self._pending = None
+            if not self._start_replay(sd, moves, snap, now):
+                self._show(snap, now)
         before, gen = (self.snap.u.grid.copy(), self.snap.u.generation) if self.sound else (None, 0)
         if step(self.snap, now):
             self._changed(now)
@@ -1034,7 +1068,7 @@ class Screen:
             if self.replay.done(now):
                 self._end_replay(now)
         slot = rewind_slot(now)
-        if (state_dir and slot is not None and self.rewind is None and self.replay is None
+        if (state_dir and slot is not None and self.rewind is None and self.replay is None and self._pending is None
                 and slot != self.rewound_at and self.snap.u.phase != DIED):
             self.rewound_at = slot
             try:
@@ -1049,6 +1083,7 @@ class Screen:
                 self._changed(now)  # crossfade back to the live board
         fslot = future_slot(now)
         if (state_dir and fslot is not None and self.future is None and self.rewind is None and self.replay is None
+                and self._pending is None
                 and fslot != self.futured_at and self.snap.u.phase in (ALIVE, FLATLINING)):
             self.futured_at = fslot
             try:
@@ -1134,12 +1169,20 @@ class Screen:
     def cam(self, now: float):
         """The creature cam now: ((x0, y0) its window's top left, its View, how far faded in, 0..1), or None:
         the whole board. On for the first CAM_HOLD_S of every CAM_EVERY_S, while nothing plays."""
-        if not (CAM and self.look3d) or self.rewind or self.replay or self.future:
+        if self._cam_cut is not None:  # cut short for a replay: it fades out from where it was
+            t0, a0, spot, view = self._cam_cut
+            a = a0 - (now - t0) / CAM_FADE_S
+            if a > 0:
+                return spot, view, a
+            self._cam_cut = None
+        if not (CAM and self.look3d) or self.rewind or self.replay or self.future or self._pending is not None:
             return None
         t = now % CAM_EVERY_S
         if t >= CAM_HOLD_S:
             return None
         start = now - t
+        if start == self._cam_skip:  # (that visit was cut short, or something played through its start)
+            return None
         if self._cam is None or self._cam[0] != start:  # a new visit: where it looks is chosen once
             import board3d
             spot = self._cam_spot(now)
